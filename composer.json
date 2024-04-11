@@ -1,0 +1,33 @@
+{
+    "name": "phasync/loop",
+    "version": "1.0.0",
+    "description": "Phasync fiber event loop",
+    "type": "library",
+    "license": "MIT",
+    "scripts": {
+        "test": "@php vendor/bin/themis"
+    },
+    "scripts-descriptions": {
+        "test": "Run tests"
+    },
+    "autoload": {
+        "psr-4": {
+            "phasync\\": "src/"
+        },
+        "files": ["src/functions.php"]
+    },
+    "authors": [
+        {
+            "name": "Frode Børli",
+            "email": "frode@ennerd.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "evenement/evenement": "^3.0",
+        "charm/options": "^1.0"
+    },
+    "require-dev": {
+        "frodeborli/themis": "^1.1"
+    }
+}
