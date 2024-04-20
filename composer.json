@@ -25,9 +25,17 @@
     "minimum-stability": "stable",
     "require": {
         "evenement/evenement": "^3.0",
-        "charm/options": "^1.0"
+        "charm/options": "^1.0",
+        "psr/http-message": "^2.0",
+        "amphp/hpack": "^3.2"
     },
     "require-dev": {
-        "frodeborli/themis": "^1.1"
+        "frodeborli/themis": "^1.1",
+        "pestphp/pest": "^2.34"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     }
 }

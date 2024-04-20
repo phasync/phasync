@@ -1,14 +1,12 @@
 <?php
 namespace phasync;
 
-use Fiber;
 use FiberError;
 use LogicException;
 use Throwable;
 
 final class WaitGroup {
     private int $counter = 0;
-    private array $suspended = [];
 
     /**
      * Add work to the WaitGroup.
@@ -31,12 +29,8 @@ final class WaitGroup {
         }
         if (--$this->counter === 0) {
             // Activate any waiting coroutines
-            foreach ($this->suspended as $fiber) {
-                Loop::enqueue($fiber);
-            }
-            $this->suspended = [];
+            Loop::raiseFlag($this);
         }
-        Loop::yield();
     }
 
     /**
@@ -49,11 +43,6 @@ final class WaitGroup {
      * @throws Throwable 
      */
     public function wait(): void {
-        $fiber = Fiber::getCurrent();
-        if ($fiber === null) {
-            throw new UsageError("Can only wait from within a coroutine");
-        }
-        $this->suspended[] = $fiber;
-        Fiber::suspend();
+        Loop::awaitFlag($this);
     }
 }

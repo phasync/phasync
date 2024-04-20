@@ -1,9 +1,9 @@
 <?php
-namespace phasync;
+namespace phasync\Server;
 
 use Charm\AbstractOptions;
 
-class ConnectionOptions extends AbstractOptions {
+class TcpConnectionOptions extends AbstractOptions {
     /**
      * Configure a timeout for socket operations in seconds.
      */

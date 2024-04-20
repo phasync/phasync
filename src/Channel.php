@@ -1,160 +1,187 @@
 <?php
 namespace phasync;
 
-use Evenement\EventEmitter;
 use Fiber;
-use FiberError;
 use LogicException;
+use phasync\Channel\ReadableChannel;
+use phasync\Channel\ReadableChannelInterface;
+use phasync\Channel\WritableChannel;
+use phasync\Channel\WritableChannelInterface;
 use SplQueue;
-use Throwable;
 use WeakMap;
+use WeakReference;
 
-/**
- * Represents a message channel which can be used to communicate between
- * coroutines. Each message will be received by only one subscriber.
- * 
- * @package phasync
- */
-final class Channel extends EventEmitter {
-
+final class Channel {
+    
     protected int $bufferSize;
-    protected array $buffer = [];
-    protected array $suspendedReaders = [];
-    protected array $suspendedWriters = [];
+    protected SplQueue $buffer;
+    protected int $nextRead = 0;
+    protected int $nextWrite = 0;
     private bool $closed = false;
 
-    public function __construct(int $bufferSize = 0) {
-        $this->bufferSize = $bufferSize;
+    private WeakMap $readers;
+    private WeakMap $writers;
+
+    private static ?WeakMap $bufferSafety = null;
+
+    /**
+     * Create a pair of readable/writable channels. This approach avoids accidental
+     * deadlocks, if for example no coroutine can ever write to a channel and a reader
+     * is being blocked.
+     * 
+     * @param int $bufferSize The number of messages that can be buffered
+     * @return (ReadableChannel|WritableChannel)[] One ReadableChannel and one WritableChannel
+     */
+    public static function create(int $bufferSize = 0): array {
+        $channel = new Channel($bufferSize);
+        return [ $channel->getReader(), $channel->getWriter() ];
     }
 
     /**
-     * Returns true if the channel is closed.
+     * Wait for one of the channels to become readable or writable.
      * 
-     * @return bool 
+     * @param ChannelInterface... $channels 
+     * @return void 
      */
+    public static function select(ChannelInterface... $channels) {
+        while (true) {
+            foreach ($channels as $channel) {
+                if (!$channel->willBlock()) {
+                    return $channel;
+                }
+            }
+            Loop::yield();
+        }
+    }
+
+    /**
+     * Create a Channel for passing messages between coroutines.
+     * 
+     * Generally to avoid potential deadlocks, you should create a
+     * reader/writer pair with {@see Channel::create()}.
+     * 
+     * ```
+     * [$reader, $writer] = Channel::create($bufferSize);
+     * ```
+     * 
+     * @param int $bufferSize 
+     * @return void 
+     */
+    public function __construct(int $bufferSize = 0) {
+        if (self::$bufferSafety === null) {
+            self::$bufferSafety = new WeakMap();
+        }
+        $this->bufferSize = \max(0, $bufferSize);
+        $this->buffer = new SplQueue();
+        self::$bufferSafety[$this->buffer] = new class($this->buffer) {
+            public function __construct(public readonly SplQueue $buffer) {}
+            public function __destruct() {
+                if ($this->buffer->count() > 0) {
+                    throw new LogicException($this->buffer->count() . " buffered elements lost from Channel");
+                }
+            }
+        };
+        $this->readers = new WeakMap();
+        $this->writers = new WeakMap();
+    }
+
+    /**
+     * Returns a readable channel which can be used to read messages
+     * from the writable channels.
+     * 
+     * @return ReadableChannelInterface 
+     */
+    public function getReader(): ReadableChannelInterface {
+        $nextRead = &$this->nextRead;
+        $nextWrite = &$this->nextWrite;
+        $closed = &$this->closed;
+        $buffer = $this->buffer;
+        $writers = $this->writers;
+        $channel = WeakReference::create($this);
+
+        $reader = new ReadableChannel(static function() use (&$nextRead, &$nextWrite, &$closed, $buffer, &$writers, $channel): mixed {
+            self::assertFiber();
+
+            // Wait until there is a readable message, or no
+            // readable messages can be added
+            while ($nextRead === $nextWrite && !$closed && ($channel->get() !== null || $writers->count() > 0)) {
+                Loop::yield();
+            }
+    
+            if ($nextRead < $nextWrite) {
+                $message = $buffer->dequeue();
+                $nextRead++;
+                return $message; 
+            }
+    
+            return null;    
+        }, static function() use (&$closed) { return $closed; }, static function() use (&$nextRead, &$nextWrite, &$closed, $channel, $writers) {
+            return $nextRead === $nextWrite && !$closed && ($channel->get() !== null || $writers->count() > 0);
+        });
+
+        $this->readers[$reader] = true;
+
+        return $reader;
+    }
+
+    public function getWriter(): WritableChannelInterface {
+        $nextRead = &$this->nextRead;
+        $nextWrite = &$this->nextWrite;
+        $closed = &$this->closed;
+        $buffer = $this->buffer;
+        $bufferSize = $this->bufferSize;
+        $readers = $this->readers;
+        $channel = WeakReference::create($this);
+        $messageId = null;
+
+        $writer = new WritableChannel(static function(mixed $value) use ($bufferSize, &$nextRead, &$nextWrite, &$closed, $buffer, $readers, $channel, &$messageId): void {
+            self::assertFiber();
+
+            $messageId = $nextWrite++;
+            $buffer->enqueue($value);
+    
+            // Wait until the message is valid for release
+            while ($messageId >= $nextRead && $bufferSize < $nextWrite - $nextRead) {
+                //var_dump($readers->count());
+                if ($closed) {
+                    throw new LogicException("Channel is closed");
+                }
+                if ($channel->get() === null && $readers->count() === 0) {
+                    throw new LogicException("Channel has no potential readers");
+                }
+                Loop::yield();
+            }
+    
+            return;    
+        }, static function() use (&$closed) { return $closed; }, static function() use (&$messageId, &$nextRead, &$nextWrite, &$bufferSize, &$closed, &$readers, $channel) {
+            return ($messageId >= $nextRead && $bufferSize < $nextWrite - $nextRead) || $closed || ($channel->get() === null && $readers->count() === 0);
+        });
+
+        $this->writers[$writer] = true;
+
+        return $writer;
+    }
+
+    public function close(): void {
+        $this->assertNotClosed();
+        $this->closed = true;
+    }
+
     public function isClosed(): bool {
         return $this->closed;
     }
 
-    /**
-     * Close the channel, reviving any blocked coroutines.
-     * 
-     * @return void 
-     * @throws LogicException 
-     * @throws FiberError 
-     */
-    public function close(): void {
-        if ($this->isClosed()) {
-            throw new LogicException("Channel already closed");
-        }
-        $this->closed = true;
-        foreach ($this->suspendedReaders as $reader) {
-            Loop::enqueue($reader);
-        }
-        $this->suspendedReaders = [];
-        foreach ($this->suspendedWriters as $writer) {
-            Loop::enqueue($writer);
-        }
-        $this->suspendedWriters = [];
-        $this->emit('close');
-    }
-
-    /**
-     * Even if suspended coroutines may hold references to the channel,
-     * the channel may be destructed if there are no active coroutines
-     * holding a reference.
-     * 
-     * @return void 
-     * @throws LogicException 
-     * @throws FiberError 
-     */
-    public function __destruct() {
-        if (!$this->isClosed()) {
-            // Ensure any suspended coroutines are resumed
-            $this->close();
-        }
-    }
-
-    /**
-     * Activate a suspended reader
-     * 
-     * @return void 
-     * @throws FiberError 
-     */
-    private function activateReader(): void {
-        // Activate a single suspended reader
-        if (count($this->suspendedReaders) > 0) {
-            Loop::enqueue(\array_shift($this->suspendedReaders));
-        }
-    }
-
-    /**
-     * Activate a suspended writer
-     * @return void 
-     * @throws FiberError 
-     */
-    private function activateWriter(): void {
-        // Activate a single suspended writer
-        if (count($this->suspendedWriters) > 0) {
-            Loop::enqueue(\array_shift($this->suspendedWriters));
-        }
-    }
-
-    /**
-     * Write a single message to the next reader in queue. Writing will
-     * block if the buffer is full and there are no readers in queue.
-     * 
-     * @param mixed $message 
-     * @return void 
-     * @throws LogicException 
-     * @throws FiberError 
-     * @throws Throwable 
-     */
-    public function write(mixed $message): void {
-        self::assertFiber();
-        if ($this->isClosed()) {
-            throw new LogicException("Channel is closed");
-        }
-        while (count($this->buffer) >= $this->bufferSize) {
-            $this->activateReader();
-            $this->suspendedWriters[] = Fiber::getCurrent();
-            Fiber::suspend();
-            if ($this->isClosed()) {
-                throw new LogicException("Channel closed while writing");
-            }
-        }
-        $this->buffer[] = $message;
-        return;
-    }
     
-    /**
-     * Read a message from the next writer in queue. Reading will block
-     * if no messages are waiting.
-     * 
-     * @return mixed 
-     * @throws LogicException 
-     * @throws FiberError 
-     * @throws Throwable 
-     */
-    public function read(): mixed {
-        self::assertFiber();
-        if ($this->isClosed()) {
-            throw new LogicException("Channel is closed");
-        }
-        while ($this->buffer === []) {
-            $this->activateWriter();
-            $this->suspendedReaders[] = Fiber::getCurrent();
-            Fiber::suspend();
-            if ($this->isClosed()) {
-                return null;
-            }
-        }
-        return \array_shift($this->buffer);
-    }
-
     private static function assertFiber(): void {
         if (Fiber::getCurrent() === null) {
             throw new UsageError("Must be invoked from within a coroutine");
         }
     }
+
+    private function assertNotClosed(): void {
+        if ($this->isClosed()) {
+            throw new LogicException("Channel is closed");
+        }
+    }
+
 }

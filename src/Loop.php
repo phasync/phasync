@@ -4,12 +4,21 @@ namespace phasync;
 use Closure;
 use Fiber;
 use FiberError;
+use LogicException;
 use Throwable;
 use WeakMap;
 
 final class Loop {
 
     private static ?DriverInterface $driver = null;
+
+    /**
+     * Traces which fibers are awaiting the result of other fibers
+     * to detect circular dependencies.
+     * 
+     * @var null|WeakMap<Fiber, Fiber>
+     */
+    private static ?WeakMap $dependencyGraph = null;
 
     /**
      * Enqueues a Fiber to run on the next tick.
@@ -19,11 +28,53 @@ final class Loop {
      * @return void 
      * @throws UsageError 
      */
-    public static function enqueue(Fiber $fiber): void {
+    public static function enqueue(Fiber $fiber): void {        
         if ($fiber->isRunning()) {
             throw new UsageError("Can't enqueue a running Fiber this way, use Loop::yield() instead");
         }
+        if ($fiber->isTerminated()) {
+            throw new UsageError("Can't enqueue a terminated Fiber.");
+        }
         self::getDriver()->enqueue($fiber);
+    }
+
+    /**
+     * Suspend the current coroutine until a flag is raised.
+     * The `$object` represents the flag.
+     * 
+     * @param object $flag 
+     * @param float $timeout A timeout (defaults to 30 seconds) for the operation to complete. 0 disables.
+     * @return void 
+     * @throws UsageError 
+     * @throws LogicException 
+     * @throws FiberError 
+     * @throws Throwable 
+     */
+    public static function awaitFlag(object $flag, float $timeout=null): void {
+        $fiber = self::getFiber();
+        self::getDriver()->waitForFlag($flag, $timeout, $fiber);
+        Fiber::suspend();
+    }
+
+    /**
+     * Trigger a flag which causes other fibers to resume operation.
+     * 
+     * @param object $signal 
+     * @return void 
+     * @throws UsageError 
+     */
+    public static function raiseFlag(object $signal): void {
+        self::getDriver()->raiseFlag($signal);
+    }
+
+    /**
+     * Register a function to run when the current coroutine completes.
+     * 
+     * @param Closure $deferred 
+     * @return void 
+     */
+    public static function defer(Closure $deferred): void {
+        self::getDriver()->defer($deferred, self::getFiber());
     }
 
     /**
@@ -35,16 +86,42 @@ final class Loop {
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function run(Closure $main, mixed ...$args): mixed {
-        $fiber = new Fiber($main);
-        $fiber->start(...$args);
-        $result = self::await($fiber);
-        if (Fiber::getCurrent() === null) {
-            while (self::getDriver()->count() > 0) {
+    public static function run(Closure $main, ?array $args=[], ?ContextInterface $context=null): mixed {
+
+        if ($context === null) {
+            $context = new DefaultContext();
+        }
+
+        $driver = self::getDriver();
+        $currentFiber = Fiber::getCurrent();
+        if ($currentFiber !== null) {
+            // This is a nested run, so we must simulate it blocking only
+            // until the fibers started inside it has completed.
+            $fiber = self::startFiber($main, $args, $context);
+            $result = self::await($fiber);
+            while ($context->getFibers()->count() > 1) {
                 self::yield();
             }
+            $fiber = null;
+            while ($context->getFibers()->count() > 0) {
+                self::yield();
+            }
+            return $result;
+        } else {
+            $fiber = self::startFiber($main, $args, $context);
+            while (!$fiber->isTerminated()) {
+                $driver->tick();
+            }
+            if ($exception = $driver->getException($fiber)) {
+                throw $exception;
+            }
+            $result = $fiber->getReturn();
+            $fiber = null;
+            while ($driver->count() > 0) {
+                $driver->tick();
+            }
+            return $result;
         }
-        return $result;
     }
 
     /**
@@ -57,12 +134,18 @@ final class Loop {
      * @throws Throwable 
      */
     public static function go(Closure $coroutine, mixed ...$args): Fiber {
-        self::getFiber();
+        if (!Fiber::getCurrent()) {
+            throw new UsageError("go() can only be used inside a run() context");
+        }
         $driver = self::getDriver();
-        $fiber = new Fiber($coroutine);
-        $fiber->start(...$args);
+        $fiber = self::startFiber($coroutine, $args);
+        if ($fiber->isTerminated() && ($exception = $driver->getException($fiber))) {
+            throw $exception;
+        }
         // Enqueue the fiber unless it has terminated or scheduled itself
-        if (!$fiber->isTerminated() && !$driver->isPending($fiber)) {
+        if (
+            !$fiber->isTerminated() &&
+            !$driver->isPending($fiber)) {
             $driver->enqueue($fiber);
         }
         return $fiber;
@@ -79,13 +162,62 @@ final class Loop {
     public static function await(Fiber $fiber): mixed {
         if ($fiber->isRunning()) {
             throw new UsageError("Can't await the currently running Fiber");
+        }        
+
+        if (!$fiber->isTerminated()) {
+            if (!self::getDriver()->isPending($fiber)) {
+                throw new LogicException("The fiber you're awaiting is not managed by phasync");
+            }
+    
+            if (self::$dependencyGraph === null) {
+                self::$dependencyGraph = new WeakMap();
+            }
+    
+            $current = Fiber::getCurrent();
+    
+            if ($current === null) {
+                // This scenario is actually not supposed to happen
+                // since the run() function should wait for all managed
+                // fibers to complete.
+                while (!$fiber->isTerminated()) {
+                    self::getDriver()->tick();
+                }
+            } else {
+                // Detect cyclic awaits
+                $next = $fiber;
+                while (isset(self::$dependencyGraph[$next])) {
+                    if (self::$dependencyGraph[$next] === $current) {
+                        throw new LogicException("A dependency cycle has been detected");
+                    }
+                    $next = self::$dependencyGraph[$next];
+                }
+                self::$dependencyGraph[$current] = $fiber;
+    
+                while (!$fiber->isTerminated()) {
+                    self::yield();
+                }
+    
+                unset(self::$dependencyGraph[$current]);
+            }    
         }
 
-        while (!$fiber->isTerminated()) {
-            self::yield();
-        }
 
-        return $fiber->getReturn();
+        if ($e = self::getDriver()->getException($fiber)) {
+            throw $e;
+        }
+        try {
+            return $fiber->getReturn();
+        } catch (FiberError $fe) {
+            // FiberError is thrown in getReturn() if the fiber actually
+            // threw an exception. Handling it in a catch block is more
+            // efficient than checking every fiber for throwing before 
+            // calling getReturn().
+            $e = self::getDriver()->getException($fiber);
+            if ($e !== null) {
+                throw $e;
+            }
+            throw $fe;
+        }
     }
 
     /**
@@ -95,14 +227,8 @@ final class Loop {
      * @throws Throwable
      */
     public static function yield(): void {
-        $fiber = Fiber::getCurrent();
-        if ($fiber === null) {
-            // Exceptions thrown here will be thrown to the global scope
-            self::getDriver()->tick();
-        } else {
-            self::getDriver()->enqueue($fiber);
-            Fiber::suspend();
-        }
+        self::getDriver()->enqueue(self::getFiber());
+        Fiber::suspend();
     }
 
     /**
@@ -110,13 +236,14 @@ final class Loop {
      * after the resource becomes readable or encounters an error.
      * 
      * @param mixed $resource 
+     * @param float $timeout A timeout (defaults to 30 seconds) for the operation to complete. 0 disables.
      * @return void 
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function readable(mixed $resource): void {
+    public static function readable(mixed $resource, float $timeout=null): void {
         $fiber = self::getFiber();
-        self::getDriver()->readable($resource, $fiber);
+        self::getDriver()->readable($resource, $timeout, $fiber);
         Fiber::suspend();
     }
 
@@ -125,13 +252,14 @@ final class Loop {
      * after the resource becomes writable or encounters an error.
      * 
      * @param mixed $resource 
+     * @param float $timeout A timeout (defaults to 30 seconds) for the operation to complete. 0 disables.
      * @return void 
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function writable(mixed $resource): void {
+    public static function writable(mixed $resource, float $timeout=null): void {
         $fiber = self::getFiber();
-        self::getDriver()->writable($resource, $fiber);
+        self::getDriver()->writable($resource, $timeout, $fiber);
         Fiber::suspend();
     }
 
@@ -150,24 +278,75 @@ final class Loop {
         Fiber::suspend();
     }
 
-    public static function idle(): void {
+    /**
+     * Pause the fiber until the event loop becomes idle.
+     * 
+     * @param float $timeout A timeout (defaults to 30 seconds) for the operation to complete. 0 disables.
+     * @return void 
+     * @throws UsageError 
+     * @throws FiberError 
+     * @throws Throwable 
+     */
+    public static function idle(float $timeout=null): void {
         $fiber = self::getFiber();
-        self::getDriver()->idle($fiber);
+        self::getDriver()->idle($timeout, $fiber);
         Fiber::suspend();
     }
 
-    private static function getDriver(): DriverInterface {
+    public static function context(): ContextInterface {
+        return self::getDriver()->getContext(self::getFiber());
+    }
+
+    /**
+     * Will be invoked for any unhandled exceptions.
+     * 
+     * @param Throwable $exception 
+     * @return void 
+     */
+    public static function handleException(Throwable $exception): void {
+        if (!Fiber::getCurrent()) {
+            throw $exception;
+        }
+        \error_log((string) $exception, $exception->getCode());
+    }
+
+    /**
+     * Get the driver instance.
+     * 
+     * @internal
+     * @return DriverInterface 
+     */
+    public static function getDriver(): DriverInterface {
         if (self::$driver === null) {
             self::$driver = DriverFactory::createDriver();
         }
         return self::$driver;
-    }
+    }    
 
+    /**
+     * Get the current fiber and throw exception if there is no current fiber.
+     * 
+     * @return Fiber 
+     * @throws UsageError 
+     */
     private static function getFiber(): Fiber {
         $fiber = Fiber::getCurrent();
         if ($fiber === null) {
             throw new UsageError("Function can only be used within a coroutine");
         }
         return $fiber;
+    }
+
+    /**
+     * Start the function within a Fiber and register it for management.
+     * 
+     * @param Closure $function 
+     * @param array $args 
+     * @return Fiber 
+     * @throws FiberError 
+     * @throws Throwable 
+     */
+    private static function startFiber(Closure $function, array $args, ?ContextInterface $context = null): Fiber {
+        return self::getDriver()->startFiber($function, $args, $context);
     }
 }

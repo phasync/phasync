@@ -1,9 +1,9 @@
 <?php
-namespace phasync;
+namespace phasync\Server;
 
 use Charm\AbstractOptions;
 
-class ServerOptions extends AbstractOptions {
+class TcpServerOptions extends AbstractOptions {
     /**
      * Restrict how many concurrent connections will be allowed. When the connection
      * limit is reached, accepting new connections will block.
@@ -19,7 +19,7 @@ class ServerOptions extends AbstractOptions {
      * A bitmask field which may be set to any combination of socket creation flags.
      * {@see https://www.php.net/manual/en/function.stream-socket-server.php}
      */
-    public int $serverFlags = STREAM_SERVER_BIND | STREAM_SERVER_LISTEN;
+    public int $serverFlags = \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN;
 
     /**
      * How many connections can be pending on the server socket? The default value

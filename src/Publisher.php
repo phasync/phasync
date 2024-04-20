@@ -1,11 +1,12 @@
 <?php
 namespace phasync;
 
+use Closure;
 use Evenement\EventEmitter;
-use Fiber;
-use FiberError;
 use LogicException;
-use Throwable;
+use phasync\Channel\ReadableChannel;
+use phasync\Channel\ReadableChannelInterface;
+use phasync\Channel\WritableChannelInterface;
 use WeakMap;
 
 /**
@@ -14,77 +15,96 @@ use WeakMap;
  * 
  * @package phasync
  */
-final class Publisher extends EventEmitter {
-    /**
-     * All subscriber channels
-     * 
-     * @var Channel[]
-     */
-    private array $subscribers = [];
-    private int $subscriberKey = 0;
+final class Publisher extends EventEmitter implements WritableChannelInterface {
+
     private bool $closed = false;
-
-    public function subscribe(): Channel {
-        if ($this->isClosed()) {
-            throw new LogicException("Publisher is closed");
-        }
-        $channel = new Channel();
-        $key = $this->subscriberKey++;
-        $channel->on('close', function() use ($key) {
-            unset($this->subscribers[$key]);
-        });
-        $this->subscribers[$key] = $channel;
-
-        return $channel;
-    }
-
-    public function isClosed(): bool {
-        return $this->closed;
-    }
+    private int $offset = 0;
+    private array $buffer = [];
 
     /**
-     * Close the publisher and all associated subscriptions.
+     * Tracks the offset of all readers, to ensure we can clear the buffer
+     * as soon as items are read.
      * 
-     * @return void 
-     * @throws LogicException 
-     * @throws FiberError 
+     * @var WeakMap<Closure, int>
      */
+    private WeakMap $readers;
+
+    public function __construct() {
+        $this->readers = new WeakMap();
+    }
+
     public function close(): void {
         if ($this->isClosed()) {
             throw new LogicException("Publisher is already closed");
         }
+        Loop::raiseFlag($this->readers);
+        $this->purge();
         $this->closed = true;
-        foreach ($this->subscribers as $subscriber) {
-            if (!$subscriber->isClosed()) {
-                $subscriber->close();
+    }
+
+    public function subscribe(): ReadableChannelInterface {
+        $this->purge();
+        $offset = $this->offset;
+        $currentOffset = &$this->offset;
+        $readers = $this->readers;
+        $closed = &$this->closed;
+        $buffer = &$this->buffer;
+
+        $readFunction = static function() use (&$readFunction, &$currentOffset, &$closed, &$buffer, $readers) {
+            $offset = $readers[$readFunction];
+            while ($offset === $currentOffset && !$closed) {
+                Loop::awaitFlag($readers);
             }
+            if ($currentOffset === $offset && $closed) {
+                return null;
+            }
+            $readers[$readFunction] = $offset + 1;
+            return $buffer[$offset];
+        };
+
+        $this->readers[$readFunction] = $offset;
+
+        return new ReadableChannel(
+            $readFunction,
+            static function() use (&$closed) { return $closed; },
+            static function() use (&$currentOffset, &$closed, &$readFunction, $readers) {
+                return $readers[$readFunction] === $currentOffset && !$closed;
+            }
+        );
+    }
+
+    public function write(mixed $value): void {
+        if ($this->isClosed()) {
+            throw new LogicException("Can't write to a closed publisher");
         }
-        $this->emit('closed');
+        $this->purge();
+        $this->buffer[$this->offset++] = $value;
+        Loop::raiseFlag($this->readers);
+    }
+
+    public function willBlock(): bool {
+        return false;
+    }
+
+    public function isClosed(): bool { 
+        return $this->closed;
     }
 
     /**
-     * Publish a message to any subscribed readers. 
+     * Purge buffered items that no subscriber will ever read
      * 
-     * @param mixed $message 
      * @return void 
-     * @throws FiberError 
-     * @throws Throwable 
      */
-    public function publish(mixed $message) {
-        if ($this->isClosed()) {
-            throw new LogicException("Publisher is closed");
-        }
-        self::assertFiber();
-        foreach ($this->subscribers as $subscriber) {
-            if (!$subscriber->isClosed()) {
-                $subscriber->write($message);
+    private function purge(): void {
+        $minOffset = $this->offset;
+        foreach ($this->readers as $reader => $offset) {
+            if ($offset < $minOffset) {
+                $minOffset = $offset;
             }
+        }
+        while (isset($this->buffer[--$minOffset])) {
+            unset($this->buffer[$minOffset]);
         }
     }
 
-    private static function assertFiber(): void {
-        if (Fiber::getCurrent() === null) {
-            throw new UsageError("Must be invoked from within a coroutine");
-        }
-    }
 }

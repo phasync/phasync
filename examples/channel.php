@@ -1,25 +1,35 @@
 <?php
+
 use phasync\Channel;
 use function phasync\{run, go, sleep};
 
 require(__DIR__ . '/../vendor/autoload.php');
 
+/**
+ * This example demonstrates a common way to use channels.
+ * The channel is buffered, allowing two messages to exist
+ * on the channel at any one time.
+ * 
+ * Channels are a form of queue, where multiple worker
+ * coroutines can process messages, and multiple worker 
+ * coroutines can provide messages.
+ */
 run(function() {
-    $channel = new Channel(2); // A buffer size of 2
+
+    [$reader, $writer] = Channel::create(2);
 
     // Producer Coroutine
-    go(function() use ($channel) {
+    go(function() use ($writer) {
         for ($i = 0; $i < 5; $i++) {
             $task = "Task $i";
             echo "Producer: Sending $task\n";
-            $channel->write($task);
+            $writer->write($task);
         }
-        $channel->close();
     });
 
     // Consumer Coroutine
-    go(function() use ($channel) {
-        while (null !== ($task = $channel->read())) { 
+    go(function() use ($reader) {
+        while (null !== ($task = $reader->read())) { 
             echo "Consumer: Received $task\n";
             // Simulate some processing time
             sleep(1); 
@@ -27,3 +37,5 @@ run(function() {
         echo "Consumer: Channel closed\n";
     });
 });
+
+echo "Completed\n";

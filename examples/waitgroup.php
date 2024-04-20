@@ -1,11 +1,15 @@
 <?php
 use phasync\WaitGroup;
-use function phasync\{run, go, file_get_contents};
+use function phasync\{run, go, file_get_contents, sleep};
 
 require(__DIR__ . '/../vendor/autoload.php');
 
-$fileList = ['large_file_1.txt', 'large_file_2.txt', 'large_file_3.txt'];
+$fileList = [__FILE__, 'coroutines.php', 'channel.php'];
 
+/**
+ * This example demonstrates how a WaitGroup can be used to
+ * easily wait for many simultaneous coroutines.
+ */
 run(function() use ($fileList) {
     $waitGroup = new WaitGroup();
 
@@ -13,7 +17,10 @@ run(function() use ($fileList) {
         $waitGroup->add(); // Signal that we have one more task
         go(function() use ($file, $waitGroup) {
             try {
-                $contents = file_get_contents($file);
+                echo "Started processing file: $file\n";
+                for ($i = 0; $i < 10; $i++) {
+                    $contents = file_get_contents($file);
+                }
                 echo "Finished processing: $file\n";
             } finally {
                 $waitGroup->done(); // Signal task is done

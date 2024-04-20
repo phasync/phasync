@@ -1,5 +1,5 @@
 <?php
-namespace phasync;
+namespace phasync\Server;
 
 use Closure;
 use Evenement\EventEmitter;
@@ -7,6 +7,9 @@ use Exception;
 use FiberError;
 use InvalidArgumentException;
 use LogicException;
+use phasync\DisconnectedException;
+use phasync\IOException;
+use phasync\Loop;
 use Throwable;
 
 /**
@@ -14,29 +17,31 @@ use Throwable;
  * 
  * @package phasync
  */
-class Server extends EventEmitter {
+class TcpServer extends EventEmitter {
 
     public readonly string $ip;
     public readonly int $port;
-    public readonly ServerOptions $serverOptions;
-    public readonly ConnectionOptions $connectionOptions;
+    public readonly TcpServerOptions $serverOptions;
+    public readonly TcpConnectionOptions $connectionOptions;
 
-    private mixed $context;
-    private mixed $socket;
+    private mixed $context = null;
+    private mixed $socket = null;
     private int $connectionCount = 0;
 
-    public function __construct(string $ip, int $port, array|ServerOptions $serverOptions = null, array|ConnectionOptions $connectionOptions = null) {
+    public function __construct(string $ip, int $port, array|TcpServerOptions $serverOptions = null, array|TcpConnectionOptions $connectionOptions = null) {
         $this->ip = $ip;
         $this->port = $port;
-        $this->serverOptions = ServerOptions::create($serverOptions);
-        $this->connectionOptions = ConnectionOptions::create($connectionOptions);
+        $this->serverOptions = TcpServerOptions::create($serverOptions);
+        $this->connectionOptions = TcpConnectionOptions::create($connectionOptions);
 
         $this->context = stream_context_create([
+            'ssl' => [],
             'socket' => [
                 'backlog' => $this->serverOptions->socket_backlog,
                 'ipv6_v6only' => $this->serverOptions->socket_ipv6_v6only,
                 'so_reuseport' => $this->serverOptions->socket_so_reuseport,
                 'so_broadcast' => $this->serverOptions->socket_so_broadcast,
+                'tcp_nodelay' => true,
             ],
         ]);
 
@@ -65,7 +70,7 @@ class Server extends EventEmitter {
      * @throws IOException 
      */
     public function open(): void {
-        if ($this->isOpen()) {
+        if (!$this->isClosed()) {
             throw new LogicException("tcp://" . $this->ip.':' . $this->port . ' is already opened');
         }
         $errorCode = null;
@@ -78,6 +83,7 @@ class Server extends EventEmitter {
             $this->context
         );
         stream_set_blocking($socket, false);
+
         if (false === $socket) {
             throw new IOException($errorMessage, $errorCode);
         }
@@ -90,8 +96,8 @@ class Server extends EventEmitter {
      * 
      * @return bool 
      */
-    public function isOpen(): bool {
-        return is_resource($this->socket);
+    public function isClosed(): bool {
+        return !is_resource($this->socket);
     }
 
 
@@ -103,7 +109,7 @@ class Server extends EventEmitter {
      * @throws DisconnectedException 
      */
     private function assertOpen(): void {
-        if (!$this->isOpen()) {
+        if ($this->isClosed()) {
             throw new DisconnectedException();
         }
     }    
@@ -121,15 +127,21 @@ class Server extends EventEmitter {
      */
     public function run(Closure $connectionHandler) {
         return Loop::go(function() use ($connectionHandler) {
-            while ($this->isOpen() && ($connection = $this->accept())) {
-                Loop::go($connectionHandler($connection));
-            }    
+            while (!$this->isClosed() && ($connection = $this->accept())) {
+                Loop::go($connectionHandler, $connection);
+            }
+            if ($this->isClosed() && !$connection->isClosed()) {
+                $connection->close();
+            }
         });
     }
 
-    public function accept(): Connection {
+    public function accept() {
         $this->assertOpen();
-        Loop::readable($this->socket);
+
+        echo "Accept called\n";
+        // Block the Fiber until a stream is available via stream_select
+
         if (!is_resource($this->socket)) {
             throw new Exception("Server socket closed");
         }
@@ -140,7 +152,8 @@ class Server extends EventEmitter {
             // limit the number of active connections being handled
             if ($this->connectionCount >= $this->serverOptions->maxConnections) {
                 while ($this->connectionCount >= $this->serverOptions->maxConnections) {
-                    Loop::yield(); // Context switch
+                    // Context switch
+                    Loop::yield();
                 }
                 continue;
             }
@@ -150,9 +163,9 @@ class Server extends EventEmitter {
             if (is_resource($this->socket)) {
                 $socket = @stream_socket_accept($this->socket, 0, $peerName);
                 if ($socket) {
-                    $connection = new Connection($socket, $peerName, $this->connectionOptions);
+                    $connection = new TcpConnection($socket, $peerName, $this->connectionOptions);
                     $this->connectionCount++;
-                    $connection->on(Connection::CLOSE_EVENT, function() {
+                    $connection->on(TcpConnection::CLOSE_EVENT, function() {
                         $this->connectionCount--;
                     });
                     return $connection;

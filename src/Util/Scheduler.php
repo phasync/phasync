@@ -31,7 +31,7 @@ class Scheduler extends SplMinHeap {
         parent::insert($fiber);
     }
 
-    public function insert($value) {
+    public function insert(mixed $value): true {
         throw new LogicException("Can't insert this way");
     }
 
@@ -42,7 +42,7 @@ class Scheduler extends SplMinHeap {
         return $this->times[$this->current()];
     }
 
-    public function extract() {
+    public function extract(): mixed {
         if ($this->isEmpty()) return null;
         $fiber = parent::extract();
         $this->times->detach($fiber);

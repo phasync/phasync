@@ -1,29 +1,30 @@
 <?php
+require("../vendor/autoload.php");
 
-require __DIR__ . '/vendor/autoload.php';
+use phasync\Server\TcpConnection;
+use phasync\Server\TcpServer;
+use phasync\Server\TcpServerOptions;
+use phasync\Server\TcpConnectionOptions;
+use function phasync\{run, fread, fwrite};
 
-use phasync\Server;
-use function phasync\{run, go};
-
+/**
+ * This script sets up a TcpServer that listens on port 8080.
+ * It echoes back any received data to the client and then closes the connection.
+ */
 run(function() {
-    $server = new Server('127.0.0.1', 8080);
-    $server->run(function(Connection $connection) {
-        try {
-            while (!$connection->eof()) {
-                $data = $connection->readLine();
-                // Echo the received data back to the client
-                if ($data !== '') {
-                    $connection->write($data);
-                }
-            }
-        } catch (\Exception $e) {
-            // Handle any exceptions (e.g., connection errors)
-            echo "Error: " . $e->getMessage() . "\n";
-        } finally {
-            // Ensure the connection is closed
-            $connection->close();
+    // Create the TCP Server instance
+    $tcpServer = new TcpServer('0.0.0.0', 8080);
+
+    // Define the connection handling logic
+    $tcpServer->run(function(TcpConnection $connection) {
+
+        while (!$connection->isClosed()) {
+            $chunk = $connection->read();
+            echo "Sending '$chunk'\n";
+            $connection->write($chunk);
         }
+        echo "Handled connection: echoed back " . strlen($data) . " bytes\n";
     });
 
-    $server->close();
+    echo "Server is running on tcp://0.0.0.0:8080\n";
 });

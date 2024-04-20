@@ -21,13 +21,13 @@ final class Debug {
 
             $status = match (true) {
                 $subject->isTerminated() => 'terminated',
-                $subject->isSuspended() => 'suspended at '.$rf->getExecutingFile()."#".$rf->getExecutingLine(),
+                $subject->isSuspended() => 'suspended at '.$rf->getExecutingFile()."(".$rf->getExecutingLine() . ")",
                 $subject->isRunning() => 'running',
                 default => 'unknown',
             };
 
     
-            return sprintf("Fiber(%s, %s)", $status, self::getDebugInfo($rf->getCallable()));
+            return sprintf("Fiber%d(%s, %s)", \spl_object_id($subject), $status, self::getDebugInfo($rf->getCallable()));
         } elseif ($subject instanceof Closure) {
             // Use ReflectionFunction to get information about the Closure
             $ref = new ReflectionFunction($subject);
@@ -36,11 +36,12 @@ final class Debug {
             $filename = $ref->getFileName();
     
             return sprintf(
-                "Closure(%s#%d)",
+                "Closure%d(%s(%d))",
+                \spl_object_id($subject),
                 $filename ?: 'unknown file',
                 $startLine
             );
         } else {
-            return "Unsupported subject type.";
+            return "Unsupported subject type (" . \get_debug_type($subject) . ").";
         }
     }}
