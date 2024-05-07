@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "6b03aad3aebef5200450666a043e1a36",
+    "content-hash": "8686e50f949625b71f73958fccbeba37",
     "packages": [
         {
             "name": "amphp/hpack",
@@ -168,6 +168,58 @@
             "time": "2023-08-08T05:53:35+00:00"
         },
         {
+            "name": "psr/http-client",
+            "version": "1.0.3",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/php-fig/http-client.git",
+                "reference": "bb5906edc1c324c9a05aa0873d40117941e5fa90"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/php-fig/http-client/zipball/bb5906edc1c324c9a05aa0873d40117941e5fa90",
+                "reference": "bb5906edc1c324c9a05aa0873d40117941e5fa90",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.0 || ^8.0",
+                "psr/http-message": "^1.0 || ^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "1.0.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Psr\\Http\\Client\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "PHP-FIG",
+                    "homepage": "https://www.php-fig.org/"
+                }
+            ],
+            "description": "Common interface for HTTP clients",
+            "homepage": "https://github.com/php-fig/http-client",
+            "keywords": [
+                "http",
+                "http-client",
+                "psr",
+                "psr-18"
+            ],
+            "support": {
+                "source": "https://github.com/php-fig/http-client"
+            },
+            "time": "2023-09-23T14:17:50+00:00"
+        },
+        {
             "name": "psr/http-message",
             "version": "2.0",
             "source": {
@@ -315,124 +367,6 @@
                 }
             ],
             "time": "2024-02-20T07:24:02+00:00"
-        },
-        {
-            "name": "charm/terminal",
-            "version": "1.1.5",
-            "source": {
-                "type": "git",
-                "url": "https://bitbucket.org/ennerd/terminal.git",
-                "reference": "721864ad4da0ce5152780c227d9246760bdcd07f"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://bitbucket.org/ennerd/terminal/get/721864ad4da0ce5152780c227d9246760bdcd07f.zip",
-                "reference": "721864ad4da0ce5152780c227d9246760bdcd07f",
-                "shasum": ""
-            },
-            "require": {
-                "charm/options": ">=1.0.6",
-                "charm/util-phpencode": ">=1.0.2"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Charm\\Terminal\\": "src/"
-                },
-                "classmap": [
-                    "Terminal.php"
-                ]
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Frode Børli",
-                    "email": "frode@ennerd.com"
-                }
-            ],
-            "description": "Organized and colorful command line output through a simple markup language.",
-            "homepage": "https://bitbucket.org/ennerd/terminal",
-            "support": {
-                "source": "https://bitbucket.org/ennerd/terminal/src/721864ad4da0ce5152780c227d9246760bdcd07f/?at=1.1.5"
-            },
-            "time": "2022-05-30T10:03:07+00:00"
-        },
-        {
-            "name": "charm/util-composerpath",
-            "version": "1.0.4",
-            "source": {
-                "type": "git",
-                "url": "https://bitbucket.org/ennerd/charm-util-composerpath.git",
-                "reference": "f92591687ec9a339b93024599c9251db3775825d"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://bitbucket.org/ennerd/charm-util-composerpath/get/f92591687ec9a339b93024599c9251db3775825d.zip",
-                "reference": "f92591687ec9a339b93024599c9251db3775825d",
-                "shasum": ""
-            },
-            "type": "library",
-            "autoload": {
-                "classmap": [
-                    "ComposerPath.php"
-                ]
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Frode Børli",
-                    "email": "frode@ennerd.com"
-                }
-            ],
-            "description": "Easily find the project root path (where composer.json is) without touching the filesystem.",
-            "homepage": "https://bitbucket.org/ennerd/charm-util-composerpath",
-            "support": {
-                "source": "https://bitbucket.org/ennerd/charm-util-composerpath/src/f92591687ec9a339b93024599c9251db3775825d/?at=1.0.4"
-            },
-            "time": "2021-07-02T11:26:19+00:00"
-        },
-        {
-            "name": "charm/util-phpencode",
-            "version": "1.0.2",
-            "source": {
-                "type": "git",
-                "url": "https://bitbucket.org/ennerd/charm-util-phpencode.git",
-                "reference": "3d7d03532b8ce769618554581f21de4881ccd5f1"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://bitbucket.org/ennerd/charm-util-phpencode/get/3d7d03532b8ce769618554581f21de4881ccd5f1.zip",
-                "reference": "3d7d03532b8ce769618554581f21de4881ccd5f1",
-                "shasum": ""
-            },
-            "type": "library",
-            "autoload": {
-                "files": [
-                    "php-encode.php"
-                ]
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Frode Børli",
-                    "email": "frode@ennerd.com"
-                }
-            ],
-            "description": "A small function that encodes compact PHP arrays, like json_encode - but for PHP arrays.",
-            "homepage": "https://bitbucket.org/ennerd/charm-util-phpencode",
-            "support": {
-                "source": "https://bitbucket.org/ennerd/charm-util-phpencode/src/3d7d03532b8ce769618554581f21de4881ccd5f1/?at=1.0.2"
-            },
-            "time": "2022-01-08T23:51:01+00:00"
         },
         {
             "name": "doctrine/deprecations",
@@ -614,58 +548,6 @@
             "time": "2023-11-03T12:00:00+00:00"
         },
         {
-            "name": "frodeborli/themis",
-            "version": "1.1.23",
-            "source": {
-                "type": "git",
-                "url": "https://bitbucket.org/frodeborli/themis-php.git",
-                "reference": "9b99362801b51d4023c7b2c1f127d0184f852b2e"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://bitbucket.org/frodeborli/themis-php/get/9b99362801b51d4023c7b2c1f127d0184f852b2e.zip",
-                "reference": "9b99362801b51d4023c7b2c1f127d0184f852b2e",
-                "shasum": ""
-            },
-            "require": {
-                "charm/terminal": ">=1.0 <2.0",
-                "charm/util-composerpath": "^1.0",
-                "charm/util-phpencode": "^1.0",
-                "neilime/php-css-lint": "^3.0",
-                "seld/jsonlint": "^1.9"
-            },
-            "bin": [
-                "bin/themis",
-                "bin/themis.php",
-                "bin/themis.bat"
-            ],
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Themis\\": "src/"
-                },
-                "classmap": [
-                    "Themis.php"
-                ]
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Frode Børli",
-                    "email": "frode@ennerd.com"
-                }
-            ],
-            "description": "A powerful testing framework based on php script files.",
-            "homepage": "https://bitbucket.org/frodeborli/themis-php",
-            "support": {
-                "source": "https://bitbucket.org/frodeborli/themis-php/src/9b99362801b51d4023c7b2c1f127d0184f852b2e/?at=1.1.23"
-            },
-            "time": "2022-12-03T22:38:22+00:00"
-        },
-        {
             "name": "jean85/pretty-package-versions",
             "version": "2.0.6",
             "source": {
@@ -782,80 +664,6 @@
                 }
             ],
             "time": "2023-03-08T13:26:56+00:00"
-        },
-        {
-            "name": "neilime/php-css-lint",
-            "version": "v3.2.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/neilime/php-css-lint.git",
-                "reference": "08adc7b55af6ae5bf671ac5b105620dc6e6c55c0"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/neilime/php-css-lint/zipball/08adc7b55af6ae5bf671ac5b105620dc6e6c55c0",
-                "reference": "08adc7b55af6ae5bf671ac5b105620dc6e6c55c0",
-                "shasum": ""
-            },
-            "require": {
-                "ext-json": "*",
-                "php": ">=8.0"
-            },
-            "require-dev": {
-                "mikey179/vfsstream": "^1.6",
-                "pcov/clobber": "^2.0",
-                "phpstan/extension-installer": "^1.1",
-                "phpstan/phpstan": "^0.12",
-                "phpstan/phpstan-phpunit": "^0.12",
-                "phpunit/phpunit": "^9.5.27",
-                "slam/phpstan-laminas-framework": "^0.12",
-                "squizlabs/php_codesniffer": "^3.7"
-            },
-            "bin": [
-                "scripts/php-css-lint"
-            ],
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-master": "1.0-dev"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "CssLint\\": "src/CssLint"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Neilime",
-                    "homepage": "https://github.com/neilime",
-                    "role": "Developer"
-                }
-            ],
-            "description": "Powerful & memory efficient CSS linter for PHP",
-            "homepage": "https://neilime.github.io/php-css-lint/",
-            "keywords": [
-                "css",
-                "lint",
-                "linter",
-                "syntax",
-                "validation"
-            ],
-            "support": {
-                "issues": "https://github.com/neilime/php-css-lint/issues",
-                "source": "https://github.com/neilime/php-css-lint/tree/v3.2.0"
-            },
-            "funding": [
-                {
-                    "url": "https://github.com/neilime",
-                    "type": "github"
-                }
-            ],
-            "time": "2023-06-19T16:35:21+00:00"
         },
         {
             "name": "nikic/php-parser",
@@ -3129,70 +2937,6 @@
                 }
             ],
             "time": "2023-02-07T11:34:05+00:00"
-        },
-        {
-            "name": "seld/jsonlint",
-            "version": "1.10.2",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/Seldaek/jsonlint.git",
-                "reference": "9bb7db07b5d66d90f6ebf542f09fc67d800e5259"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/Seldaek/jsonlint/zipball/9bb7db07b5d66d90f6ebf542f09fc67d800e5259",
-                "reference": "9bb7db07b5d66d90f6ebf542f09fc67d800e5259",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^5.3 || ^7.0 || ^8.0"
-            },
-            "require-dev": {
-                "phpstan/phpstan": "^1.5",
-                "phpunit/phpunit": "^4.8.35 || ^5.7 || ^6.0 || ^8.5.13"
-            },
-            "bin": [
-                "bin/jsonlint"
-            ],
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Seld\\JsonLint\\": "src/Seld/JsonLint/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Jordi Boggiano",
-                    "email": "j.boggiano@seld.be",
-                    "homepage": "https://seld.be"
-                }
-            ],
-            "description": "JSON Linter",
-            "keywords": [
-                "json",
-                "linter",
-                "parser",
-                "validator"
-            ],
-            "support": {
-                "issues": "https://github.com/Seldaek/jsonlint/issues",
-                "source": "https://github.com/Seldaek/jsonlint/tree/1.10.2"
-            },
-            "funding": [
-                {
-                    "url": "https://github.com/Seldaek",
-                    "type": "github"
-                },
-                {
-                    "url": "https://tidelift.com/funding/github/packagist/seld/jsonlint",
-                    "type": "tidelift"
-                }
-            ],
-            "time": "2024-02-07T12:57:50+00:00"
         },
         {
             "name": "symfony/console",

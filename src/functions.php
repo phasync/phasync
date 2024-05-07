@@ -7,6 +7,7 @@ use Fiber;
 use FiberError;
 use LogicException;
 use Throwable;
+use phasync;
 
 /**
  * In addition to the functions defined here, the following classes
@@ -54,7 +55,8 @@ use Throwable;
  * @throws Throwable 
  */
 function run(Closure $coroutine, mixed ...$args): mixed {
-    return Loop::run($coroutine, ...$args);
+    $result = phasync::run($coroutine, $args);
+    return $result;
 }
 
 /**
@@ -68,19 +70,7 @@ function run(Closure $coroutine, mixed ...$args): mixed {
  * @throws Throwable 
  */
 function go(Closure $coroutine, mixed ...$args): Fiber {
-    return Loop::go($coroutine, ...$args);
-}
-
-/**aw
- * Register a cleanup function to run when the coroutine finishes.
- * 
- * @param Closure $deferred 
- * @return void 
- * @throws UsageError 
- * @throws LogicException 
- */
-function defer(Closure $deferred): void {
-    Loop::defer($deferred);
+    return phasync::go($coroutine, ...$args);
 }
 
 /**
@@ -92,7 +82,7 @@ function defer(Closure $deferred): void {
  * @throws Throwable 
  */
 function await(Fiber $fiber): mixed {
-    return Loop::await($fiber);
+    return phasync::await($fiber);
 }
 
 /**
@@ -105,13 +95,7 @@ function await(Fiber $fiber): mixed {
  * @throws Throwable 
  */
 function sleep(float $seconds=0): void {
-    if (Fiber::getCurrent() === null) {
-        \usleep(\max(0, (int) (1000000 * $seconds)));
-    } elseif ($seconds <= 0) {
-        Loop::yield();
-    } else {
-        Loop::sleep($seconds);
-    }
+    phasync::sleep($seconds);
 }
 
 /**
@@ -121,8 +105,8 @@ function sleep(float $seconds=0): void {
  * 
  * @return void 
  */
-function wait_idle(): void {
-    Loop::idle();
+function wait_idle(?float $timeout=null): void {
+    phasync::idle($timeout);
 }
 
 /**
@@ -280,7 +264,7 @@ function fread($stream, int $length): string|false {
     }
 
     stream_set_blocking($stream, false);
-    Loop::readable($stream);
+    phasync::readable($stream);
     return \fread($stream, $length);
 }
 
@@ -300,7 +284,7 @@ function fgets($stream, ?int $length = null): string|false {
     }
 
     stream_set_blocking($stream, false);
-    Loop::readable($stream);
+    phasync::readable($stream);
     return \fgets($stream, $length);
 }
 
@@ -319,7 +303,7 @@ function fgetc($stream): string|false {
     }
 
     stream_set_blocking($stream, false);
-    Loop::readable($stream);
+    phasync::readable($stream);
     return \fgetc($stream);
 }
 /**
@@ -339,7 +323,7 @@ function fgetcsv($stream, ?int $length = null, string $separator = ",", string $
     }
 
     stream_set_blocking($stream, false);
-    Loop::readable($stream);
+    phasync::readable($stream);
     return \fgetcsv($stream, $length, $separator, $enclosure, $escape);
 }
 
@@ -360,7 +344,7 @@ function fwrite($stream, string $data): int|false {
     }
 
     stream_set_blocking($stream, false);
-    Loop::writable($stream);
+    phasync::writable($stream);
     return \fwrite($stream, $data);
 }
 
@@ -380,7 +364,7 @@ function ftruncate($stream, int $size): int|false {
     }
 
     stream_set_blocking($stream, false);
-    Loop::writable($stream);
+    phasync::writable($stream);
     return \ftruncate($stream, $size);
 }
 
@@ -415,6 +399,6 @@ function flock($stream, int $operation, int &$would_block = null): bool {
         } elseif (!$blocked) {
             return false; // Failed to acquire the lock for a reason other than blocking.
         }
-        Loop::yield(); // Yield execution to allow other tasks to proceed.
+        phasync::yield(); // Yield execution to allow other tasks to proceed.
     } while ($blocked);
 }

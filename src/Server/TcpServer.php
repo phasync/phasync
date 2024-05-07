@@ -9,7 +9,7 @@ use InvalidArgumentException;
 use LogicException;
 use phasync\DisconnectedException;
 use phasync\IOException;
-use phasync\Loop;
+use phasync\Legacy\Loop;
 use Throwable;
 
 /**
@@ -19,8 +19,8 @@ use Throwable;
  */
 class TcpServer extends EventEmitter {
 
-    public readonly string $ip;
-    public readonly int $port;
+    private string $ip;
+    private int $port;
     public readonly TcpServerOptions $serverOptions;
     public readonly TcpConnectionOptions $connectionOptions;
 
@@ -48,6 +48,14 @@ class TcpServer extends EventEmitter {
         if ($this->serverOptions->connect) {
             $this->open();
         }
+    }
+
+    public function getAddress(): string {
+        return $this->ip;
+    }
+
+    public function getPort(): int {
+        return $this->port;
     }
 
     /**
@@ -82,6 +90,9 @@ class TcpServer extends EventEmitter {
             $this->serverOptions->serverFlags,
             $this->context
         );
+
+        [$this->ip, $this->port] = \explode(':', \stream_socket_get_name($socket, false));
+
         stream_set_blocking($socket, false);
 
         if (false === $socket) {

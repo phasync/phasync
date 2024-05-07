@@ -1,5 +1,5 @@
 <?php
-use phasync\Publisher;
+use phasync\Publisher\Publisher;
 use function phasync\{run, go, sleep};
 
 require(__DIR__ . '/../vendor/autoload.php');

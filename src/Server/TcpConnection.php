@@ -6,7 +6,7 @@ use FiberError;
 use InvalidArgumentException;
 use LogicException;
 use phasync\DisconnectedException;
-use phasync\Loop;
+use phasync\Legacy\Loop;
 use phasync\ReadException;
 use Throwable;
 

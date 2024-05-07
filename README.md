@@ -4,6 +4,47 @@
 
 Transform how your applications handle IO-bound and CPU-intensive operations with non-blocking execution patterns. Whether building high-traffic web apps, data processing systems, or real-time APIs, *phasync* equips you with the tools to scale operations smoothly and reliably.
 
+## Basic concurrent HTTP requests example
+
+This example below actually works and both the URLs are downloaded asynchronously
+at the same time from both sources.
+
+```php
+<?php
+[$vg, $db] = run(function() {
+    $client = new HttpClient();
+    return [
+        $client->fetch('GET', 'https://www.vg.no')->getBody(),
+        $client->fetch('GET', 'https://www.db.no')->getBody()
+    ];
+});
+```
+
+You can even do:
+
+```php
+<?php
+[$vg, $db] = run(function() {
+    $wg = new WaitGroup();
+    
+    go(function() use ($wg) {
+        $wg->add();
+        for ($i = 0; $i < 100; $i++) {
+            phasync\sleep(0.1);
+            echo ".";
+        }
+    });
+    $client = new HttpClient();
+
+    $result = [
+        (string) $client->fetch('GET', 'https://www.vg.no')->getBody(),
+        (string) $client->fetch('GET', 'https://www.db.no')->getBody()
+    ];
+    
+    return $result;
+});
+```
+
 
 ## ChatGPT assistance!
 

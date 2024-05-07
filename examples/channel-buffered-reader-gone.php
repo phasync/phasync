@@ -1,6 +1,6 @@
 <?php
 
-use phasync\Channel;
+use phasync\Legacy\Channel\Channel;
 use function phasync\{run, go, sleep};
 
 require(__DIR__ . '/../vendor/autoload.php');

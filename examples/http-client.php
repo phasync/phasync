@@ -1,6 +1,6 @@
 <?php
 
-use phasync\Loop;
+use phasync\Legacy\Loop;
 
 use function phasync\run;
 

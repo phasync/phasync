@@ -1,6 +1,6 @@
 <?php
 
-use phasync\WaitGroup;
+use phasync\Util\WaitGroup;
 
 require("../vendor/autoload.php");
 

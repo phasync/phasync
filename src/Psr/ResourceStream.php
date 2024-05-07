@@ -1,15 +1,14 @@
 <?php
 namespace phasync\Psr;
 
-use phasync\Loop;
+use phasync\Legacy\Loop;
 use phasync\UsageError;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 
 /**
- * Represents a stream resource backed PSR compliant stream
- * which uses phasync to block the current coroutine and
- * allow other work to be done.
+ * This StreamInterface implementation is backed by a PHP
+ * stream resource, such a file handle or a socket connection.
  * 
  * @package phasync
  */

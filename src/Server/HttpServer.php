@@ -2,7 +2,7 @@
 namespace phasync\Server;
 
 use Closure;
-use phasync\Loop;
+use phasync\Legacy\Loop;
 use Throwable;
 
 class HttpServer {

@@ -15,7 +15,7 @@ require('../vendor/autoload.php');
  * which allows messages to be temporarily held allowing the writer to
  * resume working. This can be leveraged to design a queue system. 
  */
-use phasync\Channel;
+use phasync\Legacy\Channel\Channel;
 
 /**
  * Publisher is similar to Channel, but it is always buffered, and 
@@ -26,7 +26,7 @@ use phasync\Channel;
  * are no events pending. The read operation will return a null value
  * if the publisher goes away.
  */
-use phasync\Publisher;
+use phasync\Publisher\Publisher;
 
 /**
  * WaitGroup is a mechanism to simplify waiting for many simultaneous
@@ -42,7 +42,7 @@ use phasync\Publisher;
  * WARNING! You must ensure that the $waitGroup->done() method is invoked,
  * or the $waitGroup->wait() method will block forever.
  */
-use phasync\WaitGroup;
+use phasync\Util\WaitGroup;
 
 /**
  * The library is primarily used via functions defined in the `phasync\`

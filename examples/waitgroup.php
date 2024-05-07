@@ -1,5 +1,5 @@
 <?php
-use phasync\WaitGroup;
+use phasync\Util\WaitGroup;
 use function phasync\{run, go, file_get_contents, sleep};
 
 require(__DIR__ . '/../vendor/autoload.php');

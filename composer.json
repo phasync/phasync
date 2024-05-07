@@ -14,6 +14,7 @@
         "psr-4": {
             "phasync\\": "src/"
         },
+        "classmap": ["phasync.php"],
         "files": ["src/functions.php"]
     },
     "authors": [
@@ -25,12 +26,12 @@
     "minimum-stability": "stable",
     "require": {
         "evenement/evenement": "^3.0",
-        "charm/options": "^1.0",
         "psr/http-message": "^2.0",
-        "amphp/hpack": "^3.2"
+        "amphp/hpack": "^3.2",
+        "charm/options": "^1.0",
+        "psr/http-client": "^1.0"
     },
     "require-dev": {
-        "frodeborli/themis": "^1.1",
         "pestphp/pest": "^2.34"
     },
     "config": {
