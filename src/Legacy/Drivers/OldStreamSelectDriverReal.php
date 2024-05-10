@@ -15,7 +15,7 @@ use phasync\TimeoutException;
 use phasync\Internal\ClosureStore;
 use phasync\Debug;
 use phasync\Internal\FiberExceptionHolder;
-use phasync\Internal\FiberStore;
+use phasync\Internal\Flag;
 use phasync\Internal\Scheduler;
 use RuntimeException;
 use Socket;
@@ -81,7 +81,7 @@ class OldStreamSelectDriverReal implements OldDriverInterface {
      * raised. The FiberStore will automatically resume all fibers
      * if the flag object is garbage collected.
      * 
-     * @var WeakMap<object, FiberStore>
+     * @var WeakMap<object, Flag>
      */
     private WeakMap $flaggedFibers;
 
@@ -485,7 +485,7 @@ class OldStreamSelectDriverReal implements OldDriverInterface {
 
         $this->setPending($fiber, $timeout);
         if (!isset($this->flaggedFibers[$flag])) {
-            $this->flaggedFibers[$flag] = FiberStore::create($this, static function($driver, $fibers) {
+            $this->flaggedFibers[$flag] = Flag::create($this, static function($driver, $fibers) {
                 foreach ($fibers as $fiber) {
                     $driver->plannedExceptions[$fiber] = new RuntimeException("Flag source no longer exists");
                     unset($driver->pendingFibers[$fiber], $driver->timeoutFibers[$fiber]);

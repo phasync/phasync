@@ -13,13 +13,13 @@ use WeakMap;
  */
 trait ContextTrait {
     private ?Throwable $contextException = null;
-    private ?Fiber $rootFiber = null;
     private ?WeakMap $fibers = null;
     private array $dataKeyed = [];
     private SplObjectStorage $dataObjectKeys;
 
     public function setContextException(Throwable $exception): void {
         if ($this->contextException !== null) {
+            echo "SETTING EXCEPTION\n$exception\n";
             throw new LogicException("Context Exception already set");
         }
         $this->contextException = $exception;
@@ -27,19 +27,6 @@ trait ContextTrait {
 
     public function getContextException(): ?Throwable {
         return $this->contextException;
-    }
-
-    public function setRootFiber(Fiber $fiber): void {
-        $this->rootFiber = $fiber;
-    }
-
-    
-
-    public function getRootFiber(): Fiber {
-        if ($this->rootFiber === null) {
-            throw new LogicException("Root Fiber not set");
-        }
-        return $this->rootFiber;
     }
 
     public function getFibers(): WeakMap {

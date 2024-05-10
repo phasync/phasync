@@ -1,55 +1,46 @@
 <?php
 namespace phasync\Internal;
 
-use phasync;
-use phasync\ChannelException;
 use phasync\ReadChannelInterface;
 use Serializable;
 
 final class ReadChannel implements ReadChannelInterface {
+    /**
+     * This int is required for this instance to be used in a
+     * switch-case statement.
+     * 
+     * @var int
+     */
+    private readonly int $_;
+
     private ?ChannelState $state;
     public function __construct(ChannelState $state) {
+        $this->_ = \spl_object_id($this);
         $this->state = $state;
     }
 
     public function __destruct() {
         $this->close();
         if (--$this->state->refCount === 0) {
-            ObjectPool::push($this->state);
+            $this->state->returnToPool();
             $this->state = null;   
         }
     }
 
     public function close(): void {
-        if ($this->state !== null && !$this->state->closed) {
-            $this->state->closed = true;
-            phasync::raiseFlag($this->state);    
-        }
+        $this->state->close();
     }
 
     public function read(): Serializable|array|string|float|int|bool|null {
-        if ($this->state === null || $this->state->closed) {
-            return null;
-        }
-        $this->state->assertValidFiber();
-        while ($this->willBlock()) {
-            phasync::awaitFlag($this->state);
-        }
-        if ($this->state->readOffset !== $this->state->writeOffset) {
-            $result = $this->state->buffer[$this->state->readOffset];
-            unset($this->state->buffer[$this->state->readOffset++]);
-            phasync::raiseFlag($this->state);
-            return $result;
-        }
-        return null;
+        return $this->state->read();
     }
 
     public function isReadable(): bool {
-        return $this->state !== null && ($this->state->readOffset !== $this->state->writeOffset || !$this->state->closed);
+        return $this->state->isReadable();
     }
 
     public function willBlock(): bool {
-        return $this->state !== null && $this->state->readOffset === $this->state->writeOffset && !$this->state->closed;
+        return $this->state->willReadBlock();
     }
 
 }

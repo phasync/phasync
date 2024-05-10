@@ -40,6 +40,8 @@ final class Debug {
                 $filename ?: 'unknown file',
                 $startLine
             );
+        } elseif (is_object($subject)) {
+            return \get_class($subject) . \spl_object_id($subject);
         } else {
             return "Unsupported subject type (" . \get_debug_type($subject) . ").";
         }

@@ -5,55 +5,6 @@ use Fiber;
 use LogicException;
 use SplMinHeap;
 use SplObjectStorage;
-use SplObserver;
-
-class NewScheduler {
-    public SplObjectStorage $times;
-    public array $schedule = [];
-    private float $first = PHP_FLOAT_MAX;
-    private int $count = 0;
-
-    public function __construct() {
-        $this->times = new SplObjectStorage();
-    }
-
-    public function isEmpty(): bool {
-        return $this->count === 0;
-    }
-
-    public function getNextTimestamp(): ?float {
-        if ($this->count > 0) {
-            return $this->first;
-        }
-        return null;
-    }
-
-    public function extract(): ?Fiber {
-        return null;
-        if ($this->count === 0) {
-            return null;
-        }
-        $until = (int) (10 * microtime(true));
-        for($tenth = (int) (10 * $this->first); $tenth <= $until; $tenth++) {
-            if (isset($this->schedule[$tenth]) && $tenth < $until) {
-            }
-        }
-    }
-
-    public function schedule(float $timestamp, Fiber $fiber): void {
-        return;
-        ++$this->count;
-        if ($this->first > $timestamp) {
-            $this->first = $timestamp;
-        }
-        $tenth = (int) (10 * $timestamp);
-        if (!isset($this->schedule[$tenth])) {
-            echo "ADDING TENTH {$this->count}\n";
-            $this->schedule[$tenth] = [];
-        }
-        $this->schedule[$tenth][] = $fiber;
-    }
-}
 
 /**
  * 

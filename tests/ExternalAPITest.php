@@ -1,7 +1,5 @@
 <?php
 
-use phasync\UsageError;
-
 use function phasync\await;
 use function phasync\file_get_contents;
 use function phasync\go;
@@ -68,7 +66,7 @@ test('test go() outside run()', function() {
         $fiber = go(function() {
             return 42; // Any value you want to return
         });
-    })->toThrow(UsageError::class); // Expect UsageError when go() is used outside run()
+    })->toThrow(LogicException::class); // Expect LogicException when go() is used outside run()
 });
 
 // Test for await() function inside run()
@@ -89,5 +87,5 @@ test('test await() outside run()', function() {
             return 42;
         });
         $result = await($fiber);
-    })->toThrow(UsageError::class); // Expect UsageError when await() is used outside run()
+    })->toThrow(LogicException::class); // Expect LogicException when await() is used outside run()
 });

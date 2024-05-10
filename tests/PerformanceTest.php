@@ -31,18 +31,18 @@ test('large-scale concurrent tasks', function() {
     $numTasks = 10000; // Increase the number of tasks
     $startTime = microtime(true);
 
-    run(function() use ($numTasks) {
+    phasync::run(function() use ($numTasks) {
         $futures = [];
         for ($i = 0; $i < $numTasks; $i++) {
             $futures[] = go(function() {
-                sleep(0.1);
+                phasync::sleep(0.1);
                 return true;
             });
         }
 
         // Wait for all tasks to complete
         foreach ($futures as $future) {
-            await($future);
+            phasync::await($future);
         }
     });
 

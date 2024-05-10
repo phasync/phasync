@@ -1,11 +1,9 @@
 <?php
 
-use phasync\UsageError;
-
 test('using go() outside of run()', function() {
     expect(function() {
         phasync::go(function() {});
-    })->toThrow(UsageError::class);
+    })->toThrow(LogicException::class);
 });
 
 test('await inside run()', function() {
@@ -33,7 +31,7 @@ test('naive coroutine launch without run()', function() {
         $result = phasync::go(function() {
             return 1;
         });     
-    })->toThrow(UsageError::class);
+    })->toThrow(LogicException::class);
 });  
 
 test('assuming await blocks the entire process', function () {

@@ -5,6 +5,7 @@ use Closure;
 use Fiber;
 use InvalidArgumentException;
 use LogicException;
+use phasync;
 use phasync\CancelledException;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
@@ -13,9 +14,10 @@ use phasync\TimeoutException;
 use phasync\Internal\ClosureStore;
 use phasync\Debug;
 use phasync\Internal\FiberExceptionHolder;
-use phasync\Internal\FiberStore;
+use phasync\Internal\Flag;
 use phasync\Internal\Scheduler;
 use RuntimeException;
+use SplObjectStorage;
 use SplQueue;
 use stdClass;
 use Throwable;
@@ -33,14 +35,6 @@ final class StreamSelectDriver implements DriverInterface {
     private readonly SplQueue $queue;
 
     /**
-     * Holds the queue of callbacks that will be invoked immediately
-     * before the next Fiber gets activated.
-     * 
-     * @var SplQueue<Closure>
-     */
-    private readonly SplQueue $microtasks;
-
-    /**
      * Holds a reference to all Fiber that are created by this driver.
      * Service fibers have a special service context.
      * 
@@ -52,9 +46,9 @@ final class StreamSelectDriver implements DriverInterface {
      * Holds a reference to all fibers that will be resumed by this event
      * loop, and their timeout timestamp.
      * 
-     * @var WeakMap<Fiber, float>
+     * @var SplObjectStorage<Fiber, float>
      */
-    private readonly WeakMap $pending;
+    private readonly SplObjectStorage $pending;    
 
     /**
      * Maps child fibers to their parent fibers, unless the fiber
@@ -135,7 +129,7 @@ final class StreamSelectDriver implements DriverInterface {
      * raised. The FiberStore will automatically resume all fibers
      * if the flag object is garbage collected.
      * 
-     * @var WeakMap<object, FiberStore>
+     * @var WeakMap<object, Flag>
      */
     private WeakMap $flaggedFibers;
 
@@ -153,7 +147,7 @@ final class StreamSelectDriver implements DriverInterface {
      * 
      * @var WeakMap<Fiber, object>
      */
-    private WeakMap $flagGraph;
+    public WeakMap $flagGraph;
 
     /**
      * True if cyclic garbage collection should be performed.
@@ -167,11 +161,13 @@ final class StreamSelectDriver implements DriverInterface {
     private stdClass $idleFlag;
     private stdClass $afterNextFlag;
 
+    private ?Fiber $currentFiber = null;
+    private ?ContextInterface $currentContext = null;
+
     public function __construct() {
         $this->queue = new SplQueue();
-        $this->microtasks = new SplQueue();
         $this->contexts = new WeakMap();
-        $this->pending = new WeakMap();
+        $this->pending = new SplObjectStorage();
         $this->parentFibers = new WeakMap();
         $this->fiberExceptionHolders = new WeakMap();
         $this->fiberExceptions = new WeakMap();
@@ -198,12 +194,14 @@ final class StreamSelectDriver implements DriverInterface {
             elseif ($fiber->isTerminated()) $states['terminated']++;
         }
 
+        /*
         foreach ($this->contexts as $fiber => $context) {
             echo "CONTEXT " . \spl_object_id($context) . "\n";
             foreach ($context->getFibers() as $fiber => $void) {
                 echo " - " . Debug::getDebugInfo($fiber) . "\n";
             }
         }
+        */
 
         foreach ($states as $k => $v) {
             echo "$k=$v ";
@@ -219,11 +217,7 @@ final class StreamSelectDriver implements DriverInterface {
 
     public function tick(): void {
         $now = \microtime(true);
-
-        /**
-         * Run all microtasks that have been scheduled
-         */
-        $this->runMicrotasks();
+        $queue = $this->queue;
 
         // Check if any fibers have timed out
         if (\microtime(true) - $this->lastTimeoutCheck > 0.1) {
@@ -235,13 +229,13 @@ final class StreamSelectDriver implements DriverInterface {
          */
         while (!$this->scheduler->isEmpty() && $this->scheduler->getNextTimestamp() <= $now) {
             $fiber = $this->scheduler->extract();
-            $this->queue->enqueue($fiber);
+            $queue->enqueue($fiber);
         }
 
         /**
          * Determine how long it is until the next coroutine will be running
          */
-        $maxSleepTime = $this->queue->count() === 0 ? 1 : 0;
+        $maxSleepTime = $queue->count() === 0 ? 1 : 0;
 
         /**
          * Ensure the delay is not too long for the scheduler
@@ -266,7 +260,7 @@ final class StreamSelectDriver implements DriverInterface {
             // Ensure non-negative sleep time
             $maxSleepTime = \max(0, $maxSleepTime);
         }
-
+//if ($maxSleepTime > 0) die("SLeEP $maxSleepTime\n");
 
         /**
          * Activate any Fibers waiting for stream activity
@@ -293,19 +287,19 @@ final class StreamSelectDriver implements DriverInterface {
             if (\is_int($result) && $result > 0) {
                 foreach ($reads as $readableStream) {
                     $id = \get_resource_id($readableStream);
-                    $this->queue->enqueue($this->streamFibers[$id]);
+                    $queue->enqueue($this->streamFibers[$id]);
                     unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
                 }
                 foreach ($writes as $writableStream) {
                     $id = \get_resource_id($writableStream);
                     if (!isset($this->streams[$id])) continue;
-                    $this->queue->enqueue($this->streamFibers[$id]);
+                    $queue->enqueue($this->streamFibers[$id]);
                     unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
                 }
                 foreach ($excepts as $exceptStream) {
                     $id = \get_resource_id($exceptStream);
                     if (!isset($this->streams[$id])) continue;
-                    $this->queue->enqueue($this->streamFibers[$id]);
+                    $queue->enqueue($this->streamFibers[$id]);
                     unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
                 }
             }
@@ -322,21 +316,25 @@ final class StreamSelectDriver implements DriverInterface {
         /**
          * Run enqueued fibers
          */
-        $fiberCount = $this->queue->count();
-        for ($i = 0; $i < $fiberCount && !$this->queue->isEmpty(); $i++) {
-            $fiber = $this->queue->dequeue();
+        $fiberCount = $queue->count();
+        $fiberExceptionHolders = $this->fiberExceptionHolders;
+        $contexts = $this->contexts;
+        for ($i = 0; $i < $fiberCount && !$queue->isEmpty(); $i++) {
+            $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
 
             try {
-                if (isset($this->fiberExceptionHolders[$fiber])) {
+                $this->currentFiber = $fiber;
+                $this->currentContext = $contexts[$fiber];
+
+                if (isset($fiberExceptionHolders[$fiber])) {
                     // We got an opportunity to throw the exception inside the coroutine
-                    $eh = $this->fiberExceptionHolders[$fiber];
+                    $eh = $fiberExceptionHolders[$fiber];
                     $exception = $eh->get();
                     $eh->returnToPool();
-                    unset($this->fiberExceptionHolders[$fiber], $eh);
                     $fiber->throw($exception);
                 } else {
-                    $fiber->resume();
+                    $value = $fiber->resume();
                 }
             } catch (Throwable $e) {
                 /**
@@ -345,21 +343,18 @@ final class StreamSelectDriver implements DriverInterface {
                  * is garbage collected. Ideally the exception holder will not be
                  * garbage collected.
                  */
-                $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
-            } finally {
-                /**
-                 * Whenever a fiber is terminated, we'll actively check it 
-                 * here to ensure deferred closures can run as soon as possible
-                 */
-                if ($fiber->isTerminated()) {
-                    $this->handleTerminatedFiber($fiber);
-                }
+                $fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
             }
-
-            if (!$this->microtasks->isEmpty()) {
-                $this->runMicrotasks();
-            }            
+            /**
+             * Whenever a fiber is terminated, we'll actively check it 
+             * here to ensure deferred closures can run as soon as possible
+             */
+            if ($fiber->isTerminated()) {
+                $this->handleTerminatedFiber($fiber);
+            }
         }
+        $this->currentFiber = null;
+        $this->currentContext = null;
 
         if ($this->shouldGarbageCollect) {
             \gc_collect_cycles();
@@ -373,61 +368,35 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function create(Closure $closure, array $args = [], ?ContextInterface $context): Fiber {        
-        if (\mt_rand(0,150)===0) {
-            /**
-             * In some cases, a large number of coroutines is spawned and suspended
-             * in the event loop, before the event loop is allowed to run. Forcing
-             * garbage collection speeds up creation of new coroutines.
-             */
-            \gc_collect_cycles();
-        }
-
-        // This will be the parent Fiber of the new coroutine
-        $currentFiber = Fiber::getCurrent();
-
         $fiber = new Fiber($closure);
 
-        // Associate the new fiber with its parent
-        if ($currentFiber !== null) {
-            $this->parentFibers[$fiber] = $currentFiber;
-        }
-
-        // Associate the correct context instance with the new Fiber
-        if ($context !== null) {
-            // A new context was provided
-            $context->setRootFiber($fiber);
-            $this->contexts[$fiber] = $context;
-        } elseif ($currentFiber !== null) {
-            // Inherit the parent Fibers' context
-            $context = $this->contexts[$fiber] = $this->contexts[$currentFiber];
-        } else {
-            throw new InvalidArgumentException("A context must be provided for a root coroutine");
-        }
-        $this->contexts[$fiber] = $context;
+        $currentFiber = $this->currentFiber;
+        $currentContext = $this->currentContext;
+        $this->contexts[$fiber] = $context ?? ($context = $currentContext);
+        $this->parentFibers[$fiber] = $currentFiber;
 
         // The context should track all fibers associated with it. This is
         // especially useful to ensure nested phasync::run() calls complete
         // in order.
-        $context->getFibers()[$fiber] = true; //->offsetSet($fiber, \microtime(true));
+        $context->getFibers()[$fiber] = true;
 
         // Start the code in the Fiber, so that we don't have to support
         // launching of coroutines as part of the event loop.
         try {
-            $fiber->start(...$args);
+            $this->currentFiber = $fiber;
+            $this->currentContext = $context;
+            $value = $fiber->start(...$args);
+            return $fiber;
         } catch (Throwable $e) {
-            // If the Fiber throws an exception immediately, we can safely
-            // rethrow it (which always means that the parent context can
-            // capture it directly)
-            throw $e;
+            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+            return $fiber;
         } finally {
-            // If the Fiber is immediately terminated, it will not be detected
-            // to have been terminated by the event loop, so we must handle it
-            // here.
+            $this->currentFiber = $currentFiber;
+            $this->currentContext = $currentContext;
             if ($fiber->isTerminated()) {
                 $this->handleTerminatedFiber($fiber);
-            }    
+            }        
         }
-        return $fiber;
     }
 
     public function getContext(Fiber $fiber): ?ContextInterface {
@@ -435,24 +404,19 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function raiseFlag(object $flag): int {
-        if (!$this->flaggedFibers->offsetExists($flag)) {
+        if (!isset($this->flaggedFibers[$flag])) {
             return 0;
         }
 
-        $fiberStore = $this->flaggedFibers[$flag];
-        unset($this->flaggedFibers[$flag]);
+        return $this->flaggedFibers[$flag]->raiseFlag();
+    }
 
-        $count = 0;
-        foreach ($fiberStore as $fiber) {
-            unset($this->flagGraph[$fiber]);
-            $this->queue->enqueue($fiber);
-            ++$count;
+    public function enqueue(Fiber $fiber, ?Throwable $exception = null): void {
+        $this->pending[$fiber] = \PHP_FLOAT_MAX;
+        if ($exception !== null) {
+            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
         }
-
-        $fiberStore->returnToPool();
-        unset($fiberStore);
-
-        return $count;
+        $this->queue->enqueue($fiber);
     }
 
     public function afterNext(Fiber $fiber): void {
@@ -465,15 +429,8 @@ final class StreamSelectDriver implements DriverInterface {
             throw new LogicException("Await cycle deadlock detected");
         }
 
-        if (!$this->flaggedFibers->offsetExists($flag)) {
-            $flagGraph = $this->flagGraph;
-            $this->flaggedFibers[$flag] = FiberStore::create($this, static function(StreamSelectDriver $driver, $fibers) use ($flagGraph) {
-                foreach ($fibers as $fiber) {
-                    $driver->fiberExceptionHolders[$fiber] = $driver->makeExceptionHolder(new RuntimeException("Flag object no longer exists"), $fiber);
-                    unset($flagGraph[$fiber]);
-                    $driver->queue->enqueue($fiber);
-                }
-            });
+        if (!isset($this->flaggedFibers[$flag])) {
+            $this->flaggedFibers[$flag] = Flag::create($this);
         }
 
         $this->flagGraph[$fiber] = $flag;
@@ -529,11 +486,11 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function whenTimeElapsed(float $seconds, Fiber $fiber): void {
-        $this->pending[$fiber] = PHP_FLOAT_MAX;
         if ($seconds > 0) {
+            $this->pending[$fiber] = PHP_FLOAT_MAX;
             $this->scheduler->schedule($seconds + microtime(true), $fiber);
         } else {
-            $this->queue->enqueue($fiber);
+            $this->enqueue($fiber);
         }
     }
 
@@ -548,7 +505,7 @@ final class StreamSelectDriver implements DriverInterface {
      * @throws LogicException 
      */
     public function cancel(Fiber $fiber, ?Throwable $exception = null): void {
-        if (!$this->pending->offsetExists($fiber)) {
+        if (!isset($this->pending[$fiber])) {
             throw new RuntimeException("The fiber (" . Debug::getDebugInfo($fiber) . ") is not blocked");
         }
 
@@ -556,18 +513,14 @@ final class StreamSelectDriver implements DriverInterface {
         $index = \array_search($fiber, $this->streamFibers, true);
         if (\is_int($index)) {
             unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);
-            $this->pending[$fiber] = PHP_FLOAT_MAX;
-            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception ?? new CancelledException("Operation cancelled"), $fiber);
-            $this->queue->enqueue($fiber);
+            $this->enqueue($fiber, $exception ?? new CancelledException("Operation cancelled"));
             return;
         }
 
         // Search for fibers that are delayed
         if ($this->scheduler->contains($fiber)) {
             $this->scheduler->cancel($fiber);
-            $this->pending[$fiber] = PHP_FLOAT_MAX;
-            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception ?? new CancelledException("Operation cancelled"), $fiber);
-            $this->queue->enqueue($fiber);
+            $this->enqueue($fiber, $exception ?? new CancelledException("Operation cancelled"));
             return;
         }
 
@@ -575,9 +528,7 @@ final class StreamSelectDriver implements DriverInterface {
         foreach ($this->flaggedFibers as $flag => $fiberStore) {
             if ($fiberStore->contains($fiber)) {
                 $fiberStore->remove($fiber);
-                $this->pending[$fiber] = PHP_FLOAT_MAX;
-                $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception ?? new CancelledException("Operation cancelled"), $fiber);
-                $this->queue->enqueue($fiber);
+                $this->enqueue($fiber, $exception ?? new CancelledException("Operation cancelled"));
                 return;
             }
         }
@@ -617,25 +568,22 @@ final class StreamSelectDriver implements DriverInterface {
         return null;
     }
 
+    public function getCurrentFiber(): ?Fiber {
+        return $this->currentFiber;
+    }
+
+    public function getCurrentContext(): ?ContextInterface {
+        return $this->currentContext;
+    }
+
     private function checkTimeouts(): void {
         $now = microtime(true);
-        foreach ($this->pending as $fiber => $timeout) {
-            if ($timeout <= $now) {
+        foreach ($this->pending as $fiber) {
+            if ($this->pending[$fiber] <= $now) {
                 $this->cancel($fiber, new TimeoutException("Operation timed out for " . Debug::getDebugInfo($fiber)));
             }
         }
         $this->lastTimeoutCheck = $now;
-    }
-
-    /**
-     * Run all scheduled microtasks until there are no microtasks remaining in the queue.
-     * 
-     * @return void 
-     */
-    private function runMicrotasks(): void  {
-        while (!$this->microtasks->isEmpty()) {
-            $this->microtasks->dequeue()();
-        }
     }
 
     /**
@@ -684,5 +632,13 @@ final class StreamSelectDriver implements DriverInterface {
                 $context->setContextException($e);
             }
         }
+    }
+
+    private static function debug_refcount($value) {
+        ob_start();
+        debug_zval_dump($value);
+        $string = ob_get_contents();
+        ob_end_clean();
+        var_dump($string);        
     }
 }

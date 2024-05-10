@@ -35,22 +35,6 @@ interface ContextInterface extends ArrayAccess {
     public function getContextException(): ?Throwable;
 
     /**
-     * Set the first fiber of the context. This can only be set once.
-     * 
-     * @return void 
-     * @throws LogicException
-     */
-    public function setRootFiber(Fiber $fiber): void;
-
-    /**
-     * Get the root fiber of the context.
-     * 
-     * @return Fiber 
-     * @throws LogicException if no root fiber has been set-
-     */
-    public function getRootFiber(): Fiber;
-
-    /**
      * All the Fiber instances attached to this context and their
      * start time.
      * 

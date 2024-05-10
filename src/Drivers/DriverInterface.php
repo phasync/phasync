@@ -15,6 +15,12 @@ interface DriverInterface extends Countable {
     const STREAM_EXCEPT = 4;
 
     /**
+     * When a fiber is suspended with this value `Fiber::suspend(DriverInterface::SUSPEND_TICK);`, 
+     * it will be scheduled to run on the next tick.
+     */
+    const SUSPEND_TICK = 0;
+
+    /**
      * Run the fibers that are ready to resume work.
      * 
      * @return void 
@@ -24,6 +30,9 @@ interface DriverInterface extends Countable {
     /**
      * Create a coroutine. If no `$context` is provided, the new Fiber will inherit the
      * context of the current coroutine, or receive a new DefaultContext instance.
+     * 
+     * This function must not throw exceptions; the exception must be associated with the
+     * returned Fiber, and be thrown when the coroutine is awaited.
      * 
      * @param Closure $closure 
      * @param array $args 
@@ -49,6 +58,17 @@ interface DriverInterface extends Countable {
      * @return null|ContextInterface 
      */
     public function getContext(Fiber $fiber): ?ContextInterface;
+
+    /**
+     * Add a Fiber to the queue, optionally with an exception to be
+     * thrown.
+     * 
+     * @internal
+     * @param Fiber $fiber 
+     * @param null|Throwable $exception 
+     * @return void 
+     */
+    public function enqueue(Fiber $fiber, ?Throwable $exception = null): void;
 
     /**
      * Activate the Fiber immediately after the next tick. This will
@@ -127,4 +147,14 @@ interface DriverInterface extends Countable {
      * @return null|Throwable 
      */
     public function getException(Fiber $fiber): ?Throwable;
+
+    /**
+     * Returns the fiber that is currently being managed by the phasync
+     * event loop. It does exactly the same as Fiber::getCurrent() unless
+     * there is something "fishy" going on by running the fiber outside of
+     * the event loop.
+     * 
+     * @return null|Fiber 
+     */
+    public function getCurrentFiber(): ?Fiber;
 }

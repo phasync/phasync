@@ -158,4 +158,73 @@ test('reader reacts correctly when writer closes before any read', function() {
     });
 });
 
+test('channels memory leaking', function() {
 
+    gc_collect_cycles();
+    $memStart = memory_get_usage(true);
+
+    for ($i = 0; $i < 10000; $i++) {
+        phasync::run(function() {
+            phasync::channel($read1, $write1);
+            phasync::channel($read2, $write2);
+            phasync::go(function() use ($read1, $write2) {
+                while ($value = $read1->read()) {
+                    $write2->write($value);
+                }
+            });
+            phasync::go(function() use ($write1) {
+                for ($i = 0; $i < 10; $i++) {
+                    $write1->write("dummy");
+                }
+            });
+            phasync::go(function() use ($write1) {
+                $write1->write("dummy");
+            });
+            phasync::go(function() use ($read2) {
+                while ($value = $read2->read()) {                    
+                }
+            });
+        });
+    }
+    expect($memStart)->toBeGreaterThan(memory_get_usage(true) - 500000);
+});
+
+test('channels with phasync::select()', function() {
+    $counter = 0;
+    phasync::run(function() use (&$counter) {
+        phasync::channel($read1, $write1);
+        phasync::channel($read2, $write2);
+    
+        phasync::go(function() use ($read1, $read2, &$counter) {
+            $channels = [$read1, $read2];
+            while (true) {
+                $selected = phasync::select($channels);
+                switch ($selected) {
+                    case $read1:
+                        $message = $read1->read();
+                        if ($message === null) {
+                            unset($channels[0]);
+                            expect($counter++)->toBe(0);
+                        } else {
+                            throw new Exception("Should not happen");
+                        }
+                        break;
+                    case $read2:
+                        $message = $read2->read();
+                        if ($message === null) {
+                            unset($channels[1]);
+                            expect($counter++)->toBe(2);
+                        } else {
+                            expect($counter++)->toBe(1);
+                        }
+                        break;
+                    default:
+                        expect($counter++)->toBe(3);
+                        return;
+                }    
+            }
+        });
+    
+        $write2->write("Hello to channel 2");
+    });
+});
