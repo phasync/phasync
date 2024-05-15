@@ -6,7 +6,7 @@ use InvalidArgumentException;
 use JsonSerializable;
 use phasync;
 use phasync\Psr\ComposableStream;
-use phasync\Util\CurlMulti;
+use phasync\Services\CurlMulti;
 use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;

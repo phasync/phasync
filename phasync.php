@@ -144,7 +144,7 @@ final class phasync {
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function run(Closure $coroutine, array $arguments=[], ContextInterface $context=null): mixed {
+    public static function run(Closure $coroutine, array $arguments=[], ?ContextInterface $context=null): mixed {
         $driver = self::getDriver();
         try {
             if (!$driver->getCurrentFiber()) {

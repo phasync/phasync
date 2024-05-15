@@ -26,18 +26,18 @@ final class HttpClient {
      * @throws IllegalOperationException 
      */
     public function request(string $method, string|UriInterface $url, mixed $requestData = null, array|HttpClientOptions|null $options=null): ResponseInterface {
-        return new CurlResponse($method, $url, $requestData, $this->options->overrideFrom($options));
+        return new CurlResponse($method, $url, $requestData, $options ?? $this->options);
     }
 
-    public function get(string|UriInterface $url, array|HttpClientOptions $options): ResponseInterface {
+    public function get(string|UriInterface $url, array|HttpClientOptions|null $options=null): ResponseInterface {
         return $this->request('GET', $url, null, $options);
     }
 
-    public function post(string|UriInterface $url, mixed $requestData, array|HttpClientOptions|null $options): ResponseInterface {
+    public function post(string|UriInterface $url, mixed $requestData, array|HttpClientOptions|null $options=null): ResponseInterface {
         return $this->request('POST', $url, $requestData, $options);
     }
 
-    public function put(string|UriInterface $url, mixed $requestData, array|HttpClientOptions|null $options = null): ResponseInterface {
+    public function put(string|UriInterface $url, mixed $requestData, array|HttpClientOptions|null $options=null): ResponseInterface {
         return $this->request('PUT', $url, $requestData, $options);
     }
 

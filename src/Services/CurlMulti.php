@@ -1,5 +1,5 @@
 <?php
-namespace phasync\Util;
+namespace phasync\Services;
 
 use CurlHandle;
 use CurlMultiHandle;
