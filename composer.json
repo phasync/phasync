@@ -1,11 +1,11 @@
 {
-    "name": "phasync/loop",
+    "name": "phasync/phasync",
     "version": "1.0.0",
     "description": "Phasync fiber event loop",
     "type": "library",
     "license": "MIT",
     "scripts": {
-        "test": "@php vendor/bin/themis"
+        "test": "@php vendor/bin/pest"
     },
     "scripts-descriptions": {
         "test": "Run tests"
