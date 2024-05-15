@@ -3,7 +3,7 @@ namespace phasync;
 
 use Serializable;
 
-interface WriteChannelInterface extends SelectableInterface {
+interface WriteChannelInterface extends WriteSelectableInterface {
 
     /**
      * Closes the channel.
@@ -11,6 +11,13 @@ interface WriteChannelInterface extends SelectableInterface {
      * @return void 
      */
     public function close(): void;
+
+    /**
+     * True if the channel is no longer writable.
+     * 
+     * @return bool 
+     */
+    public function isClosed(): bool;
 
     /**
      * Write a chunk of data to the writable stream. Writing may

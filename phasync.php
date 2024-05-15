@@ -1,18 +1,25 @@
 <?php
-
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
+use phasync\Debug;
 use phasync\Drivers\DriverInterface;
 use phasync\Drivers\StreamSelectDriver;
-use phasync\Internal\ChannelState;
+use phasync\Internal\BufferedProcessChannel;
+use phasync\Internal\ChannelBuffered;
+use phasync\Internal\ChannelUnbuffered;
+use phasync\Internal\ChannelState2;
 use phasync\Internal\ReadChannel;
+use phasync\Internal\ReadChannel2;
+use phasync\Internal\UnbufferedReadChannel;
+use phasync\Internal\UnbufferedWriteChannel;
 use phasync\Internal\WriteChannel;
+use phasync\Internal\WriteChannel2;
 use phasync\ReadChannelInterface;
-use phasync\SelectableInterface;
+use phasync\ReadSelectableInterface;
 use phasync\TimeoutException;
-use phasync\UsageError;
 use phasync\Util\WaitGroup;
 use phasync\WriteChannelInterface;
+use phasync\WriteSelectableInterface;
 
 /**
  * This class defines the essential API for all coroutine based applications.
@@ -48,13 +55,13 @@ final class phasync {
      * Block the coroutine until the stream becomes readable.
      * {@see phasync::stream()}
      */
-    const READABLE = 1;
+    const READABLE = DriverInterface::STREAM_READ;
 
     /**
      * Block the coroutine until the stream becomes writable.
      * {@see phasync::stream()}
      */
-    const WRITABLE = 2;
+    const WRITABLE = DriverInterface::STREAM_WRITE;
 
     /**
      * Block the coroutine until the stream has an except state
@@ -63,10 +70,40 @@ final class phasync {
      * 
      * {@see phasync::stream()}
      */
-    const EXCEPT = 4;
+    const EXCEPT = DriverInterface::STREAM_EXCEPT;
 
+    /**
+     * The default timeout in seconds used throughout the library,
+     * unless another timeout is configured via 
+     * {@see phasync::setDefaultTimeout()}
+     */
+    const DEFAULT_TIMEOUT = 30.0;
+
+    /**
+     * This is the number of microseconds that a coroutine can run
+     * before it is *volunteeringly* preempted by invoking the
+     * {@see phasync::preempt()} function. When the coroutine has
+     * run for this number of microseconds, the phasync::preempt()
+     * function will suspend the coroutine and allow other 
+     * coroutines to run.
+     * 
+     * Number is in nanoseconds, measured using \hrtime(true), the
+     * default is 20 ms.
+     */
+    const DEFAULT_PREEMPT_INTERVAL = 50000000;
+
+    /**
+     * The currently configured timeout in seconds.
+     * 
+     * @var float
+     */
     private static float $timeout = 30;
 
+    /**
+     * The currently set driver.
+     * 
+     * @var null|DriverInterface
+     */
     private static ?DriverInterface $driver = null;
 
     /**
@@ -76,6 +113,22 @@ final class phasync {
      * @var null|Closure{object, ?Closure{mixed}, ?Closure{mixed}, false}
      */
     private static ?Closure $promiseHandlerFunction = null;
+
+    /**
+     * The configurable preempt interval that can be set using the
+     * {@see phasync::setPreemptInterval()} function. 
+     * 
+     * @var int number of nanoseconds
+     */
+    private static int $preemptInterval = self::DEFAULT_PREEMPT_INTERVAL;
+
+    /**
+     * The last time that {@see phasync::preempt()) was invoked. This means
+     * that the first call to phasync::preempt() will always yield.
+     * 
+     * @var int number in nanoseconds from \hrtime(true)
+     */
+    private static int $lastPreemptTime = 0;
 
     /**
      * Register a coroutine/Fiber to run in the event loop and await the result.
@@ -93,27 +146,41 @@ final class phasync {
      */
     public static function run(Closure $coroutine, array $arguments=[], ContextInterface $context=null): mixed {
         $driver = self::getDriver();
-
-        if ($context === null) {
-            $context = new DefaultContext();
-        }
-
-        $fiber = $driver->create($coroutine, $arguments, $context);
-
-        $result = self::await($fiber);
-
-        while ($context->getFibers()->count() > 0) {
-            if (Fiber::getCurrent()) {
-                self::yield();
-            } else {
-                $driver->tick();
+        try {
+            if (!$driver->getCurrentFiber()) {
+                // The event loop performs garbage collection at more optimal times.
+                \gc_disable();
+            }
+    
+            if ($context === null) {
+                $context = new DefaultContext();
+            }
+    
+            $fiber = $driver->create($coroutine, $arguments, $context);
+    
+            $result = self::await($fiber);
+    
+            while ($context->getFibers()->count() > 0) {
+                if ($driver->getCurrentFiber()) {
+                    self::yield();
+                } else {
+                    $driver->tick();
+                }
+            }
+    
+    
+            if ($exception = $context->getContextException()) {
+                throw $exception;
+            }
+            return $result;
+        } finally {
+            if (!$driver->getCurrentFiber()) {
+                // Re-enable garbage collection
+                \gc_enable();
             }
         }
 
-        if ($exception = $context->getContextException()) {
-            throw $exception;
-        }
-        return $result;
+
     }
 
     /**
@@ -128,11 +195,14 @@ final class phasync {
      * @throws Throwable 
      */
     public static function go(Closure $coroutine, mixed ...$args): Fiber {
-        if (mt_rand(0,100)===0) {
-            self::sleep(0);
+        $driver = self::getDriver();
+        $fiber = $driver->getCurrentFiber();
+        if (!$fiber) {
+            throw new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
         }
-        self::getFiber();
-        return self::getDriver()->create($coroutine, $args, null);
+        $result = $driver->create($coroutine, $args, null);
+        self::preempt();
+        return $result;
     }
 
     /**
@@ -145,12 +215,12 @@ final class phasync {
      * @return void 
      */
     public static function service(Closure $coroutine): void {
-        $fiber = Fiber::getCurrent();
         $driver = self::getDriver();
+        $fiber = $driver->getCurrentFiber();
         if ($fiber === null || $driver->getContext($fiber) === null) {
             throw new LogicException("Services must be started on-demand inside a coroutine.");
         }
-        self::getDriver()->runService($coroutine);
+        $driver->runService($coroutine);
     }
 
     /**
@@ -205,7 +275,8 @@ final class phasync {
         }
         
         $driver = self::getDriver();
-        $currentFiber = Fiber::getCurrent();
+        $currentFiber = $driver->getCurrentFiber();
+
         if ($currentFiber) {
             // We are in a Fiber
             while (!$fiber->isTerminated()) {
@@ -215,7 +286,7 @@ final class phasync {
                     throw new TimeoutException("The coroutine did not complete in time");
                 }
                 $driver->whenFlagged($fiber, $remaining, $currentFiber);
-                Fiber::suspend();
+                Fiber::suspend();    
             }    
         } else {
             // We are in the main context outside of the Fibers
@@ -223,37 +294,41 @@ final class phasync {
                 $elapsed = \microtime(true) - $startTime;
                 $remaining = $timeout - $elapsed;
                 if ($remaining < 0) {
-                    throw new TimeoutException("The coroutine did not complete in time");
+                    throw new TimeoutException("The coroutine (" . Debug::getDebugInfo($fiber). ") did not complete in time");
                 }
                 $driver->tick();
             }
-        }
+        }        
         if (null !== ($exception = $driver->getException($fiber))) {
             throw $exception;
         }
+
         return $fiber->getReturn();
     }
 
     /**
      * Block until one of the selectable objects or fibers terminate
      * 
-     * @param SelectableInterface[] $selectables 
+     * @param (ReadSelectableInterface|WriteSelectableInterface)[] $selectables 
      * @param null|float $timeout 
-     * @return SelectableInterface 
+     * @return ReadSelectableInterface 
      * @throws LogicException 
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function select(array $selectables, ?float $timeout=null): ?SelectableInterface {
+    public static function select(array $selectables, ?float $timeout=null): ?ReadSelectableInterface {
         $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
         do {
-            foreach ($selectables as $selectable) {
-                if (!$selectable->willBlock()) {
+            foreach ($selectables as $i => $selectable) {
+                if ($selectable instanceof ReadSelectableInterface && !$selectable->readWillBlock()) {
                     return $selectable;
                 }
-                self::yield();
+                if ($selectable instanceof WriteSelectableInterface && !$selectable->writeWillBlock()) {
+                    return $selectable;
+                }
             }
-        } while ($stopTime >= \microtime(true));
+            self::yield();
+        } while ($stopTime >= \microtime(true) && !empty($selectables));
         return null;
     }
 
@@ -274,6 +349,35 @@ final class phasync {
     }
 
     /**
+     * Suspend the coroutine when it has been running for a configurable number of
+     * microseconds. This function is designed to be invoked from within busy loops,
+     * to allow other tasks to be performed. Use it at strategic places in library
+     * functions that do not naturally suspend - and on strategic places in slow
+     * calculations (avoiding invoking it on every iteration if possible).
+     * 
+     * This function is highly optimized, but it benefits a lot from JIT because it
+     * seems to be inlined.
+     * 
+     * @return void 
+     * @throws RuntimeException 
+     */
+    public static function preempt(): void {
+        $elapsed = ($now = \hrtime(true)) - self::$lastPreemptTime;
+        if ($elapsed > self::$preemptInterval) {
+            if (self::$lastPreemptTime === 0) {                
+                // This check is too costly to perform on every preempt()
+                // call, so we'll just set it here and wait for the next call.
+                self::$lastPreemptTime = $now;
+            } else {
+                $driver = self::getDriver();
+                self::$lastPreemptTime = $now;
+                $driver->enqueue($driver->getCurrentFiber());
+                Fiber::suspend();    
+            }
+        }
+    }
+
+    /**
      * Yield time so that other coroutines can continue processing. Note that
      * if you intend to wait for something to happen in other coroutines, you
      * should use {@see phasync::yield()}, which will suspend the coroutine until
@@ -284,12 +388,13 @@ final class phasync {
      * @throws RuntimeException
      */
     public static function sleep(float $seconds=0): void {
-        $fiber = Fiber::getCurrent();
+        $driver = self::getDriver();
+        $fiber = $driver->getCurrentFiber();
         if ($fiber !== null) {
-            self::getDriver()->whenTimeElapsed($seconds, $fiber);
+            $driver->whenTimeElapsed($seconds, $fiber);
             Fiber::suspend();
         } elseif ($seconds <= 0) {
-            self::getDriver()->tick();
+            $driver->tick();
         } else {
             \usleep(intval(1000000 * $seconds));
         }
@@ -307,11 +412,12 @@ final class phasync {
      * @throws Throwable 
      */
     public static function yield(): void {
-        $fiber = Fiber::getCurrent();
+        $driver = self::getDriver();
+        $fiber = $driver->getCurrentFiber();
         if ($fiber === null) {
             throw new LogicException("No other coroutines are running");
         }
-        self::getDriver()->afterNext($fiber);
+        $driver->afterNext($fiber);
         Fiber::suspend();
     }
 
@@ -325,12 +431,18 @@ final class phasync {
      * @throws LogicException 
      */
     public static function idle(?float $timeout=null): void {
-        $fiber = Fiber::getCurrent();
+        $driver = self::getDriver();
+        $fiber = $driver->getCurrentFiber();
         if ($fiber === null) {
             throw new LogicException("Not a fiber");
         }
         $timeout = $timeout ?? self::getDefaultTimeout();
-        self::getDriver()->whenIdle($timeout, $fiber);
+            $driver->whenIdle($timeout, $fiber);
+        try {
+            Fiber::suspend();
+        } catch (TimeoutException) {
+            // Ignored
+        }
     }
 
     /**
@@ -371,27 +483,56 @@ final class phasync {
      * @return void 
      */
     public static function stream(mixed $resource, int $mode = self::READABLE|self::WRITABLE, ?float $timeout=null): void {
+        $driver = self::getDriver();
+        $fiber = self::getFiber();
         $timeout = $timeout ?? self::getDefaultTimeout();
-        $fiber = Fiber::getCurrent();
-        if ($fiber !== null) {
-            self::getDriver()->whenResourceActivity($resource, $mode, $timeout, $fiber);
-            Fiber::suspend();
+        $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
+        Fiber::suspend();
+    }
+
+    /**
+     * Creates a channel pair which can be used to communicate between multiple
+     * coroutines. Channels should be used to pass serializable data, to support
+     * passing channels to worker processes, but it is possible to pass more
+     * complex data if you are certain the data will not be passed to other
+     * processes.
+     * 
+     * @param null|ReadChannelInterface $readChannel 
+     * @param null|WriteChannelInterface $writeChannel 
+     * @param int $bufferSize 
+     * @return void 
+     */
+    public static function channel(?ReadChannelInterface &$readChannel, ?WriteChannelInterface &$writeChannel, int $bufferSize=0): void {
+        if ($bufferSize === 0) {
+            $channel = new ChannelUnbuffered();            
+            $writeChannel = new WriteChannel($channel);
+            $readChannel = new ReadChannel($channel);
         } else {
-            // Leverage a coroutine to wait for the stream resource
-            self::run(function() use ($resource, $mode, $timeout) {
-                self::stream($resource, $mode, $timeout);
-            });
+            $channel = new ChannelBuffered($bufferSize);
+            $writeChannel = new WriteChannel($channel);
+            $readChannel = new ReadChannel($channel);
         }
     }
 
-    public static function channel(?ReadChannelInterface &$readChannel, ?WriteChannelInterface &$writeChannel, int $bufferSize=0): void {
-        $channelState = ChannelState::create(\max(0, $bufferSize), self::getFiber());
-        $readChannel = new ReadChannel($channelState);
-        $writeChannel = new WriteChannel($channelState);
-    }
-
+    /**
+     * Wait groups are used to coordinate multiple coroutines. A coroutine can add work
+     * to the wait group when the coroutine begins processing the task, and then notify
+     * the wait group that the work is done.
+     * 
+     * @return WaitGroup 
+     */
     public static function waitGroup(): WaitGroup {
         return new WaitGroup();
+    }
+
+    /**
+     * A publisher works like channels, but supports many subscribing coroutines
+     * concurrently.
+     * 
+     * @return PublisherInterface
+     */
+    public static function publisher(?ReadChannelInterface &$readChannel, ?WriteChannelInterface &$writeChannel): void {
+
     }
 
     /**
@@ -417,12 +558,41 @@ final class phasync {
      * @throws Throwable 
      */
     public static function awaitFlag(object $signal, float $timeout=null): void {
-        $fiber = Fiber::getCurrent();
+        $driver = self::getDriver();
+        $fiber = $driver->getCurrentFiber();
         if ($fiber === null) {
-            throw new RuntimeException("Can only await flags from within a coroutine");
+            throw new LogicException("Can only await flags from within a coroutine");
         }
-        self::getDriver()->whenFlagged($signal, $timeout ?? self::getDefaultTimeout(), $fiber);
+
+        $driver->whenFlagged($signal, $timeout ?? self::getDefaultTimeout(), $fiber);
         Fiber::suspend();
+    }
+
+    /**
+     * Enqueue a Fiber with the event loop while throwing an exception in it. This is
+     * an internal function intended for advanced use cases and the API may change 
+     * without notice.
+     * 
+     * @internal
+     * @param Fiber $fiber 
+     * @param null|Throwable $exception 
+     * @return void 
+     */
+    public static function enqueueWithException(Fiber $fiber, Throwable $exception): void {
+        self::getDriver()->enqueueWithException($fiber, $exception);
+    }
+
+    /**
+     * Enqueue a Fiber with the event loop. This is an internal function intended
+     * for advanced use cases and the API may change without notice.
+     * 
+     * @internal
+     * @param Fiber $fiber 
+     * @param mixed $value 
+     * @return void 
+     */
+    public static function enqueue(Fiber $fiber): void {
+        self::getDriver()->enqueue($fiber);
     }
 
     /**
@@ -435,6 +605,17 @@ final class phasync {
             self::$driver = new StreamSelectDriver();
         }
         return self::$driver;
+    }
+
+    /**
+     * Set the interval between every time the {@see phasync::preempt()}
+     * function will cause the coroutine to suspend running.
+     * 
+     * @param int $microseconds 
+     * @return void 
+     */
+    public static function setPreemptInterval(int $microseconds): void {
+        self::$preemptInterval = \max(0, $microseconds * 1000);
     }
 
     /**
@@ -590,10 +771,10 @@ final class phasync {
         return (self::getPromiseHandler())($promiseLike, $onFulfilled, $onRejected);
     }
 
-    private static function getFiber(): Fiber {
-        $fiber = Fiber::getCurrent();
+    public static function getFiber(): Fiber {
+        $fiber = self::getDriver()->getCurrentFiber();
         if (!$fiber) {
-            throw new UsageError("This function can not be used outside of a coroutine");
+            throw new LogicException("This function can not be used outside of a coroutine");
         }
         return $fiber;
     }
@@ -601,7 +782,7 @@ final class phasync {
     public static function getContext(): ContextInterface {
         $context = self::getDriver()->getContext(self::getFiber());
         if (!$context) {
-            throw new UsageError("This function can only be used inside a `phasync` coroutine");
+            throw new LogicException("This function can only be used inside a `phasync` coroutine");
         }
         return $context;
     }

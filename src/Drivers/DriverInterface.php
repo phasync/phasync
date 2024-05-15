@@ -60,15 +60,22 @@ interface DriverInterface extends Countable {
     public function getContext(Fiber $fiber): ?ContextInterface;
 
     /**
-     * Add a Fiber to the queue, optionally with an exception to be
-     * thrown.
+     * Add a Fiber to the event loop.
+     * 
+     * @param Fiber $fiber 
+     * @return void 
+     */
+    public function enqueue(Fiber $fiber): void;
+
+    /**
+     * Add a Fiber to the event loop with an exception to be thrown.
      * 
      * @internal
      * @param Fiber $fiber 
      * @param null|Throwable $exception 
      * @return void 
      */
-    public function enqueue(Fiber $fiber, ?Throwable $exception = null): void;
+    public function enqueueWithException(Fiber $fiber, Throwable $exception): void;
 
     /**
      * Activate the Fiber immediately after the next tick. This will
@@ -81,7 +88,9 @@ interface DriverInterface extends Countable {
     public function afterNext(Fiber $fiber): void;
 
     /**
-     * Activate the Fiber when there is no immediately pending activity.
+     * Activate the Fiber when there is no immediately pending activity or when the timeout has
+     * occurred whichever comes first. The timeout should not throw a TimeoutException in the
+     * coroutine.
      * 
      * @param float $timeout The number of seconds to allow the fiber to be suspended. Will raise a TimeoutException.
      * @param Fiber $fiber 

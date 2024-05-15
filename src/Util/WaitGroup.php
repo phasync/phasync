@@ -70,6 +70,8 @@ final class WaitGroup {
      * @throws Throwable 
      */
     public function wait(): void {
-        phasync::awaitFlag($this);
+        if ($this->counter > 0) {
+            phasync::awaitFlag($this);
+        }
     }
 }

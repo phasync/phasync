@@ -5,36 +5,35 @@ use phasync\WriteChannelInterface;
 use Serializable;
 
 final class WriteChannel implements WriteChannelInterface {
-    private readonly int $_id;
-    private ?ChannelState $state;
 
-    public function __construct(ChannelState $state) {
-        $this->_id = \spl_object_id($this);
-        $this->state = $state;
+    private ChannelBackendInterface $channel;
+
+    public function __construct(ChannelBackendInterface $channel) {
+        $this->channel = $channel;
     }
 
     public function __destruct() {
         $this->close();
-        if (--$this->state->refCount === 0) {
-            $this->state->returnToPool();
-            $this->state = null;   
-        }
     }
 
     public function close(): void {
-        $this->state->close();
+        $this->channel->close();
+    }
+
+    public function isClosed(): bool {
+        return $this->channel->isClosed();
     }
 
     public function write(Serializable|array|string|float|int|bool $value): void {
-        $this->state->write($value);
+        $this->channel->write($value);
     }
 
     public function isWritable(): bool {
-        return $this->state->isWritable();
+        return $this->channel->isWritable();
     }
 
-    public function willBlock(): bool {
-        return $this->state->willWriteBlock();
+    public function writeWillBlock(): bool {
+        return $this->channel->writeWillBlock();
     }
 
 }

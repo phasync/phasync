@@ -5,42 +5,34 @@ use phasync\ReadChannelInterface;
 use Serializable;
 
 final class ReadChannel implements ReadChannelInterface {
-    /**
-     * This int is required for this instance to be used in a
-     * switch-case statement.
-     * 
-     * @var int
-     */
-    private readonly int $_;
 
-    private ?ChannelState $state;
-    public function __construct(ChannelState $state) {
-        $this->_ = \spl_object_id($this);
-        $this->state = $state;
+    private ChannelBackendInterface $channel;
+
+    public function __construct(ChannelBackendInterface $channel) {
+        $this->channel = $channel;
     }
 
     public function __destruct() {
         $this->close();
-        if (--$this->state->refCount === 0) {
-            $this->state->returnToPool();
-            $this->state = null;   
-        }
-    }
-
-    public function close(): void {
-        $this->state->close();
     }
 
     public function read(): Serializable|array|string|float|int|bool|null {
-        return $this->state->read();
+        return $this->channel->read();
     }
 
     public function isReadable(): bool {
-        return $this->state->isReadable();
+        return $this->channel->isReadable();
     }
 
-    public function willBlock(): bool {
-        return $this->state->willReadBlock();
+    public function readWillBlock(): bool {
+        return $this->channel->readWillBlock();
     }
 
+    public function close(): void {
+        $this->channel->close();
+    }
+
+    public function isClosed(): bool {
+        return $this->channel->isClosed();
+    }
 }

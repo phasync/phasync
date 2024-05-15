@@ -4,7 +4,7 @@ namespace phasync;
 use RuntimeException;
 use Serializable;
 
-interface ReadChannelInterface extends SelectableInterface {
+interface ReadChannelInterface extends ReadSelectableInterface {
 
     /**
      * Closes the channel.
@@ -12,6 +12,13 @@ interface ReadChannelInterface extends SelectableInterface {
      * @return void 
      */
     public function close(): void;
+
+    /**
+     * True if the channel is no longer readable.
+     * 
+     * @return bool 
+     */
+    public function isClosed(): bool;
 
     /**
      * Returns the next item that can be read. If no item is

@@ -44,7 +44,7 @@ final class Loop {
         if ($fiber->isTerminated()) {
             throw new UsageError("Can't enqueue a terminated Fiber.");
         }
-        self::getDriver()->enqueue($fiber);
+        self::getDriver()->enqueueWithException($fiber);
     }
 
     /**
@@ -189,7 +189,7 @@ final class Loop {
 
         // Enqueue the fiber unless it has terminated or scheduled itself
         if (!$fiber->isTerminated() && !$driver->isPending($fiber)) {
-            $driver->enqueue($fiber);
+            $driver->enqueueWithException($fiber);
         }
 
         return $fiber;
@@ -267,7 +267,7 @@ final class Loop {
      * @throws Throwable
      */
     public static function yield(): void {
-        self::getDriver()->enqueue(self::getFiber());
+        self::getDriver()->enqueueWithException(self::getFiber());
         Fiber::suspend();
     }
 

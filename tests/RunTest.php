@@ -112,3 +112,53 @@ test('test that run() throws the exception from the inner go, even when a return
         });
     })->toThrow(new Exception("Yes"));
 });
+
+test('complex nested run() calls concurrently', function() {
+    phasync::run(function() {
+        $startTime = microtime(true);
+        $totalTime = 0;
+        $wg = phasync::waitGroup();
+
+        phasync::go(function() use ($wg, &$totalTime) {
+            $startTime = microtime(true);
+            $wg->add();
+            phasync::run(function() use (&$totalTime) {
+                $startTime = microtime(true);
+                phasync::sleep(0.2);
+                $totalTime += microtime(true) - $startTime;
+                phasync::run(function() use (&$totalTime) {
+                    $startTime = microtime(true);
+                    phasync::sleep(0.2);
+                    $totalTime += microtime(true) - $startTime;
+                });
+            });
+            $totalTime += microtime(true) - $startTime;
+            $wg->done();
+        });
+        phasync::go(function() use ($wg, &$totalTime) {
+            $startTime = microtime(true);
+            $wg->add();
+            phasync::run(function() use (&$totalTime) {
+                $startTime = microtime(true);
+                phasync::sleep(0.2);
+                $totalTime += microtime(true) - $startTime;
+            });
+            $totalTime += microtime(true) - $startTime;
+            $wg->done();
+        });
+        phasync::go(function() use ($wg, &$totalTime) {
+            $startTime = microtime(true);
+            $wg->add();
+            phasync::run(function() use (&$totalTime) {
+                $startTime = microtime(true);
+                phasync::sleep(0.2);
+                $totalTime += microtime(true) - $startTime;
+            });
+            $totalTime += microtime(true) - $startTime;
+            $wg->done();
+        });
+        $wg->wait();
+        expect(microtime(true)-$startTime)->toBeLessThan(0.5)->toBeGreaterThan(0.35);
+        expect($totalTime)->toBeLessThan(1.7)->toBeGreaterThan(1.5);
+    });
+});

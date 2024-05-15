@@ -43,6 +43,7 @@ Parameters:
 
  * $coroutine: The coroutine to be executed in parallel.
  * $args: A serializable array of arguments.
+ 
 
 ### `phasync::await(Fiber|promise-like $awaitable, ?float $timeout = null): mixed`
 

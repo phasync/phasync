@@ -220,7 +220,7 @@ final class StreamSelectDriver implements DriverInterface {
         $queue = $this->queue;
 
         // Check if any fibers have timed out
-        if (\microtime(true) - $this->lastTimeoutCheck > 0.1) {
+        if ($now - $this->lastTimeoutCheck > 0.1) {
             $this->checkTimeouts();
         }
 
@@ -235,7 +235,7 @@ final class StreamSelectDriver implements DriverInterface {
         /**
          * Determine how long it is until the next coroutine will be running
          */
-        $maxSleepTime = $queue->count() === 0 ? 1 : 0;
+        $maxSleepTime = $queue->count() === 0 ? 0.2 : 0;
 
         /**
          * Ensure the delay is not too long for the scheduler
@@ -252,7 +252,7 @@ final class StreamSelectDriver implements DriverInterface {
         $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
         if ($afterNextCount > 1 && $maxSleepTime > 0.05) {
             // Fibers may be waiting for each other
-            $maxSleepTime = 0.05;
+            $maxSleepTime = 0.01;
         } elseif ($afterNextCount === 1 && $this->scheduler->isEmpty() && empty($this->streams)) {
             // Fiber is the only fiber waiting for itself
             $maxSleepTime = 0;
@@ -260,7 +260,21 @@ final class StreamSelectDriver implements DriverInterface {
             // Ensure non-negative sleep time
             $maxSleepTime = \max(0, $maxSleepTime);
         }
-//if ($maxSleepTime > 0) die("SLeEP $maxSleepTime\n");
+
+        if ($maxSleepTime > 0) {
+            // Use idle times as opportunity to check timeouts
+            if ($now - $this->lastTimeoutCheck > 0.1) {
+                $this->checkTimeouts();
+            }
+
+            // Raise the idle flag
+            $this->raiseFlag($this->idleFlag);
+
+            // If work was added, cancel the sleep
+            if ($this->queue->count() > 0) {
+                $maxSleepTime = 0;
+            }
+        }
 
         /**
          * Activate any Fibers waiting for stream activity
@@ -323,6 +337,8 @@ final class StreamSelectDriver implements DriverInterface {
             $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
 
+            again:
+
             try {
                 $this->currentFiber = $fiber;
                 $this->currentContext = $contexts[$fiber];
@@ -330,11 +346,17 @@ final class StreamSelectDriver implements DriverInterface {
                 if (isset($fiberExceptionHolders[$fiber])) {
                     // We got an opportunity to throw the exception inside the coroutine
                     $eh = $fiberExceptionHolders[$fiber];
+                    unset($fiberExceptionHolders[$fiber]);
                     $exception = $eh->get();
                     $eh->returnToPool();
-                    $fiber->throw($exception);
+                    $value = $fiber->throw($exception);
                 } else {
                     $value = $fiber->resume();
+                }
+                if ($value instanceof Fiber) {
+                    // If a Fiber suspends itself with another Fiber, it swaps with that fiber
+                    $fiber = $value;
+                    goto again;
                 }
             } catch (Throwable $e) {
                 /**
@@ -386,6 +408,16 @@ final class StreamSelectDriver implements DriverInterface {
             $this->currentFiber = $fiber;
             $this->currentContext = $context;
             $value = $fiber->start(...$args);
+            while ($value instanceof Fiber) {
+                try {
+                    $this->currentFiber = $value;
+                    $this->currentContext = $this->contexts[$fiber];
+                    $value = $value->resume();
+                } catch (Throwable $e) {
+                    $this->enqueueWithException($value, $e);
+                    $value = null;
+                }
+            }
             return $fiber;
         } catch (Throwable $e) {
             $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
@@ -411,12 +443,14 @@ final class StreamSelectDriver implements DriverInterface {
         return $this->flaggedFibers[$flag]->raiseFlag();
     }
 
-    public function enqueue(Fiber $fiber, ?Throwable $exception = null): void {
+    public function enqueue(Fiber $fiber): void {
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
-        if ($exception !== null) {
-            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
-        }
         $this->queue->enqueue($fiber);
+    }
+
+    public function enqueueWithException(Fiber $fiber, Throwable $exception): void {
+        $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
+        $this->enqueue($fiber);
     }
 
     public function afterNext(Fiber $fiber): void {
@@ -512,15 +546,15 @@ final class StreamSelectDriver implements DriverInterface {
         // Search for fibers waiting for IO
         $index = \array_search($fiber, $this->streamFibers, true);
         if (\is_int($index)) {
-            unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);
-            $this->enqueue($fiber, $exception ?? new CancelledException("Operation cancelled"));
+            unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);            
+            $this->enqueueWithException($fiber, $exception ?? new CancelledException("Operation cancelled"));
             return;
         }
 
         // Search for fibers that are delayed
         if ($this->scheduler->contains($fiber)) {
             $this->scheduler->cancel($fiber);
-            $this->enqueue($fiber, $exception ?? new CancelledException("Operation cancelled"));
+            $this->enqueueWithException($fiber, $exception ?? new CancelledException("Operation cancelled"));
             return;
         }
 
@@ -528,7 +562,7 @@ final class StreamSelectDriver implements DriverInterface {
         foreach ($this->flaggedFibers as $flag => $fiberStore) {
             if ($fiberStore->contains($fiber)) {
                 $fiberStore->remove($fiber);
-                $this->enqueue($fiber, $exception ?? new CancelledException("Operation cancelled"));
+                $this->enqueueWithException($fiber, $exception ?? new CancelledException("Operation cancelled"));
                 return;
             }
         }

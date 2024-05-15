@@ -1,7 +1,5 @@
 <?php
 
-use phasync\Loop;
-
 use function phasync\{run, go, sleep};
 
 require(__DIR__ . '/../../vendor/autoload.php');

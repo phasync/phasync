@@ -3,6 +3,7 @@ namespace phasync\Context;
 
 use Fiber;
 use LogicException;
+use phasync;
 use SplObjectStorage;
 use Throwable;
 use WeakMap;
@@ -19,10 +20,11 @@ trait ContextTrait {
 
     public function setContextException(Throwable $exception): void {
         if ($this->contextException !== null) {
-            echo "SETTING EXCEPTION\n$exception\n";
-            throw new LogicException("Context Exception already set");
+            echo "ADDITIONAL EXCEPTION\n$exception\n";
+            phasync::logUnhandledException($exception);
+        } else {
+            $this->contextException = $exception;
         }
-        $this->contextException = $exception;
     }
 
     public function getContextException(): ?Throwable {
