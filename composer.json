@@ -1,6 +1,5 @@
 {
     "name": "phasync/phasync",
-    "version": "1.0.0",
     "description": "Phasync fiber event loop",
     "type": "library",
     "license": "MIT",
