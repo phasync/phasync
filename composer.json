@@ -4,10 +4,12 @@
     "type": "library",
     "license": "MIT",
     "scripts": {
-        "test": "@php vendor/bin/pest"
+        "test": "@php vendor/bin/pest --stop-on-defect",
+        "test-all": "@php vendor/bin/pest"
     },
     "scripts-descriptions": {
-        "test": "Run tests"
+        "test": "Test until first defect",
+        "test-all": "Run all tests"
     },
     "autoload": {
         "psr-4": {
@@ -24,11 +26,10 @@
     ],
     "minimum-stability": "stable",
     "require": {
-        "evenement/evenement": "^3.0",
         "psr/http-message": "^2.0",
         "amphp/hpack": "^3.2",
-        "charm/options": "^1.0",
-        "psr/http-client": "^1.0"
+        "psr/http-client": "^1.0",
+        "charm/options": "^1.1"
     },
     "require-dev": {
         "pestphp/pest": "^2.34"

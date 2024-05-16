@@ -39,7 +39,7 @@ interface DriverInterface extends Countable {
      * @param null|ContextInterface $context 
      * @return Fiber 
      */
-    public function create(Closure $closure, array $args=[], ?ContextInterface $context): Fiber;
+    public function create(Closure $closure, array $args=[], ?ContextInterface $context=null): Fiber;
 
     /**
      * Create a coroutine that will run independently of contexts. It will run in the event
@@ -146,6 +146,7 @@ interface DriverInterface extends Countable {
      * @param null|Throwable $exception 
      * @return void 
      * @throws RuntimeException if the fiber is not currently blocked.
+     * @throws LogicException if the fiber is not managed by phasync.
      */
     public function cancel(Fiber $fiber, ?Throwable $exception=null): void;
 

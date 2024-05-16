@@ -389,11 +389,11 @@ final class StreamSelectDriver implements DriverInterface {
         unset($this->parentFibers[$fiber]);
     }
 
-    public function create(Closure $closure, array $args = [], ?ContextInterface $context): Fiber {        
+    public function create(Closure $closure, array $args = [], ?ContextInterface $context=null): Fiber {        
         $fiber = new Fiber($closure);
 
         $currentFiber = $this->currentFiber;
-        $currentContext = $this->currentContext;
+        $currentContext = $this->currentContext ?? new DefaultContext();
         $this->contexts[$fiber] = $context ?? ($context = $currentContext);
         $this->parentFibers[$fiber] = $currentFiber;
 
@@ -539,6 +539,9 @@ final class StreamSelectDriver implements DriverInterface {
      * @throws LogicException 
      */
     public function cancel(Fiber $fiber, ?Throwable $exception = null): void {
+        if (!isset($this->contexts[$fiber])) {
+            throw new LogicException("The fiber (" . Debug::getDebugInfo($fiber) . ") is not a phasync fiber");
+        }
         if (!isset($this->pending[$fiber])) {
             throw new RuntimeException("The fiber (" . Debug::getDebugInfo($fiber) . ") is not blocked");
         }

@@ -1,62 +1,60 @@
 <?php
 
-use function phasync\run;
-
-test('test the run() return value when not blocking', function () {
-    expect(run(function() {
+test('test the phasync::run() return value when not blocking', function () {
+    expect(phasync::run(function() {
         return 1;
     }))->toBe(1);
 });
 
-test('test the run() return value when blocked once', function() {
-    expect(run(function() {
-        phasync\sleep(0.01);
+test('test the phasync::run() return value when blocked once', function() {
+    expect(phasync::run(function() {
+        phasync::sleep(0.01);
         return 1;
     }))->toBe(1);
 });
 
-test('test the return value from an inner run()', function() {
-    expect(run(function() {
-        phasync\sleep(0.01);
-        return run(function() {
-            phasync\sleep(0.01);
+test('test the return value from an inner phasync::run()', function() {
+    expect(phasync::run(function() {
+        phasync::sleep(0.01);
+        return phasync::run(function() {
+            phasync::sleep(0.01);
             return 1;
         });
     }))->toBe(1);
 });
 
-test('test deeply nested run() calls', function() {
-    expect(run(function() {
-        return run(function() {
-            return run(function() {
-                phasync\sleep(0.01);
+test('test deeply nested phasync::run() calls', function() {
+    expect(phasync::run(function() {
+        return phasync::run(function() {
+            return phasync::run(function() {
+                phasync::sleep(0.01);
                 return 1;
             });
         });
     }))->toBe(1);
 });
 
-test('test that run() throws exception when not blocked', function() {
+test('test that phasync::run() throws exception when not blocked', function() {
     expect(function() {
-        run(function() {
+        phasync::run(function() {
           throw new Exception("Yes");
         });
     })->toThrow(new Exception("Yes"));
 });
 
-test('test that run() throws exception when blocked', function() {
+test('test that phasync::run() throws exception when blocked', function() {
     expect(function() {
-        run(function() {
-            phasync\sleep(0.01);
+        phasync::run(function() {
+            phasync::sleep(0.01);
             throw new Exception("Yes");
         });
     })->toThrow(new Exception("Yes"));
 });
 
-test('test error propagation in nested run() calls', function() {
+test('test error propagation in nested phasync::run() calls', function() {
     expect(function() {
-        run(function() {
-            run(function() {
+        phasync::run(function() {
+            phasync::run(function() {
                 throw new Exception("Inner Error");
             });
         });
@@ -65,13 +63,13 @@ test('test error propagation in nested run() calls', function() {
 
 test('test multiple concurrent runs', function() {
     $results = [];
-    run(function() use (&$results) {
-        phasync\go(function() use (&$results) {
-            phasync\sleep(0.02); // Slightly longer sleep
+    phasync::run(function() use (&$results) {
+        phasync::go(function() use (&$results) {
+            phasync::sleep(0.02); // Slightly longer sleep
             $results[] = 'Coroutine 1';
         });
 
-        phasync\go(function() use (&$results) {
+        phasync::go(function() use (&$results) {
             $results[] = 'Coroutine 2'; 
         });
     });
@@ -80,32 +78,32 @@ test('test multiple concurrent runs', function() {
     // Note: The order may vary due to concurrency 
 });
 
-test('test that run() throws a lost exception in an orphaned go()', function() {
+test('test that phasync::run() throws a lost exception in an orphaned go()', function() {
     expect(function() {
-        run(function() {
-            phasync\go(function() {
+        phasync::run(function() {
+            phasync::go(function() {
                 throw new Exception("Yes");
             });            
         });
     })->toThrow(new Exception("Yes"));
 });
 
-test('test that run() throws a lost exception in an orphaned go() when blocked', function() {
+test('test that phasync::run() throws a lost exception in an orphaned go() when blocked', function() {
     expect(function() {
-        run(function() {
-            phasync\go(function() {
+        phasync::run(function() {
+            phasync::go(function() {
                 throw new Exception("Yes");
             });            
-            phasync\sleep(0.1);
+            phasync::sleep(0.1);
         });
     })->toThrow(new Exception("Yes"));
 });
 
-test('test that run() throws the exception from the inner go, even when a return value is provided', function() {
+test('test that phasync::run() throws the exception from the inner go, even when a return value is provided', function() {
     expect(function() {
-        run(function() {
-            phasync\go(function() {
-                phasync\sleep(0.01);
+        phasync::run(function() {
+            phasync::go(function() {
+                phasync::sleep(0.01);
                 throw new Exception("Yes");
             });
             return 1;
@@ -113,7 +111,7 @@ test('test that run() throws the exception from the inner go, even when a return
     })->toThrow(new Exception("Yes"));
 });
 
-test('complex nested run() calls concurrently', function() {
+test('complex nested phasync::run() calls concurrently', function() {
     phasync::run(function() {
         $startTime = microtime(true);
         $totalTime = 0;
