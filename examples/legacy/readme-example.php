@@ -100,7 +100,7 @@ use function phasync\sleep;
  * yield to allow other coroutines to work, but resume immediately.
  */
 
-use function phasync\wait_idle;
+use function phasync\idle;
 /**
  * `wait_idle(): void`
  * 

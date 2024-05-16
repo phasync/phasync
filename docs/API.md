@@ -20,12 +20,12 @@ Parameters:
 
  * $coroutine: The coroutine to execute.
  * $arguments: Optional arguments to pass to the coroutine.
- * $context: Optional *unused* context to associate with this coroutine run.
+ * $context: Optional *fresh* context to associate with this coroutine run. This context MUST NOT be shared with other run instances.
 
 
 ### `phasync::go(Closure $coroutine, mixed ...$args): Fiber`
 
-Launches a new coroutine immediately without waiting for it to finish, effectively creating and starting a fiber in the background.
+Launches a new coroutine immediately without waiting for it to finish, effectively creating and starting a fiber that runs in the background.
 
 Parameters:
 

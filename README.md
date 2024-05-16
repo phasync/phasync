@@ -1,63 +1,127 @@
 # phasync: High-concurrency PHP
 
+Asynchronous programming should not be difficult. This is a new microframework for doing asynchronous programming in PHP. It tries to do for PHP, what the `asyncio` package does for Python, and what Go does by default. For some background from what makes *phasync* different from other asynchronous big libraries like *reactphp* and *amphp* is that *phasync* does not attempt to redesign how you program. *phasync* can be used in a single function, somewhere in your big application, just where you want to speed up some task by doing it in parallel.
+
+> The article [What color is your function?](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/) explains some of the approaches that have been used to do async programming in languages not designed for it. With Fibers, PHP 8.1 has native asynchronous IO built in. This library simplifies working with them, and is highly optimized for doing so.
+
 *phasync* brings Go-inspired concurrency to PHP, utilizing native and ultra-fast coroutines to manage thousands of simultaneous operations efficiently. By leveraging modern PHP features like fibers, *phasync* simplifies asynchronous programming, allowing for clean, maintainable code that performs multiple tasks simultaneously with minimal overhead.
-
-Transform how your applications handle IO-bound and CPU-intensive operations with non-blocking execution patterns. Whether building high-traffic web apps, data processing systems, or real-time APIs, *phasync* equips you with the tools to scale operations smoothly and reliably.
-
-## Basic concurrent HTTP requests example
-
-This example below actually works and both the URLs are downloaded asynchronously
-at the same time from both sources.
-
-```php
-<?php
-[$vg, $db] = run(function() {
-    $client = new HttpClient();
-    return [
-        $client->fetch('GET', 'https://www.vg.no')->getBody(),
-        $client->fetch('GET', 'https://www.db.no')->getBody()
-    ];
-});
-```
-
-You can even do:
-
-```php
-<?php
-[$vg, $db] = run(function() {
-    $wg = new WaitGroup();
-    
-    go(function() use ($wg) {
-        $wg->add();
-        for ($i = 0; $i < 100; $i++) {
-            phasync\sleep(0.1);
-            echo ".";
-        }
-    });
-    $client = new HttpClient();
-
-    $result = [
-        (string) $client->fetch('GET', 'https://www.vg.no')->getBody(),
-        (string) $client->fetch('GET', 'https://www.db.no')->getBody()
-    ];
-    
-    return $result;
-});
-```
-
 
 ## ChatGPT assistance!
 
 By pasting the `CHATBOT.txt` file into ChatGPT or your preferred chatbot, you can get assistance and ask questions about how to integrate `phasync` with your projects.
 
+## Making your code coroutine friendly
 
-## Integrate your libraries
+*phasync* does not take over your application and force you to restructure it. It is simply an efficient tool to run functions simultaneously in a limited context. Exceptions are thrown as you would expect - but *WITHOUT* the dreaded `->then()` and `->catch()` stuff.
 
-Existing libraries can easily be made non-blocking with `phasync`. The essence is to use the functions
-`phasync\Loop::readable($stream)` when you need to wait for a stream resource to become readable, or
-`phasync\Loop::writable($stream)` when you need to wait for a stream resource to become writable. Also,
-`phasync\fread()` and `phasync\fwrite()` can be used as alternatives.
+For example by sending multiple HTTP requests concurrently makes this is twice as fast:
 
+```php
+function do_some_requesting() {
+    return phasync::run(function() {
+        $httpClient = new phasync\HttpClient\HttpClient();
+        return [
+            // These use an internal coroutine via phasync::go()
+            $httpClient->get('https://www.vg.no/'),
+            $httpClient->get('https://github.com/')
+        ];
+    });    
+}
+```
+
+You can even parallize much more complex flows:
+
+```php
+function crawl_for_urls(string $baseUrl) {
+    return phasync::run(function() {
+        phasync::channel($reader, $writer);
+        $client = new HttpClient;
+        $queue = new SplQueue;
+        $queue->enqueue($baseUrl);
+        
+        // Launch 3 parallel workers, each waiting for messages from
+        // the `$reader` channel.
+        for ($i = 0; $i < 3; $i++) {
+            phasync::go(function() use ($reader, $client, $queue) {
+                while ($url = $reader->read()) {
+                    $body = (string) $client->get($url)->getBody();
+                    foreach (extract_urls_from_body($body) as $foundUrl) {
+                        $queue->enqueue($foundUrl);
+                    }
+                }
+            });
+        }
+        $alreadyCrawled = [];
+        while (!$queue->isEmpty()) {
+            $nextUrl = $queue->dequeue();
+            if (in_array($alreadyCrawled)) {
+                continue;
+            }
+            $alreadyCrawled[] = $nextUrl;
+            $writer->write($nextUrl);
+        }
+    });
+}
+```
+
+## Easily make any existing code *phasync* aware
+
+Transform how your applications handle IO-bound and CPU-intensive operations with non-blocking execution patterns. Whether building high-traffic web apps, data processing systems, or real-time APIs, *phasync* equips you with the tools to scale operations smoothly and reliably.
+
+The examples below should not affect how your application works. However, if some parts of your application uses phasync coroutines, it will immediately be able to run multiple IO operations at the same time.
+
+### Reading network or file streams
+
+```php
+// Instead of:
+$chunk = fread($fp, 4096);
+
+// Do this:
+phasync::readable($fp);
+$chunk = fread($fp, 4096);
+```
+
+### Writing files or network streams:
+
+```php
+// Instead of:
+$chunk = fwrite($fp, "Some data");
+
+// Do this:
+phasync::writable($fp);
+$chunk = fwrite($fp, "Some data");
+```
+
+### Waiting for network requests:
+
+```php
+// Instead of:
+$resource = stream_socket_accept($socket);
+
+// Do this:
+phasync::readable($socket);
+$resource = stream_socket_accept($socket);
+```
+
+### Performing an expensive blocking operation:
+
+*NOTE!* the `phasync::idle()` only sleeps if there is NOTHING else that could be done. Effectively it will wait until your application has nothing else to do before running your slow function. Most of the time it will not sleep at all.
+
+```php
+// Instead of:
+$n = fibonacci(32);
+
+// Do this:
+phasync::idle(0.1); // Wait at most 0.1 seconds for the application to become idle
+$n = fibonacci(32);
+
+// Instead of:
+$files = glob("*.txt");
+
+// Do this:
+phasync::idle(0.1);
+$files = glob("*.txt");
+```
 
 ## Work in progress
 
@@ -65,31 +129,21 @@ While the library seems to be stable, it has not been battle tested. We want ent
 
 Please contribute; we want asynchronous tools to work with:
 
-  * A `Process` class, for running background processes using `proc_open()`.
+ * A `Process` class, for running background processes using `proc_open()`. With a `Process` class, we could use a child `php` process to run functions that can't be made non-blocking, such as directory scans, dns lookups and so on. It can also be used to scale the application to utilize multiple CPU cores. Another use for such a class, is to run the `sqlite3` command as a separate process, allowing asynchronous queries to an sqlite3 database.
 
-    With a `Process` class, we could use a child `php` process to run functions that can't be made non-blocking, such as directory scans, dns lookups and so on. It can also be used to scale the application to utilize multiple CPU cores. Another use for such a class, is to run the `sqlite3` command as a separate process, allowing asynchronous queries to an sqlite3 database.
+ * An asynchronous `MySQL` driver built on top of `mysqli` which supports everything needed for asynchronous database access.
 
-  * An asynchronous `MySQL` driver built on top of `mysqli` which supports everything needed for asynchronous
-    database access.
-
-  * A `TcpServer` class, for developing fast and concurrent TCP servers using `stream_socket_server`.
+ * A `TcpServer` class, for developing fast and concurrent TCP servers using  `stream_socket_server`.
  
-    A `TcpServer` class should make developing TCP servers a breeze. See `phasync\TcpServer` for the work in progress. Combined with Channels, WaitGroups and Publishers, a lot of powerful services can be designed.
+   A `TcpServer` class should make developing TCP servers a breeze. See `phasync\TcpServer` for the work in progress. Combined with Channels, WaitGroups and Publishers, a lot of powerful services can be designed.
 
-    This class will be the foundation for various methods for serving phasync applications as standalone and
-    concurrent applications; `HttpServer` or `FastCGIServer`.
+   This class will be the foundation for various methods for serving phasync applications as standalone and concurrent applications; `HttpServer` or `FastCGIServer`.
 
-  * A `TcpClient` class which would simplify developing clients for important systems like `redis` or 
-    `memcached` that are also asynchronous.
+ * A `TcpClient` class which would simplify developing clients for important systems like `redis` or `memcached` that are also asynchronous.
 
-  * A `HttpClient` using `TcpClient` for asynchronous and concurrent requests using `curl_multi_init`.
+ * A `HttpClient` using `TcpClient` for asynchronous and concurrent requests using `curl_multi_init`.
 
-  * A `http://` and `https://` and `file://` stream wrapper for making these asynchronous.
-
-
-## Combine with your legacy code
-
-*phasync* is meticulously crafted to enhance your existing applications with powerful concurrency capabilities without requiring major architectural changes. The run() function initiates a coroutine and an event loop seamlessly within your current codebase, enabling you to add high-performance asynchronous operations.
+ * A `http://` and `https://` and `file://` stream wrapper for making these asynchronous.
 
 
 ### Example: Asynchronous File Processing in a Web Controller
@@ -104,10 +158,10 @@ class MyController {
     #[Route("/", "index")]
     public function index() {
         // Initiate the event loop within your existing controller method
-        run(function() {
+        phasync::run(function() {
             // Process each text file asynchronously
             foreach (glob('/some/path/*.txt') as $file) {
-                go(function() use ($file) {
+                phasync::go(function() use ($file) {
                     $data = file_get_contents($file);  // Non-blocking file read
                     do_something($data);  // Replace with your processing logic
                 });

@@ -10,6 +10,7 @@ final class ReadChannel implements ReadChannelInterface {
 
     public function __construct(ChannelBackendInterface $channel) {
         $this->channel = $channel;
+        
     }
 
     public function __destruct() {

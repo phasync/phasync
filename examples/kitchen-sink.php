@@ -1,9 +1,6 @@
 <?php
 require(__DIR__ . '/../vendor/autoload.php');
 
-// Just to trigger autoloading classes without interfering with the time measurement
-phasync::run(function(){phasync::waitGroup();phasync::channel($a,$b);});
-
 /**
  * Demo script to showcase much of the functionality of phasync.
  */
@@ -32,8 +29,7 @@ try {
         phasync::go(function() {
             echo elapsed() . "Idle work: Started idle work coroutine\n";
             for ($i = 0; $i < 10; $i++) {
-                // Wait at most 0.1 seconds
-                phasync::idle(0.1);
+                phasync::idle(0.1); // Wait until the event loop is waiting for IO, or at most 0.1 seconds. Useful before running costly functions.
                 $fib32 = fibonacci(32);
                 echo elapsed() . "Idle work: Fib 32 = $fib32\n";
             }
@@ -49,9 +45,9 @@ try {
             $wg->add();
             for ($i = 0; $i < 10; $i++) {
                 echo elapsed() . "Channel writer: Will write " . ($i + 1) . " to channel\n";
-                $writer->write("Count: " . ($i + 1) . " / 10");
+                $writer->write("Count: " . ($i + 1) . " / 10"); // This function may block the event loop
                 echo elapsed() . "Channel writer: Wrote to channel\n";
-                phasync::sleep(0.1);
+                phasync::sleep(0.1); // Pause the coroutine for 0.1 seconds and let other coroutines do some work
             }
             echo elapsed() . "Channel writer: Wait group done\n";
             $writer->close();
@@ -66,7 +62,6 @@ try {
         $future = phasync::go(function() use ($wg) {
             echo elapsed() . "Sleep: Started sleep coroutine\n";
             $wg->add();
-            // Simulate some work
             phasync::sleep(1);
             echo elapsed() . "Sleep: Wait group done\n";
             $wg->done();
@@ -85,10 +80,7 @@ try {
             for ($i = 0; $i < 100000000; $i++) {
                 if ($i % 7738991 == 0) {
                     echo elapsed() . "100 million: Counter at $i, may preempt\n";
-                    // The `phasync::preempt()` quickly checks if the coroutine
-                    // has run for more than 20 ms, and if so pauses it to allow
-                    // other coroutines to do some work.
-                    phasync::preempt();
+                    phasync::preempt(); // Provides an opportunity to switch to another coroutine.
                 }             
             }
             echo elapsed() . "100 million: Counter at $i. Wait group done\n";
@@ -189,4 +181,16 @@ function fibonacci(int $n) {
     if ($n < 1) return 0;
     if ($n < 3) return 1;
     return fibonacci($n-1) + fibonacci($n-2);
+}
+
+function async_read_file(string $filename): string {
+    $buffer = '';
+    $fp = fopen($filename, 'r');
+    while (!feof($fp)) {
+        phasync::readable($fp); // pauses the fiber until stream_select determines reading won't block (use phasync::writable($resource) for writes)
+        $chunk = fread($fp, 32768);
+        if (!is_string($chunk)) break;
+        $buffer .= $chunk;
+    }
+    return $buffer;
 }

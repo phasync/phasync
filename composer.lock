@@ -82,16 +82,16 @@
         },
         {
             "name": "charm/options",
-            "version": "1.1.0",
+            "version": "1.1.1",
             "source": {
                 "type": "git",
                 "url": "https://bitbucket.org/ennerd/charm-options.git",
-                "reference": "092066a4dbd91e7a977c09beef1042e4f1eb856f"
+                "reference": "5f543788815ead573c9faeed2314969eef86677f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://bitbucket.org/ennerd/charm-options/get/092066a4dbd91e7a977c09beef1042e4f1eb856f.zip",
-                "reference": "092066a4dbd91e7a977c09beef1042e4f1eb856f",
+                "url": "https://bitbucket.org/ennerd/charm-options/get/5f543788815ead573c9faeed2314969eef86677f.zip",
+                "reference": "5f543788815ead573c9faeed2314969eef86677f",
                 "shasum": ""
             },
             "type": "library",
@@ -116,9 +116,9 @@
             "description": "A generic class for storing options while enforcing option types.",
             "homepage": "https://bitbucket.org/ennerd/charm-options",
             "support": {
-                "source": "https://bitbucket.org/ennerd/charm-options/src/092066a4dbd91e7a977c09beef1042e4f1eb856f/?at=1.0.10"
+                "source": "https://bitbucket.org/ennerd/charm-options/src/5f543788815ead573c9faeed2314969eef86677f/?at=1.1.1"
             },
-            "time": "2022-06-21T23:38:21+00:00"
+            "time": "2024-05-16T08:07:39+00:00"
         },
         {
             "name": "psr/http-client",

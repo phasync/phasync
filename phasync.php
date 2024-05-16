@@ -8,6 +8,7 @@ use phasync\Internal\BufferedProcessChannel;
 use phasync\Internal\ChannelBuffered;
 use phasync\Internal\ChannelUnbuffered;
 use phasync\Internal\ChannelState2;
+use phasync\Internal\Publisher;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\ReadChannel2;
 use phasync\Internal\UnbufferedReadChannel;
@@ -189,7 +190,7 @@ final class phasync {
      * until it is done by returning or throwing.
      * 
      * @param Closure $coroutine 
-     * @param array $args 
+     * @param mixed ...$args 
      * @return Fiber 
      * @throws FiberError 
      * @throws Throwable 
@@ -521,6 +522,7 @@ final class phasync {
      * @return void 
      */
     public static function channel(?ReadChannelInterface &$readChannel, ?WriteChannelInterface &$writeChannel, int $bufferSize=0): void {
+        
         if ($bufferSize === 0) {
             $channel = new ChannelUnbuffered();            
             $writeChannel = new WriteChannel($channel);
@@ -547,10 +549,12 @@ final class phasync {
      * A publisher works like channels, but supports many subscribing coroutines
      * concurrently.
      * 
-     * @return PublisherInterface
+     * @param null|Publisher $publisher 
+     * @param null|WriteChannelInterface $writeChannel 
      */
-    public static function publisher(?ReadChannelInterface &$readChannel, ?WriteChannelInterface &$writeChannel): void {
-
+    public static function publisher(?Publisher &$publisher, ?WriteChannelInterface &$writeChannel): void {
+        self::channel($internalReadChannel, $writeChannel, 1);
+        $publisher = new Publisher($internalReadChannel);
     }
 
     /**

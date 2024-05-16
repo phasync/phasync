@@ -55,8 +55,7 @@ use phasync;
  * @throws Throwable 
  */
 function run(Closure $coroutine, mixed ...$args): mixed {
-    $result = phasync::run($coroutine, $args);
-    return $result;
+    return phasync::run($coroutine, $args);
 }
 
 /**
@@ -105,7 +104,7 @@ function sleep(float $seconds=0): void {
  * 
  * @return void 
  */
-function wait_idle(?float $timeout=null): void {
+function idle(?float $timeout=null): void {
     phasync::idle($timeout);
 }
 
