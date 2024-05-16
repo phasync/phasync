@@ -1,6 +1,6 @@
 {
     "name": "phasync/phasync",
-    "description": "Phasync fiber event loop",
+    "description": "phasync asyncio library for PHP, providing seamless and efficient coroutines via PHP fibers",
     "type": "library",
     "license": "MIT",
     "scripts": {
