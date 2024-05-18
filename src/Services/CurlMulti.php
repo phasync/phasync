@@ -46,6 +46,8 @@ final class CurlMulti {
         }
         // Block the Fiber that invoked this function
         phasync::awaitFlag($ch);
+        $result = \curl_multi_getcontent($ch) ?? false;
         \curl_multi_remove_handle(self::$curlMulti, $ch);
+        return $result;
     }
 }
