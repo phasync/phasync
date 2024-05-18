@@ -133,7 +133,7 @@ function file_get_contents(string $filename): string|false {
     try {
         while (!feof($fp)) {
             // Assume `readable` is a function that waits until the file pointer is readable.
-            $buffer = fread($fp, 8192);
+            $buffer = fread($fp, 65536);
             if ($buffer === false) {
                 throw new Exception("Read error with file '$filename'");
             }
