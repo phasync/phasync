@@ -131,6 +131,9 @@ final class phasync {
      */
     private static int $lastPreemptTime = 0;
 
+    private static array $onEnterCallbacks = [];
+    private static array $onExitCallbacks = [];
+
     /**
      * Register a coroutine/Fiber to run in the event loop and await the result.
      * Running a coroutine this way also ensures that the event loop will run
@@ -151,6 +154,11 @@ final class phasync {
             if (!$driver->getCurrentFiber()) {
                 // The event loop performs garbage collection at more optimal times.
                 \gc_disable();
+
+                // Run hooks when async context is enabled
+                foreach (self::$onEnterCallbacks as $exitCallback) {
+                    $exitCallback();
+                }
             }
     
             if ($context === null) {
@@ -178,6 +186,11 @@ final class phasync {
             if (!$driver->getCurrentFiber()) {
                 // Re-enable garbage collection
                 \gc_enable();
+
+                // Run hooks when async context is enabled
+                foreach (self::$onExitCallbacks as $exitCallback) {
+                    $exitCallback();
+                }
             }
         }
 
@@ -648,6 +661,28 @@ final class phasync {
     }
 
     /**
+     * Register a callback to be invoked whenever an application enters the event
+     * loop via a `phasync::run()` call.
+     * 
+     * @param Closure $enterCallback 
+     * @return void 
+     */
+    public static function onEnter(Closure $enterCallback): void {
+        self::$onEnterCallbacks[] = $enterCallback;
+    }
+
+    /**
+     * Register a callback to be invoked whenever an application exits the event
+     * loop after a `phasync::run()` call.
+     * 
+     * @param Closure $exitCallback 
+     * @return void 
+     */
+    public static function onExit(Closure $exitCallback): void {
+        self::$onExitCallbacks[] = $exitCallback;
+    }
+
+    /**
      * Set the interval between every time the {@see phasync::preempt()}
      * function will cause the coroutine to suspend running.
      * 
@@ -797,7 +832,7 @@ final class phasync {
      */
     public static function logUnhandledException(Throwable $exception): void {
         \error_log($exception->__toString(), $exception->getCode());
-    }
+    }    
 
     /**
      * Returns the driver instance for the application.
