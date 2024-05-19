@@ -10,7 +10,7 @@
         }
     ],
     "require": {
-        "php": "^8.1",
+        "php": "^8.2",
         "amphp/hpack": "^3.2",
         "charm/options": "^1.1",
         "psr/http-client": "^1.0",
