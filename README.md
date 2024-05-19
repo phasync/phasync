@@ -152,7 +152,7 @@ Please contribute; we want asynchronous tools to work with:
 
 ```php
 <?php
-require('../vendor/autoload.php');
+require '../vendor/autoload.php';
 use phasync\{run, go, file_get_contents};
 
 class MyController {
@@ -195,7 +195,7 @@ available in the `examples/` folder of this project.
 
 ```php
 <?php
-require('../vendor/autoload.php');
+require '../vendor/autoload.php';
 
 /**
  * Channel is an efficient method for coordinating coroutines.

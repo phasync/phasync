@@ -1,5 +1,5 @@
 <?php
-require("../vendor/autoload.php");
+require "../vendor/autoload.php";
 
 use phasync\Server\TcpConnection;
 use phasync\Server\TcpServer;

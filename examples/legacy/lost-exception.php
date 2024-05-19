@@ -2,7 +2,7 @@
 
 use function phasync\{run, go, sleep, await};
 
-require(__DIR__ . '/../vendor/autoload.php');
+require __DIR__ . '/../vendor/autoload.php';
 
 /**
  * This example demonstrates how an exception is surfaced to the top

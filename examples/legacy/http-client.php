@@ -4,7 +4,7 @@ use phasync\Legacy\Loop;
 
 use function phasync\run;
 
-require("../vendor/autoload.php");
+require "../vendor/autoload.php";
 
 /**
  * Asynchronous HTTP Client function with Loop::yield()

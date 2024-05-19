@@ -2,7 +2,7 @@
 
 use phasync\Server\HttpServer;
 
-require("../vendor/autoload.php");
+require "../vendor/autoload.php";
 
 use function phasync\{run, sleep, go, file_put_contents, await};
 
