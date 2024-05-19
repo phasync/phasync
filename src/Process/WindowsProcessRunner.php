@@ -32,7 +32,7 @@ final class WindowsProcessRunner implements ProcessInterface {
     private array $pipes;
 
     /**
-     * The last retreived status from proc_get_status()
+     * The last retrieved status from proc_get_status()
      *  
      * @var array{command: string, pid: int, running: bool, signaled: bool, stopped: bool, exitcode: int, termsig: int, stopsig: int}
      */

@@ -644,7 +644,7 @@ class OldStreamSelectDriverReal implements OldDriverInterface {
      * To ensure that no exceptions will be lost, an ExceptionHolder class is used.
      * When the Fiber is garbage collected, the ExceptionHolder instance will be
      * destroyed thanks to the WeakMap. The ExceptionHolder tracks if the exception
-     * is retreived. If it has not been retreived when the ExceptionHolders'
+     * is retrieved. If it has not been retrieved when the ExceptionHolders'
      * destructor is invoked, the exception will be attached to the nearest ancestor
      * Fiber.
      * 
