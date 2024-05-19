@@ -106,7 +106,7 @@ class TcpConnection extends EventEmitter {
             $chunk = \fread($this->socket, $length - $readBufferLength);
             if ($chunk === false) {
                 if ($this->readBuffer !== '') {
-                    // We'll pretend the error didn't occurr since we have buffered data
+                    // We'll pretend the error didn't occur since we have buffered data
                     return $this->readFromBuffer($length);
                 }
                 // Connection has failed

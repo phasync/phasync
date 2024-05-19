@@ -1,6 +1,6 @@
 # phasync: High-concurrency PHP
 
-**Encouragement:** Have some fun! phasync is a really fun environemnt to experiment developing long running applications in. For example an HTTP server involves opening a stream_socket_server() and then using phasync::readable() on th socket before accepting new http requests. Further use phasync::readable() or phasync::writable() before reading or writing to sockets. Pass each socket to a coroutine created with phasync::go(). You can write PHP applications that streams data, make a websocket library or even long polling or EventSource servers - so you can push data to the browser.
+**Encouragement:** Have some fun! phasync is a really fun environment to experiment developing long running applications in. For example an HTTP server involves opening a stream_socket_server() and then using phasync::readable() on th socket before accepting new http requests. Further use phasync::readable() or phasync::writable() before reading or writing to sockets. Pass each socket to a coroutine created with phasync::go(). You can write PHP applications that streams data, make a websocket library or even long polling or EventSource servers - so you can push data to the browser.
 
 Asynchronous programming should not be difficult. This is a new microframework for doing asynchronous programming in PHP. It tries to do for PHP, what the `asyncio` package does for Python, and what Go does by default. For some background from what makes *phasync* different from other asynchronous big libraries like *reactphp* and *amphp* is that *phasync* does not attempt to redesign how you program. *phasync* can be used in a single function, somewhere in your big application, just where you want to speed up some task by doing it in parallel.
 
@@ -31,7 +31,7 @@ function do_some_requesting() {
 }
 ```
 
-You can even parallize much more complex flows:
+You can even parallelize much more complex flows:
 
 ```php
 function crawl_for_urls(string $baseUrl) {

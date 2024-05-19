@@ -80,7 +80,7 @@ interface DriverInterface extends Countable {
     /**
      * Activate the Fiber immediately after the next tick. This will
      * not affect the system sleep interval and is useful for reacting
-     * to activity thay may have occurred in other Fiber instances.
+     * to activity that may have occurred in other Fiber instances.
      * 
      * @param Fiber $fiber 
      * @return void 

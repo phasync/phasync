@@ -63,7 +63,7 @@ final class StreamSelectDriver implements DriverInterface {
      * weren't handled by a terminated fiber is stored here in an
      * ExceptionHolder object. ExceptionHolder objects is a safe-
      * guard against unhandled exceptions, by using their destructor
-     * to check if the exception was retreived externally and if not,
+     * to check if the exception was retrieved externally and if not,
      * it should ensure that the exception surfaces.
      * 
      * @var WeakMap<Fiber, FiberExceptionHolder>
@@ -72,7 +72,7 @@ final class StreamSelectDriver implements DriverInterface {
 
     /**
      * When an exception is caught from the exception holder, it is
-     * moved here to ensure it can be retreived in the future, since
+     * moved here to ensure it can be retrieved in the future, since
      * multiple coroutines can await the same fiber and the exception
      * needs to be thrown also there. When an exception is stored here
      * it is assumed that it has been properly handled, and no longer
@@ -588,7 +588,7 @@ final class StreamSelectDriver implements DriverInterface {
             throw new LogicException("Can't get exception from a running fiber this way");
         }
         if (isset($this->fiberExceptions[$fiber])) {
-            // Exception has been retreived from the exception holder
+            // Exception has been retrieved from the exception holder
             // before.
             return $this->fiberExceptions[$fiber];
         } elseif (isset($this->fiberExceptionHolders[$fiber])) {
@@ -627,7 +627,7 @@ final class StreamSelectDriver implements DriverInterface {
      * To ensure that no exceptions will be lost, an ExceptionHolder class is used.
      * When the Fiber is garbage collected, the ExceptionHolder instance will be
      * destroyed thanks to the WeakMap. The ExceptionHolder tracks if the exception
-     * is retreived. If it has not been retreived when the ExceptionHolders'
+     * is retrieved. If it has not been retrieved when the ExceptionHolders'
      * destructor is invoked, the exception will be attached to the nearest ancestor
      * Fiber.
      * 

@@ -215,7 +215,7 @@ class HttpClientOptions extends AbstractOptions {
      * The maximum amount of HTTP redirections to follow. Use this
      * option alongside CURLOPT_FOLLOWLOCATION. Default value of 20
      * is set to prevent infinite redirects. Setting to -1 allows
-     * inifinite redirects, and 0 refuses all redirects.
+     * infinite redirects, and 0 refuses all redirects.
      * @var int
      */
     public ?int $maxRedirs = null;

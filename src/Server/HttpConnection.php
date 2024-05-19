@@ -98,7 +98,7 @@ class HttpConnection {
     /**
      * When sending a response with a fixed Content-Length,
      * this number tracks how much remains before the response
-     * is fully sent. If the value is -1 then chunked tranfer
+     * is fully sent. If the value is -1 then chunked transfer
      * is being used.
      * 
      * @var int

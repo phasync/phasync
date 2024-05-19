@@ -44,7 +44,7 @@ use phasync\WriteSelectableInterface;
  * For example, to monitor curl handles using multi_curl, a separate coroutine would be
  * launched using {@see phasync::go()} which will invoke curl_multi_exec(). It should
  * invoke {@see phasync::sleep(0.1)} or so, to avoid busy loops and ideally a single
- * such service coroutine manages all the curl handles accross the application. Fibers
+ * such service coroutine manages all the curl handles across the application. Fibers
  * that need notification would invoke phasync::awaitFlag($curlHandle) and the manager
  * coroutine would invoke phasync::raiseFlag($curlHandle) when the $curlHandle is done.
  * 
