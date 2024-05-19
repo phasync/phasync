@@ -3,7 +3,7 @@ which does not require any pecl extensions and can be installed with composer re
 Below I have provided a kitchen-sink demo app which should explain most of the library.
 
 <?php
-require(__DIR__ . '/../vendor/autoload.php');
+require __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Demo script to showcase much of the functionality of phasync.

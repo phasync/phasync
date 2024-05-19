@@ -3,7 +3,7 @@
 use phasync\Legacy\Channel\Channel;
 use function phasync\{run, go, sleep};
 
-require(__DIR__ . '/../vendor/autoload.php');
+require __DIR__ . '/../vendor/autoload.php';
 
 /**
  * This example demonstrates how the channel is automatically

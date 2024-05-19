@@ -2,7 +2,7 @@
 use phasync\Publisher\Publisher;
 use function phasync\{run, go, sleep};
 
-require(__DIR__ . '/../vendor/autoload.php');
+require __DIR__ . '/../vendor/autoload.php';
 
 /**
  * This example demonstrates how a Publisher can be used

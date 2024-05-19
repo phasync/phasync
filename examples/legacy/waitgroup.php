@@ -2,7 +2,7 @@
 use phasync\Util\WaitGroup;
 use function phasync\{run, go, file_get_contents, sleep};
 
-require(__DIR__ . '/../vendor/autoload.php');
+require __DIR__ . '/../vendor/autoload.php';
 
 $fileList = [__FILE__, 'coroutines.php', 'channel.php'];
 

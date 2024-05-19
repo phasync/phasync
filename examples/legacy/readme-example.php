@@ -1,5 +1,5 @@
 <?php
-require('../vendor/autoload.php');
+require '../vendor/autoload.php';
 
 /**
  * Channel is an efficient method for coordinating coroutines.

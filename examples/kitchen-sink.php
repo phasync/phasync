@@ -1,5 +1,5 @@
 <?php
-require(__DIR__ . '/../vendor/autoload.php');
+require __DIR__ . '/../vendor/autoload.php';
 
 /**
  * Demo script to showcase much of the functionality of phasync.

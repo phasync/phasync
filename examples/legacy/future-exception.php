@@ -2,7 +2,7 @@
 
 use phasync\Util\WaitGroup;
 
-require("../vendor/autoload.php");
+require "../vendor/autoload.php";
 
 use function phasync\{await, run, go, sleep};
 

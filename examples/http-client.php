@@ -1,5 +1,5 @@
 <?php
-require(__DIR__ . '/../vendor/autoload.php');
+require __DIR__ . '/../vendor/autoload.php';
 
 use phasync\HttpClient\HttpClient;
 use Psr\Http\Message\ResponseInterface;
