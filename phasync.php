@@ -142,13 +142,13 @@ final class phasync {
      * created from within another coroutine outside of the context, for example by
      * using a Channel.
      * 
-     * @param Closure $coroutine 
-     * @param array $arguments 
+     * @param Closure $fn 
+     * @param array $args 
      * @return mixed 
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function run(Closure $coroutine, ?array $arguments=[], ?ContextInterface $context=null): mixed {
+    public static function run(Closure $fn, ?array $args=[], ?ContextInterface $context=null): mixed {
         $driver = self::getDriver();
         try {
             if (!$driver->getCurrentFiber()) {
@@ -165,9 +165,7 @@ final class phasync {
                 $context = new DefaultContext();
             }
     
-            $fiber = $driver->create($coroutine, $arguments, $context);
-    
-            $result = self::await($fiber);
+            $fiber = $driver->create($fn, $args, $context);
     
             while ($context->getFibers()->count() > 0) {
                 if ($driver->getCurrentFiber()) {
@@ -177,7 +175,8 @@ final class phasync {
                 }
             }
     
-    
+            $result = self::await($fiber);
+        
             if ($exception = $context->getContextException()) {
                 throw $exception;
             }
@@ -383,6 +382,45 @@ final class phasync {
     }
 
     /**
+     * Schedule a closure to run when the current coroutine completes. This function
+     * is intended to be used when a coroutine uses a resource that must be cleaned
+     * up when the coroutine finishes. Note that it may be more efficient to use a
+     * try {} finally {} statement.
+     * 
+     * @param Closure $callable 
+     * @return void 
+     */
+    public static function finally(Closure $fn): void {
+        static $queues = null;
+        if ($queues === null) {
+            /**
+             * WeakMap allows this function to add more callbacks to the
+             * same coroutine.
+             * 
+             * @var WeakMap<Fiber, Closure[]>
+             */
+            $queues = new WeakMap();
+        }
+        $fiber = self::getFiber();
+
+        if (!isset($queues[$fiber])) {
+            $queues[$fiber] = [];
+        }
+        if (empty($queues[$fiber])) {
+            phasync::go(static function() use ($fiber, $queues) {
+                try {
+                    self::await($fiber);
+                } catch (Throwable) {}
+                while (!empty($queues[$fiber])) {
+                    \array_pop($queues[$fiber])();
+                }
+                unset($queues[$fiber]);
+            });
+        }
+        $queues[$fiber][] = $fn;
+    }
+
+    /**
      * Cancel a suspended coroutine. This will throw an exception inside the
      * coroutine. If the coroutine handles the exception, it has the opportunity
      * to clean up any resources it is using. The coroutine MUST be suspended
@@ -551,21 +589,25 @@ final class phasync {
      * complex data if you are certain the data will not be passed to other
      * processes.
      * 
-     * @param null|ReadChannelInterface $readChannel 
-     * @param null|WriteChannelInterface $writeChannel 
+     * If a function is passed in either argument, it will be run a coroutine
+     * with the ReadChannelInterface or the WriteChannelInterface as the first
+     * argument.
+     * 
+     * @param null|ReadChannelInterface $read 
+     * @param null|WriteChannelInterface $write 
      * @param int $bufferSize 
      * @return void 
      */
-    public static function channel(?ReadChannelInterface &$readChannel, ?WriteChannelInterface &$writeChannel, int $bufferSize=0): void {
-        
+    public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize=0): void {
+
         if ($bufferSize === 0) {
             $channel = new ChannelUnbuffered();            
-            $writeChannel = new WriteChannel($channel);
-            $readChannel = new ReadChannel($channel);
+            $write = new WriteChannel($channel);
+            $read = new ReadChannel($channel);
         } else {
             $channel = new ChannelBuffered($bufferSize);
-            $writeChannel = new WriteChannel($channel);
-            $readChannel = new ReadChannel($channel);
+            $write = new WriteChannel($channel);
+            $read = new ReadChannel($channel);
         }
     }
 
