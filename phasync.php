@@ -202,19 +202,41 @@ final class phasync {
      * with the current context, and will block the current coroutine from completing
      * until it is done by returning or throwing.
      * 
-     * @param Closure $coroutine 
-     * @param mixed ...$args 
+     * If parameter `$concurrent` is greater than 1, the returned coroutine will resolve
+     * into an array of return values or exceptions from each instance of the coroutine.
+     * 
+     * @param Closure $fn 
+     * @param array $args 
+     * @param int $concurrent 
      * @return Fiber 
-     * @throws FiberError 
-     * @throws Throwable 
+     * @throws LogicException
+     * @throws RuntimeException 
      */
-    public static function go(Closure $coroutine, mixed ...$args): Fiber {
+    public static function go(Closure $fn, array $args=[], int $concurrent = 1): Fiber {
+        if ($concurrent > 1) {
+            return self::go(static function() use ($fn, $args, $concurrent) {
+                $coroutines = [];
+                for ($i = 0; $i < $concurrent; $i++) {
+                    $coroutines[] = self::go($fn, $args);
+                }
+
+                $results = [];
+                foreach ($coroutines as $fiber) {
+                    try {
+                        $results[] = self::await($fiber);
+                    } catch (Throwable $e) {
+                        $results[] = $e;
+                    }
+                }
+                return $results;
+            });
+        }
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (!$fiber) {
             throw new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
         }
-        $result = $driver->create($coroutine, $args, null);
+        $result = $driver->create($fn, $args, null);
         self::preempt();
         return $result;
     }
