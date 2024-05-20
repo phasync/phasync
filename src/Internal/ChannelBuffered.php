@@ -4,9 +4,7 @@ namespace phasync\Internal;
 use Fiber;
 use phasync;
 use phasync\ChannelException;
-use phasync\Debug;
 use Serializable;
-use Throwable;
 
 /**
  * This is a highly optimized implementation of a bi-directional channel
@@ -18,9 +16,11 @@ use Throwable;
  * The implementation reaches around 500 000 reads and 500 000 writes
  * between a pair of coroutines on an AMD Ryzen 7 2700X.
  * 
+ * @internal
  * @package phasync
  */
 final class ChannelBuffered implements ChannelBackendInterface {
+    use SelectableTrait;
 
     const READY = 0;
     const BLOCKING_READS = 1;
@@ -54,6 +54,10 @@ final class ChannelBuffered implements ChannelBackendInterface {
         $this->creatingFiber = phasync::getFiber();
     }
 
+    public function selectWillBlock(): bool {
+        return $this->readWillBlock() || $this->writeWillBlock();
+    }
+
     private function enqueue(Fiber $fiber): void {
         self::$waiting[$this->id][$this->lastQueue++] = $fiber;
     }
@@ -74,7 +78,7 @@ final class ChannelBuffered implements ChannelBackendInterface {
     public function close(): void {
         if ($this->closed) {
             return;
-        }
+        }        
         $this->closed = true;
         while ($this->state === self::BLOCKING_READS) {
             $fiber = $this->dequeue();
@@ -84,6 +88,7 @@ final class ChannelBuffered implements ChannelBackendInterface {
             phasync::enqueueWithException($this->dequeue(), new ChannelException("Channel was closed"));
         }
         unset(self::$waiting[$this->id]);
+        $this->selectManager?->notify();
     }
 
     public function isClosed(): bool {
@@ -95,9 +100,12 @@ final class ChannelBuffered implements ChannelBackendInterface {
             throw new ChannelException("Channel is closed");
         }
 
-        if ($this->lastBuffer - $this->firstBuffer < $this->bufferSize && $this->state !== self::BLOCKING_READS) {
+        $bufferSize = $this->lastBuffer - $this->firstBuffer;
+
+        $this->selectManager?->notify();
+
+        if ($bufferSize < $this->bufferSize && $this->state !== self::BLOCKING_READS) {
             $this->buffer[$this->lastBuffer++] = $value;
-            
             return;
         }
 
@@ -133,10 +141,12 @@ final class ChannelBuffered implements ChannelBackendInterface {
         if ($this->bufferSize > 1) phasync::sleep();
     }
 
-    public function read(): Serializable|array|string|float|int|bool|null {
+    public function read(): Serializable|array|string|float|int|bool|null {        
         if ($this->closed) {
             return null;
         }
+
+        $this->selectManager?->notify();
 
         if ($this->firstBuffer < $this->lastBuffer && $this->state !== self::BLOCKING_WRITES) {
             $value = $this->buffer[$this->firstBuffer];

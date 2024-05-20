@@ -70,7 +70,15 @@ function crawl_for_urls(string $baseUrl) {
 
 Transform how your applications handle IO-bound and CPU-intensive operations with non-blocking execution patterns. Whether building high-traffic web apps, data processing systems, or real-time APIs, *phasync* equips you with the tools to scale operations smoothly and reliably.
 
-The examples below should not affect how your application works. However, if some parts of your application uses phasync coroutines, it will immediately be able to run multiple IO operations at the same time.
+To make disk IO operations asynchronous, transparently within coroutines you can use:
+
+```bash
+composer require phasync/file-streamwrapper
+```
+
+This makes even loading of classes not block other coroutines and you can continue using functions like `file_get_contents()`, `file_put_contents()` etc.
+
+If you wish to make network sockets asynchronous, you can follow the recipes below. You can safely use these methods outside of coroutines as well. They should not interfere with how your software works, but when the functions are used inside coroutines they will be using asynchronous IO to allow other coroutines work concurrently.
 
 ### Reading network or file streams
 
@@ -123,6 +131,89 @@ $files = glob("*.txt");
 // Do this:
 phasync::idle(0.1);
 $files = glob("*.txt");
+```
+
+
+## Utilities
+
+### Channels
+
+Channels are used to communicate between coroutines. Channels are special primitives which are created with `phasync::channel($readableChannel, $writableChannel, $bufferSize=0)`. The readable channel has a `read()` method which will return a value written to the writable channel. If there is no data available, the coroutine will be suspended until a writer writes to the channel. The writable channel similarly has a `write(Serializable|scalar $value)` method which will suspend the coroutine if the buffer is full or if there is no reader that is waiting for data. The buffer size allows you to enqueue values inside the channel.
+
+Channels are highly optimized and are able to immediately resume coroutines, so they can be used for efficient scheduling of work between coroutines. They automatically close the other channel whenever it is garbage collected, or if one side calls `$channel->close()`. The readable channel will return `null` when the channel is closed.
+
+For example if you have one coroutine designed to write to the disk or to update the database, and 10 coroutines crawling a website you can do this:
+
+```php
+phasync::run(function() {
+    phasync::channel($reader, $writer);
+
+    // The logger coroutine
+    phasync::go(function() use ($reader) {
+        $fp = fopen('some-log.txt', 'a');
+        while (null !== ($line = $reader->read())) {
+            // this is non-blocking if you install phasync/file-streamwrapper
+            fwrite($fp, trim($line) . "\n");
+        }
+        fclose($fp);
+    });
+
+    $writerNumber = 1;
+    phasync::go(concurrent: 5, fn: function() use ($writer, $writerNumber) {
+        $number = $writerNumber++;
+        for ($i = 0; $i < 10; $i++) {
+            $writer->write("From writer $writerNumber: This is message $i");
+        }
+    });
+});
+```
+
+### WaitGroups
+
+WaitGroups provides a small utility for allowing multiple different coroutines to complete their work. For example if you issue 10 simultaneous HTTP requests, you can use a WaitGroup to make sure all the 10 coroutines have completed their task.
+
+Example:
+
+```php
+phasync::run(function() {
+    $wg = new WaitGroup();
+
+    phasync::go(concurrent: 5, fn: function() use ($wg) {
+        $wg->add(); // Inform the WaitGroup that this coroutine will be performing some work
+        try {
+            // Do the work
+            phasync::sleep(0.5);
+        } finally {
+            $wg->done();
+        }
+    });
+
+    // Wait until the 5 coroutines have finished their work
+    $wg->wait();
+});
+```
+
+### Publisher
+
+To guarantee delivery of messages and events to multiple coroutines, even if a coroutine is blocked, you can use a publisher. The publisher is an implementation of the publisher/subscriber, so any message written to the publisher will be received in order by all subscribers. Similar to channels, these are phasync primitives that you create with `phasync::publisher($delivery, $publisher)`.
+
+Example:
+
+```php
+phasync::run(function() {
+    phasync::publisher($source, $writeChannel);
+
+    // Launch 10 subscribers:
+    phasync::go(concurrent: 10, fn: function() use ($source) {
+        $readChannel = $delivery->subscribe();
+        while ($line = $readChannel->read()) {
+            echo "Subscriber got " . trim($line) . "\n";
+        }
+    });
+
+    $writeChannel->write("First");
+    $writeChannel->write("Second");
+});
 ```
 
 ## Work in progress

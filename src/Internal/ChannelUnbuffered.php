@@ -2,12 +2,12 @@
 namespace phasync\Internal;
 
 use Fiber;
+use IteratorAggregate;
 use phasync;
 use phasync\ChannelException;
-use phasync\Debug;
 use Serializable;
 use SplQueue;
-use Throwable;
+use Traversable;
 
 /**
  * This is a highly optimized implementation of a bi-directional channel
@@ -21,7 +21,8 @@ use Throwable;
  * 
  * @package phasync
  */
-final class ChannelUnbuffered implements ChannelBackendInterface {
+final class ChannelUnbuffered implements ChannelBackendInterface, IteratorAggregate {
+    use SelectableTrait;
 
     const READY = 0;
     const BLOCKING_READS = 1;
@@ -49,6 +50,16 @@ final class ChannelUnbuffered implements ChannelBackendInterface {
         $this->creatingFiber = phasync::getFiber();
     }
 
+    public function getIterator(): Traversable {
+        while (!$this->isClosed()) {
+            yield $this->read();
+        }
+    }
+
+    public function selectWillBlock(): bool {
+        return $this->readWillBlock() || $this->writeWillBlock();
+    }
+
     public function __destruct() {
         $this->closed = true;
         unset(self::$waiting[$this->id]);
@@ -68,6 +79,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface {
                 phasync::enqueueWithException(self::$waiting[$this->id]->dequeue(), new ChannelException("Channel was closed"));
             }    
         }
+        $this->selectManager?->notify();
     }
 
     public function isClosed(): bool {
@@ -78,6 +90,8 @@ final class ChannelUnbuffered implements ChannelBackendInterface {
         if ($this->closed) {
             throw new ChannelException("Channel is closed");
         }
+
+        $this->selectManager?->notify();
 
         $fiber = phasync::getFiber();
 
@@ -116,6 +130,8 @@ final class ChannelUnbuffered implements ChannelBackendInterface {
         if ($this->closed) {
             return null;
         }
+
+        $this->selectManager?->notify();
 
         $fiber = phasync::getFiber();
 

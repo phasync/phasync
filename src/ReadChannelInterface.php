@@ -3,8 +3,18 @@ namespace phasync;
 
 use RuntimeException;
 use Serializable;
+use Traversable;
 
-interface ReadChannelInterface extends ReadSelectableInterface {
+/**
+ * A readable channel provides messages asynchronously from various sources.
+ * Messages must be serializable. Reading when no message will return `null`
+ * when the channel is closed, and will block the coroutine if no messages
+ * are buffered. The coroutine will be resumed as soon as another coroutine
+ * writes to the channel.
+ * 
+ * @package phasync
+ */
+interface ReadChannelInterface extends SelectableInterface, Traversable {
 
     /**
      * Closes the channel.

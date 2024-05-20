@@ -4,11 +4,14 @@ namespace phasync\Util;
 use FiberError;
 use LogicException;
 use phasync;
+use phasync\Internal\SelectableTrait;
+use phasync\SelectableInterface;
 use Throwable;
+use WeakMap;
 
 /**
- * This class provides an efficient tool for waiting until multiple
- * coroutines have completed their task.
+ * This class provides an efficient tool for waiting until multiple coroutines have
+ * completed their task.
  * 
  * Example:
  * 
@@ -32,8 +35,14 @@ use Throwable;
  * 
  * @package phasync
  */
-final class WaitGroup {
+final class WaitGroup implements SelectableInterface {
+    use SelectableTrait;
+
     private int $counter = 0;
+
+    public function selectWillBlock(): bool {
+        return $this->counter > 0;
+    }
 
     /**
      * Add work to the WaitGroup.
@@ -57,6 +66,7 @@ final class WaitGroup {
         if (--$this->counter === 0) {
             // Activate any waiting coroutines
             phasync::raiseFlag($this);
+            $this->selectManager?->notify();
         }
     }
 

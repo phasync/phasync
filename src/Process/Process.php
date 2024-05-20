@@ -21,7 +21,7 @@ final class Process {
      * @param null|array $env The environment variables for the child process (if null, the current env is inherited)
      * @return ProcessInterface 
      */
-    public static function background(string $command, array $arguments=[], ?string $cwd=null, ?array $env=null): ProcessInterface {
+    public static function run(string $command, array $arguments=[], ?string $cwd=null, ?array $env=null): ProcessInterface {
         if (\PHP_OS_FAMILY === 'Windows') {
             return new WindowsProcessRunner([$command, ...$arguments], $cwd, $env);
         } else {

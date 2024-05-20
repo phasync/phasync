@@ -6,7 +6,7 @@ namespace phasync\Internal;
  * messages from a single readable channel via ChannelSubscriber.
  * 
  * @internal
- * @package phasync\Internal
+ * @package phasync
  */
 final class ChannelMessage {
     public mixed $message = null;

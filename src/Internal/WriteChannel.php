@@ -4,12 +4,21 @@ namespace phasync\Internal;
 use phasync\WriteChannelInterface;
 use Serializable;
 
+/**
+ * This object is the writable end of a phasync channel.
+ * 
+ * @package phasync\Internal
+ */
 final class WriteChannel implements WriteChannelInterface {
 
     private ChannelBackendInterface $channel;
 
     public function __construct(ChannelBackendInterface $channel) {
         $this->channel = $channel;
+    }
+
+    public function getSelectManager(): SelectManager {
+        return $this->channel->getSelectManager();
     }
 
     public function __destruct() {
@@ -32,7 +41,7 @@ final class WriteChannel implements WriteChannelInterface {
         return $this->channel->isWritable();
     }
 
-    public function writeWillBlock(): bool {
+    public function selectWillBlock(): bool {
         return $this->channel->writeWillBlock();
     }
 

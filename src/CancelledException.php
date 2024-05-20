@@ -4,6 +4,9 @@ namespace phasync;
 
 use RuntimeException;
 
-class CancelledException extends RuntimeException {
-    
-}
+/**
+ * The operation that was being awaited has been cancelled.
+ * 
+ * @package phasync
+ */
+class CancelledException extends RuntimeException {}

@@ -3,7 +3,7 @@ namespace phasync;
 
 use Serializable;
 
-interface WriteChannelInterface extends WriteSelectableInterface {
+interface WriteChannelInterface extends SelectableInterface {
 
     /**
      * Closes the channel.

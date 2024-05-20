@@ -1,16 +1,24 @@
 <?php
 namespace phasync\Internal;
 
+use IteratorAggregate;
 use phasync;
 use phasync\ReadChannelInterface;
+use phasync\TimeoutException;
 use phasync\WriteChannelInterface;
 use stdClass;
+use Throwable;
+use Traversable;
 
 /**
+ * This class will read all messages from a ReadChannelInterface object, and allow
+ * other coroutines to subscribe to all messages emitted from that readchannel via
+ * a subscription object.
+ * 
  * @internal
- * @package phasync\Internal
+ * @package phasync
  */
-final class Publisher {
+final class Publisher implements IteratorAggregate {
 
     private ReadChannelInterface $readChannel;
     private ChannelMessage $lastMessage;
@@ -35,25 +43,49 @@ final class Publisher {
         });
     }
 
+    public function getSelectManager(): SelectManager {
+        return $this->readChannel->getSelectManager();
+    }
+
+    /**
+     * Get a new subscription for the read channel.
+     * 
+     * @return Subscriber 
+     */
+    public function subscribe(): Subscriber {
+        return new Subscriber($this);
+    }
+
+    /**
+     * Subscribe to messages via a generator.
+     * 
+     * @return Traversable<mixed, mixed> 
+     */
+    public function getIterator(): Traversable {
+        yield from $this->subscribe();
+    }
+
     /**
      * Returns the first message that is available
      * 
+     * @internal
      * @return ChannelMessage 
      */
     public function getStartMessage(): ChannelMessage {
         return $this->lastMessage;
     }
 
-    public function readMore(): void {
+    /**
+     * Subscribers will be suspended until more data is available
+     * from the read channel.
+     * 
+     * @internal
+     * @return void 
+     * @throws TimeoutException 
+     * @throws Throwable 
+     */
+    public function wait(): void {
         phasync::raiseFlag($this->requestReadFlag);
         phasync::awaitFlag($this->notifyMessageFlag);
-    }
-
-    public function __destruct() {
-        echo "Destruct publisher\n";
-    }
-
-    public function subscribe(): Subscriber {
-        return new Subscriber($this);
     }
 }

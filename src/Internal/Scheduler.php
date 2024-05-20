@@ -7,7 +7,10 @@ use SplMinHeap;
 use SplObjectStorage;
 
 /**
+ * This class uses a min-heap to provide fibers in the order they are scheduled
+ * according to a time stamp.
  * 
+ * @internal
  * @package phasync\Util
  */
 class Scheduler extends SplMinHeap {

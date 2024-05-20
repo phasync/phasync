@@ -4,19 +4,14 @@ use phasync\Context\DefaultContext;
 use phasync\Debug;
 use phasync\Drivers\DriverInterface;
 use phasync\Drivers\StreamSelectDriver;
-use phasync\Internal\BufferedProcessChannel;
 use phasync\Internal\ChannelBuffered;
 use phasync\Internal\ChannelUnbuffered;
-use phasync\Internal\ChannelState2;
 use phasync\Internal\Publisher;
 use phasync\Internal\ReadChannel;
-use phasync\Internal\ReadChannel2;
-use phasync\Internal\UnbufferedReadChannel;
-use phasync\Internal\UnbufferedWriteChannel;
 use phasync\Internal\WriteChannel;
-use phasync\Internal\WriteChannel2;
 use phasync\ReadChannelInterface;
 use phasync\ReadSelectableInterface;
+use phasync\SelectableInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
 use phasync\WriteChannelInterface;
@@ -355,30 +350,38 @@ final class phasync {
     /**
      * Block until one of the selectable objects or fibers terminate
      * 
-     * @param (ReadSelectableInterface|WriteSelectableInterface)[] $selectables 
+     * @param SelectableInterface[] $selectables 
      * @param null|float $timeout 
      * @return ReadSelectableInterface 
      * @throws LogicException 
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function select(array $selectables, ?float $timeout=null): ?ReadSelectableInterface {
+    public static function select(array $selectables, ?float $timeout=null): ?SelectableInterface {
         if (self::getDriver()->getCurrentFiber() === null) {
             throw new LogicException("Can't use phasync::select() outside of phasync. Use `phasync::run()` to launch a context.");
         }
         $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
-        do {
-            foreach ($selectables as $i => $selectable) {
-                if ($selectable instanceof ReadSelectableInterface && !$selectable->readWillBlock()) {
-                    return $selectable;
+        $selectFlag = new stdClass;
+        try {
+            while (true) {
+                foreach ($selectables as $selectable) {
+                    if (!$selectable->selectWillBlock()) {
+                        return $selectable;
+                    }
+                    $selectable->getSelectManager()->addFlag($selectFlag);
                 }
-                if ($selectable instanceof WriteSelectableInterface && !$selectable->writeWillBlock()) {
-                    return $selectable;
+                try {
+                    phasync::awaitFlag($selectFlag, $stopTime - \microtime(true));
+                } catch (TimeoutException) {
+                    return null;
                 }
+            }    
+        } finally {
+            foreach ($selectables as $selectable) {
+                $selectable->getSelectManager()->removeFlag($selectFlag);
             }
-            self::yield();
-        } while ($stopTime >= \microtime(true) && !empty($selectables));
-        return null;
+        }
     }
 
     /**
@@ -599,7 +602,6 @@ final class phasync {
      * @return void 
      */
     public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize=0): void {
-
         if ($bufferSize === 0) {
             $channel = new ChannelUnbuffered();            
             $write = new WriteChannel($channel);
@@ -612,17 +614,6 @@ final class phasync {
     }
 
     /**
-     * Wait groups are used to coordinate multiple coroutines. A coroutine can add work
-     * to the wait group when the coroutine begins processing the task, and then notify
-     * the wait group that the work is done.
-     * 
-     * @return WaitGroup 
-     */
-    public static function waitGroup(): WaitGroup {
-        return new WaitGroup();
-    }
-
-    /**
      * A publisher works like channels, but supports many subscribing coroutines
      * concurrently.
      * 
@@ -632,6 +623,18 @@ final class phasync {
     public static function publisher(?Publisher &$publisher, ?WriteChannelInterface &$writeChannel): void {
         self::channel($internalReadChannel, $writeChannel, 1);
         $publisher = new Publisher($internalReadChannel);
+    }
+
+    /**
+     * Wait groups are used to coordinate multiple coroutines. A coroutine can add work
+     * to the wait group when the coroutine begins processing the task, and then notify
+     * the wait group that the work is done.
+     * 
+     * @deprecated It's generally better to just construct `new WaitGroup()`.
+     * @return WaitGroup 
+     */
+    public static function waitGroup(): WaitGroup {
+        return new WaitGroup();
     }
 
     /**

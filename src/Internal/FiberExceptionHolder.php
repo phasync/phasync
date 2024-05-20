@@ -4,12 +4,21 @@ namespace phasync\Internal;
 use Closure;
 use Fiber;
 use LogicException;
-use NunoMaduro\Collision\Adapters\Laravel\ExceptionHandler;
 use phasync;
-use RuntimeException;
 use Throwable;
 use WeakReference;
 
+/**
+ * This class stores an exception object that is associated with a Fiber in
+ * phasync. If the exception holder is garbage collected, the handler is
+ * invoked with the exception. Ideally, the exception should be retrieved
+ * with the {@see FiberExceptionHolder::get()} method. After this, the
+ * FiberExceptionHolder instance should be returned to the object pool
+ * for reuse.
+ * 
+ * @internal
+ * @package phasync
+ */
 final class FiberExceptionHolder {
 
     /**
@@ -75,9 +84,7 @@ final class FiberExceptionHolder {
             if ($this->handler) {
                 ($this->handler)($exception, $this->fiberRef);
             } else {
-                debug_print_backtrace();
-                die("UNHANDLED EXCEPTION NOT FETCHED");
-                phasync::logUnhandledException($exception);
+                throw $exception;
             }
         }
     }

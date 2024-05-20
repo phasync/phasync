@@ -18,10 +18,14 @@ use Traversable;
 use WeakMap;
 
 /**
- * Stores Fiber instances until this object is garbage collected
- * or the Fibers are explicitly released.
+ * This class stores fiber instances associated with a flag. It
+ * is designed to be used in a WeakMap, so that if the flag object
+ * is garbage collected, then the destructor of this object will
+ * ensure that all Fiber instances waiting to be resumed are
+ * resumed with an exception.
  *
- * @package phasync\Util
+ * @internal
+ * @package phasync
  */
 final class Flag implements ObjectPoolInterface {
     use ObjectPoolTrait;

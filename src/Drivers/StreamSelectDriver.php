@@ -5,13 +5,11 @@ use Closure;
 use Fiber;
 use InvalidArgumentException;
 use LogicException;
-use phasync;
 use phasync\CancelledException;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
 use phasync\Drivers\DriverInterface;
 use phasync\TimeoutException;
-use phasync\Internal\ClosureStore;
 use phasync\Debug;
 use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
@@ -112,22 +110,10 @@ final class StreamSelectDriver implements DriverInterface {
      */
     private array $streamFibers = [];
 
-
-    /**
-     * Closures that will be invoked when the current Fiber
-     * terminates. {@see self::defer()}. The ClosureStore
-     * will invoke the closures when it is garbage collected,
-     * in case the event loop does not invoke the closures
-     * when it detects that the fiber is terminated.
-     * 
-     * @var WeakMap<Fiber, ClosureStore>
-     */
-    private WeakMap $deferredClosures;
-
     /**
      * Holds a reference to fibers that are waiting for a flag to be
-     * raised. The FiberStore will automatically resume all fibers
-     * if the flag object is garbage collected.
+     * raised. The Flag object will automatically resume all fibers
+     * if the object is garbage collected.
      * 
      * @var WeakMap<object, Flag>
      */
@@ -172,7 +158,6 @@ final class StreamSelectDriver implements DriverInterface {
         $this->fiberExceptionHolders = new WeakMap();
         $this->fiberExceptions = new WeakMap();
         $this->scheduler = new Scheduler();
-        $this->deferredClosures = new WeakMap();
         $this->flaggedFibers = new WeakMap();
         $this->flagGraph = new WeakMap();
         $this->idleFlag = new stdClass();

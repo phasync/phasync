@@ -1,15 +1,12 @@
 <?php
 namespace phasync\Internal;
 
-use LogicException;
-use phasync;
+use IteratorAggregate;
 use phasync\ReadChannelInterface;
-use phasync\WriteChannelInterface;
 use Serializable;
-use WeakMap;
-use WeakReference;
+use Traversable;
 
-final class Subscriber implements ReadChannelInterface {
+final class Subscriber implements ReadChannelInterface, IteratorAggregate {
 
     private ?Publisher $publisher;
     private ChannelMessage $currentMessage;
@@ -18,6 +15,26 @@ final class Subscriber implements ReadChannelInterface {
         $this->publisher = $publisher;
         $this->currentMessage = $this->publisher->getStartMessage();
 
+    }
+
+    public function getSelectManager(): SelectManager {
+        return $this->publisher->getSelectManager();
+    }
+
+    public function selectWillBlock(): bool {
+        if (!$this->publisher) {
+            return false;
+        }
+        if ($this->currentMessage->next) {
+            return false;
+        }
+        return true;
+    }
+
+    public function getIterator(): Traversable {
+        while (null !== ($message = $this->read())) {
+            yield $message;
+        }
     }
 
     public function __destruct() {
@@ -37,7 +54,7 @@ final class Subscriber implements ReadChannelInterface {
             return null;
         }
         if (!$this->currentMessage->next) {
-            $this->publisher->readMore();
+            $this->publisher->wait();
         }
         $message = $this->currentMessage->message;
         $this->currentMessage = $this->currentMessage->next;
@@ -51,14 +68,4 @@ final class Subscriber implements ReadChannelInterface {
         return $this->publisher !== null;
     }
 
-    public function readWillBlock(): bool {
-        if (!$this->publisher) {
-            return false;
-        }
-        if ($this->currentMessage->next) {
-            return false;
-        }
-        return true;
-    }
 }
-

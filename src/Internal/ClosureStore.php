@@ -10,23 +10,26 @@ use RuntimeException;
 use Traversable;
 
 /**
- * Stores Closure instances until this object is garbage collected
- * or the Closure is explicitly released.
+ * This class stores callbacks, and ensures that the callbacks are invoked if the object
+ * is garbage collected. Garbage collection is considered accidental, and ideally the
+ * application should retrieve the closures and invoke them and return the ClosureStore
+ * object to the object pool.
  *
- * @package phasync\Util
+ * @internal
+ * @package phasync
  */
-final class ClosureStore implements Countable, IteratorAggregate {
+final class ClosureStore_niu implements Countable, IteratorAggregate {
 
     private static array $pool = [];
 
-    public static function create(mixed $data, Closure $onGarbageCollect = null): ClosureStore {
+    public static function create(mixed $data, Closure $onGarbageCollect = null): self {
         if (self::$pool !== []) {
             $cs = \array_pop(self::$pool);
             $cs->data = $data;
             $cs->onGarbageCollect = $onGarbageCollect;
             return $cs;
         } else {
-            return new ClosureStore($onGarbageCollect);
+            return new self($onGarbageCollect);
         }
     }    
 

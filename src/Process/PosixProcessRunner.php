@@ -3,6 +3,7 @@ namespace phasync\Process;
 
 use FiberError;
 use LogicException;
+use phasync;
 use phasync\Legacy\Loop;
 use RuntimeException;
 use Throwable;
@@ -92,13 +93,13 @@ final class PosixProcessRunner implements ProcessInterface {
             $this->sigterm();
             $t = microtime(true);
             while ($this->isRunning() && microtime(true) - $t < 1) {
-                Loop::sleep(0.1);
+                phasync::sleep(0.05);
             }
             if ($this->isRunning()) {
                 $this->sigkill();
             }
             while ($this->isRunning() && microtime(true) - $t < 5) {
-                Loop::sleep(0.1);
+                phasync::sleep(0.05);
             }
         }
         return !$this->isRunning();
@@ -260,8 +261,8 @@ final class PosixProcessRunner implements ProcessInterface {
      * @param int $fd The file descriptor number
      * @return null|string 
      */
-    public function read(int $fd=1): string|false {
-        Loop::readable($this->pipes[$fd]);
+    public function read(int $fd=ProcessInterface::STDOUT): string|false {
+        phasync::readable($this->pipes[$fd]);
         return \stream_get_contents($this->pipes[$fd]);
     }
 
@@ -274,11 +275,11 @@ final class PosixProcessRunner implements ProcessInterface {
      * @throws FiberError 
      * @throws Throwable 
      */
-    public function write(int $fd=0, string $data): int|false {
+    public function write(string $data, int $fd=ProcessInterface::STDIN): int|false {
         if (!$this->isRunning()) {
             return false;
         }
-        Loop::writable($this->pipes[$fd]);
+        phasync::writable($this->pipes[$fd]);
         return \fwrite($this->pipes[$fd], $data);
     }
 
