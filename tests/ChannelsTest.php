@@ -188,3 +188,57 @@ test('channels memory leaking', function() {
     }
     expect($memStart)->toBeGreaterThan(memory_get_usage(true) - 500000);
 });
+
+test('unbuffered channel tests', function() {
+    phasync::run(function() {
+        phasync::channel($r, $w, 0);
+        phasync::go(function() use ($r) {
+            expect($r->read())->toBe(1);
+            expect($r->read())->toBeNull();
+        });
+        phasync::go(function() use ($w) {
+            $w->write(1);
+        });
+    });
+    phasync::run(function() {
+        phasync::channel($r, $w, 0);
+        phasync::go(function() use ($r) {
+            expect($r->read())->toBe(1);
+            expect($r->read())->toBeNull();
+        });
+        $w->write(1);
+    });
+    phasync::run(function() {
+        phasync::channel($r, $w, 0);
+        phasync::go(function() use ($r) {
+            expect($r->read())->toBeNull();
+        });
+    });
+});
+
+test('buffered channel tests', function() {
+    phasync::run(function() {
+        phasync::channel($r, $w, 1);
+        phasync::go(function() use ($r) {
+            expect($r->read())->toBe(1);
+            expect($r->read())->toBeNull();
+        });
+        phasync::go(function() use ($w) {
+            $w->write(1);
+        });
+    });
+    phasync::run(function() {
+        phasync::channel($r, $w, 1);
+        phasync::go(function() use ($r) {
+            expect($r->read())->toBe(1);
+            expect($r->read())->toBeNull();
+        });
+        $w->write(1);
+    });
+    phasync::run(function() {
+        phasync::channel($r, $w, 1);
+        phasync::go(function() use ($r) {
+            expect($r->read())->toBeNull();
+        });
+    });
+});
