@@ -24,8 +24,7 @@ class AsyncStream {
         }
 
         $metadata = \stream_get_meta_data($resource);
-
-        if ($metadata['wrapper_type'] === 'user-space') {
+        if (isset($metadata['wrapper_type']) && $metadata['wrapper_type'] === 'user-space') {
             return $resource;
         }
 
@@ -39,7 +38,7 @@ class AsyncStream {
 
         stream_wrapper_register('phasyncio', self::class);
 
-        $wrappedResource = fopen('phasyncio://' . $metadata['uri'], '', false, stream_context_create($options));
+        $wrappedResource = fopen('phasyncio://' . ($metadata['uri'] ?? 'void'), '', false, stream_context_create($options));
 
         stream_wrapper_unregister('phasyncio');
 
@@ -50,7 +49,6 @@ class AsyncStream {
         if (!$this->context) {
             return false;
         }
-
         $ctxOptions = stream_context_get_options($this->context);
         if (!isset($ctxOptions['phasyncio']['resource'])) {
             if ($options & STREAM_REPORT_ERRORS) {
@@ -70,7 +68,9 @@ class AsyncStream {
 
         stream_set_blocking($this->resource, false);
         $metadata = stream_get_meta_data($this->resource);
-        $opened_path = $metadata['uri'];
+        if (isset($metadata['uri'])) {
+            $opened_path = $metadata['uri'];
+        }
 
         return $this->resource !== false;
     }

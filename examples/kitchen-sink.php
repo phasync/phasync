@@ -1,4 +1,8 @@
 <?php
+
+use phasync\ChannelException;
+use phasync\Util\WaitGroup;
+
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
@@ -11,7 +15,37 @@ try {
         /**
          * A wait group simplifies waiting for multiple coroutines to complete
          */
-        $wg = phasync::waitGroup();
+        $wg = new WaitGroup();
+        /**
+         * Create a publish-subscribe channel
+         */
+        phasync::publisher($subscriptions, $publisher);
+        echo "HER\n";
+
+        phasync::go(function() use ($subscriptions) {
+            foreach ($subscriptions as $chunk) {
+                echo elapsed() . "First subscriber got chunk: '".trim($chunk)."'\n";
+            }
+            echo elapsed() . "First subscriber done\n";
+        });
+
+        phasync::go(function() use ($subscriptions) {
+            phasync::sleep(0.5);
+            foreach ($subscriptions as $chunk) {
+                echo elapsed() . " Delayed subscriber got chunk: '".trim($chunk)."'\n";
+            }
+            echo elapsed() . "Delayed subscriber done\n";
+        });
+
+        try {
+            $publisher->write("First chunk for only the first subscriber");
+        } catch (ChannelException $e) {
+            echo elapsed() . " Can't activate the channel from within the same coroutine that created it\n";
+        }
+
+        phasync::go(function() use ($publisher) {
+            $publisher->write("First chunk for only the first subscriber");
+        });
 
         /**
          * A channel provides a way for a coroutine to pass execution over to
@@ -147,6 +181,7 @@ try {
          * resume.
          */
         $wg->wait();
+        echo elapsed() . "----\n";
         echo elapsed() . "Main run context: Wait group finished\n";
 
         try {

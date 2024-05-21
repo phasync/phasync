@@ -3,6 +3,10 @@ which does not require any pecl extensions and can be installed with composer re
 Below I have provided a kitchen-sink demo app which should explain most of the library.
 
 <?php
+
+use phasync\ChannelException;
+use phasync\Util\WaitGroup;
+
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
@@ -10,29 +14,60 @@ require __DIR__ . '/../vendor/autoload.php';
  */
 $t = \microtime(true);
 try {
-    /**
-     * The phasync::run() function establishes an event loop that will
-     * run until all coroutines are finished, so it can safely be used
-     * in existing applications whenever async code is useful, for example
-     * in a laravel controller.
-     */
     phasync::run(function() {
+
+        /**
+         * Make the stream resource non-blocking via a stream wrapper
+         * (does not work for server sockets)
+         */
+        $fp = phasync::io(fopen(__FILE__, 'r'));
+        if ($fp === false) {
+            echo "Failed opening\n";
+        }
+        phasync::go(function() use ($fp) {
+            echo elapsed()." Read " . \strlen(\fread($fp, 1024)) . " bytes\n";
+            fclose($fp);
+        });
 
         /**
          * A wait group simplifies waiting for multiple coroutines to complete
          */
-        $wg = phasync::waitGroup();
-
+        $wg = new WaitGroup();
         /**
-         * Perform a background HTTP request (with curl_multi):
+         * Create a publish-subscribe channel
          */
-        $response = (new HttpClient)->get("https://www.microsoft.com/");
+        phasync::publisher($subscriptions, $publisher);
+        echo "HER\n";
+
+        phasync::go(function() use ($subscriptions) {
+            foreach ($subscriptions as $chunk) {
+                echo elapsed() . "First subscriber got chunk: '".trim($chunk)."'\n";
+            }
+            echo elapsed() . "First subscriber done\n";
+        });
+
+        phasync::go(function() use ($subscriptions) {
+            phasync::sleep(0.5);
+            foreach ($subscriptions as $chunk) {
+                echo elapsed() . " Delayed subscriber got chunk: '".trim($chunk)."'\n";
+            }
+            echo elapsed() . "Delayed subscriber done\n";
+        });
+
+        try {
+            $publisher->write("First chunk for only the first subscriber");
+        } catch (ChannelException $e) {
+            echo elapsed() . " Can't activate the channel from within the same coroutine that created it\n";
+        }
+
+        phasync::go(function() use ($publisher) {
+            $publisher->write("First chunk for only the first subscriber");
+        });
 
         /**
          * A channel provides a way for a coroutine to pass execution over to
          * another coroutine, optionally containing a message. With buffering,
-         * execution won't be handed over until the buffer is full. If either 
-         * $reader or $writer is garbage collected, the channel is closed.
+         * execution won't be handed over until the buffer is full.
          */
         phasync::channel($reader, $writer, 4); // Buffer up to 4 messages
         
@@ -154,9 +189,6 @@ try {
                 echo elapsed() . "Future awaits: Caught '" . $e->getMessage() . "' exception\n";
             }
         });
-
-
-
                 
         echo elapsed() . "Main run context: Waiting for wait group\n";
         /**
@@ -166,7 +198,8 @@ try {
          * resume.
          */
         $wg->wait();
-        echo elapsed() . "Main run context: Wait group finished. The HTTP download was " . strlen($response->getBody()) . " bytes\n";
+        echo elapsed() . "----\n";
+        echo elapsed() . "Main run context: Wait group finished\n";
 
         try {
             echo elapsed() . "Main run context: Wait group finished, awaiting future\n";
@@ -202,18 +235,16 @@ function fibonacci(int $n) {
     return fibonacci($n-1) + fibonacci($n-2);
 }
 
-function read_file(string $filename): string {
-    return phasync::run(function() use ($filename) {
-        $buffer = '';
-        $fp = fopen($filename, 'r');
-        while (!feof($fp)) {
-            phasync::readable($fp); // pauses the fiber until stream_select determines reading won't block (use phasync::writable($resource) for writes)
-            $chunk = fread($fp, 32768);
-            if (!is_string($chunk)) break;
-            $buffer .= $chunk;
-        }
-        return $buffer;
-    });
+function async_read_file(string $filename): string {
+    $buffer = '';
+    $fp = fopen($filename, 'r');
+    while (!feof($fp)) {
+        phasync::readable($fp); // pauses the fiber until stream_select determines reading won't block (use phasync::writable($resource) for writes)
+        $chunk = fread($fp, 32768);
+        if (!is_string($chunk)) break;
+        $buffer .= $chunk;
+    }
+    return $buffer;
 }
 ?>
 

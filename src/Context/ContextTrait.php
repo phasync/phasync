@@ -20,7 +20,6 @@ trait ContextTrait {
 
     public function setContextException(Throwable $exception): void {
         if ($this->contextException !== null) {
-            echo "ADDITIONAL EXCEPTION\n$exception\n";
             phasync::logUnhandledException($exception);
         } else {
             $this->contextException = $exception;

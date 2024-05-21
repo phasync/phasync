@@ -1,5 +1,4 @@
 <?php
-
 test('test the phasync::run() return value when not blocking', function () {
     expect(phasync::run(function() {
         return 1;

@@ -4,9 +4,10 @@ use phasync\Context\DefaultContext;
 use phasync\Debug;
 use phasync\Drivers\DriverInterface;
 use phasync\Drivers\StreamSelectDriver;
+use phasync\Internal\AsyncStream;
 use phasync\Internal\ChannelBuffered;
 use phasync\Internal\ChannelUnbuffered;
-use phasync\Internal\Publisher;
+use phasync\Internal\Subscribers;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\WriteChannel;
 use phasync\ReadChannelInterface;
@@ -15,7 +16,6 @@ use phasync\SelectableInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
 use phasync\WriteChannelInterface;
-use phasync\WriteSelectableInterface;
 
 /**
  * This class defines the essential API for all coroutine based applications.
@@ -89,6 +89,13 @@ final class phasync {
     const DEFAULT_PREEMPT_INTERVAL = 50000000;
 
     /**
+     * The recursion depth of run statements that are active
+     * 
+     * @var int
+     */
+    private static int $runDepth = 0;
+
+    /**
      * The currently configured timeout in seconds.
      * 
      * @var float
@@ -143,11 +150,11 @@ final class phasync {
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function run(Closure $fn, ?array $args=[], ?ContextInterface $context=null): mixed {
-        $driver = self::getDriver();
+    public static function run(Closure $fn, ?array $args=[], ?ContextInterface $context=null): mixed {                
+        $driver = self::getDriver();        
         try {
-            if (!$driver->getCurrentFiber()) {
-                // The event loop performs garbage collection at more optimal times.
+            $runDepth = self::$runDepth++;
+            if ($runDepth === 0) {                
                 \gc_disable();
 
                 // Run hooks when async context is enabled
@@ -159,17 +166,30 @@ final class phasync {
             if ($context === null) {
                 $context = new DefaultContext();
             }
-    
-            $fiber = $driver->create($fn, $args, $context);
-    
-            while ($context->getFibers()->count() > 0) {
-                if ($driver->getCurrentFiber()) {
-                    self::yield();
-                } else {
+
+            $exception = null;
+
+            try {
+                $fiber = $driver->create($fn, $args, $context);
+            } catch (Throwable $e) {
+                unset($fiber);
+                $exception = $e;
+            }
+
+            if ($runDepth === 0) {
+                while ($driver->count() > 0) {
                     $driver->tick();
                 }
+            } else {
+                while ($context->getFibers()->count() > 0) {
+                    self::yield();
+                }
             }
-    
+
+            if ($exception !== null) {
+                throw $exception;
+            }
+
             $result = self::await($fiber);
         
             if ($exception = $context->getContextException()) {
@@ -177,10 +197,8 @@ final class phasync {
             }
             return $result;
         } finally {
-            if (!$driver->getCurrentFiber()) {
-                // Re-enable garbage collection
+            if (--self::$runDepth === 0) {
                 \gc_enable();
-
                 // Run hooks when async context is enabled
                 foreach (self::$onExitCallbacks as $exitCallback) {
                     $exitCallback();
@@ -537,6 +555,20 @@ final class phasync {
     }
 
     /**
+     * Make any stream resource context switch between coroutines when
+     * they would block.
+     * 
+     * @param mixed $resource 
+     * @return false|resource 
+     */
+    public static function io($resource) {
+        if (!\is_resource($resource) || \get_resource_type($resource) !== 'stream') {
+            return $resource;
+        }
+        return AsyncStream::wrap($resource);
+    }
+
+    /**
      * Utility function to suspend the current fiber until a stream resource becomes readable,
      * by wrapping `phasync::stream($resource, $timeout, phasync::READABLE)`.
      * 
@@ -574,6 +606,18 @@ final class phasync {
      * @return void 
      */
     public static function stream(mixed $resource, int $mode = self::READABLE|self::WRITABLE, ?float $timeout=null): void {
+        if (!\is_resource($resource) || \get_resource_type($resource) != 'stream') {
+            return;
+        }
+        if ($mode & self::READABLE) {
+            $metaData = \stream_get_meta_data($resource);
+            if ($metaData['unread_bytes'] > 0) {
+                // Avoid the event loop
+                self::preempt();
+                return;
+            }
+        }
+        // check using the event loop
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if ($fiber === null) {
@@ -604,12 +648,12 @@ final class phasync {
     public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize=0): void {
         if ($bufferSize === 0) {
             $channel = new ChannelUnbuffered();            
-            $write = new WriteChannel($channel);
             $read = new ReadChannel($channel);
+            $write = new WriteChannel($channel);
         } else {
             $channel = new ChannelBuffered($bufferSize);
-            $write = new WriteChannel($channel);
             $read = new ReadChannel($channel);
+            $write = new WriteChannel($channel);
         }
     }
 
@@ -617,12 +661,12 @@ final class phasync {
      * A publisher works like channels, but supports many subscribing coroutines
      * concurrently.
      * 
-     * @param null|Publisher $publisher 
-     * @param null|WriteChannelInterface $writeChannel 
+     * @param null|Subscribers $subscribers 
+     * @param null|WriteChannelInterface $publisher 
      */
-    public static function publisher(?Publisher &$publisher, ?WriteChannelInterface &$writeChannel): void {
-        self::channel($internalReadChannel, $writeChannel, 1);
-        $publisher = new Publisher($internalReadChannel);
+    public static function publisher(?Subscribers &$subscribers, ?WriteChannelInterface &$publisher): void {
+        self::channel($internalReadChannel, $publisher, 0);
+        $subscribers = new Subscribers($internalReadChannel);
     }
 
     /**
@@ -897,8 +941,8 @@ final class phasync {
      * @param Throwable $exception 
      * @return void 
      */
-    public static function logUnhandledException(Throwable $exception): void {
-        \error_log($exception->__toString(), $exception->getCode());
+    public static function logUnhandledException(Throwable $exception): void {        
+        \error_log("UNHANDLED EXCEPTION:\n" . $exception->__toString() . "\nLogged from:" . (new \Exception())->getTraceAsString(), $exception->getCode());
     }    
 
     /**

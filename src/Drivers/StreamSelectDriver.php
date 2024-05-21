@@ -8,6 +8,7 @@ use LogicException;
 use phasync\CancelledException;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
+use phasync\Context\ServiceContext;
 use phasync\Drivers\DriverInterface;
 use phasync\TimeoutException;
 use phasync\Debug;
@@ -129,6 +130,15 @@ final class StreamSelectDriver implements DriverInterface {
     private float $lastTimeoutCheck = 0;
 
     /**
+     * The time that we last activated tasks waiting for idle. Tasks waiting
+     * for idle time will never wait more than one second before they are 
+     * activated.
+     * 
+     * @var float
+     */
+    private float $lastIdleRun = 0;
+
+    /**
      * This WeakMap traces which flag a fiber is waiting for.
      * 
      * @var WeakMap<Fiber, object>
@@ -142,7 +152,7 @@ final class StreamSelectDriver implements DriverInterface {
      */
     private bool $shouldGarbageCollect = false;
 
-    private DefaultContext $serviceContext;
+    private ServiceContext $serviceContext;
 
     private stdClass $idleFlag;
     private stdClass $afterNextFlag;
@@ -151,6 +161,15 @@ final class StreamSelectDriver implements DriverInterface {
     private ?ContextInterface $currentContext = null;
 
     public function __construct() {
+        /*
+        register_shutdown_function(function() {
+            $t = microtime(true);
+            while (microtime(true) - $t < 5 && $this->pending->count() > 0) {
+                $this->tick();
+            }
+            echo "SHUTDOWN FUNCTION " . (microtime(true) - $t) . " " . $this->pending->count() . "\n";
+        });
+        */
         $this->queue = new SplQueue();
         $this->contexts = new WeakMap();
         $this->pending = new SplObjectStorage();
@@ -162,7 +181,7 @@ final class StreamSelectDriver implements DriverInterface {
         $this->flagGraph = new WeakMap();
         $this->idleFlag = new stdClass();
         $this->afterNextFlag = new stdClass();
-        $this->serviceContext = new DefaultContext();
+        $this->serviceContext = new ServiceContext();
     }
 
     public function dumpState() {
@@ -197,7 +216,7 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function count(): int {
-        return $this->contexts->count();
+        return $this->pending->count();
     }
 
     public function tick(): void {
@@ -220,7 +239,7 @@ final class StreamSelectDriver implements DriverInterface {
         /**
          * Determine how long it is until the next coroutine will be running
          */
-        $maxSleepTime = $queue->count() === 0 ? 0.2 : 0;
+        $maxSleepTime = $queue->count() === 0 ? 0.5 : 0;
 
         /**
          * Ensure the delay is not too long for the scheduler
@@ -228,38 +247,35 @@ final class StreamSelectDriver implements DriverInterface {
         if ($maxSleepTime > 0 && !$this->scheduler->isEmpty()) {
             $maxSleepTime = \min($maxSleepTime, $this->scheduler->getNextTimestamp() - $now);
         }
-
-        /**
-         * Fibers suspended with afterNext should not have to wait too long,
-         * in case they are actually waiting for another fiber suspended
-         * with afterNext().
-         */
-        $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
-        if ($afterNextCount > 1 && $maxSleepTime > 0.05) {
-            // Fibers may be waiting for each other
-            $maxSleepTime = 0.01;
-        } elseif ($afterNextCount === 1 && $this->scheduler->isEmpty() && empty($this->streams)) {
-            // Fiber is the only fiber waiting for itself
-            $maxSleepTime = 0;
-        } else {
-            // Ensure non-negative sleep time
-            $maxSleepTime = \max(0, $maxSleepTime);
-        }
-
+        
         if ($maxSleepTime > 0) {
             // Use idle times as opportunity to check timeouts
             if ($now - $this->lastTimeoutCheck > 0.1) {
                 $this->checkTimeouts();
             }
 
-            // Raise the idle flag
-            $this->raiseFlag($this->idleFlag);
-
             // If work was added, cancel the sleep
             if ($this->queue->count() > 0) {
                 $maxSleepTime = 0;
             }
+        } else {
+            // Ensure non-negative sleep time
+            $maxSleepTime = 0;
         }
+
+        $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
+        $idleCount = isset($this->flaggedFibers[$this->idleFlag]) ? $this->flaggedFibers[$this->idleFlag]->count() : 0;
+
+        if ($maxSleepTime > 0 && $afterNextCount > 0 && $queue->count() === 0 && count($this->streams) === 0) {
+            $maxSleepTime = 0;
+        }
+
+        if ($now - $this->lastIdleRun > 1 || ($idleCount > 0 && $maxSleepTime > 0)) {
+            // Raise the idle flag
+            $this->lastIdleRun = $now;
+            $this->raiseFlag($this->idleFlag);
+        }
+
 
         /**
          * Activate any Fibers waiting for stream activity
@@ -339,7 +355,9 @@ final class StreamSelectDriver implements DriverInterface {
                     $value = $fiber->resume();
                 }
                 if ($value instanceof Fiber) {
-                    // If a Fiber suspends itself with another Fiber, it swaps with that fiber
+                    // If a Fiber suspends itself with another Fiber, it swaps with that fiber.
+                    // In this case, no exception was thrown and the fiber is not terminated
+                    //$this->enqueue($value);
                     $fiber = $value;
                     goto again;
                 }
@@ -374,7 +392,7 @@ final class StreamSelectDriver implements DriverInterface {
         unset($this->parentFibers[$fiber]);
     }
 
-    public function create(Closure $closure, array $args = [], ?ContextInterface $context=null): Fiber {        
+    public function create(Closure $closure, array $args = [], ?ContextInterface $context=null): Fiber {                
         $fiber = new Fiber($closure);
 
         $currentFiber = $this->currentFiber;
@@ -429,6 +447,9 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function enqueue(Fiber $fiber): void {
+        if ($fiber->isTerminated()) {
+            throw new LogicException("Can't enqueue a terminated fiber");
+        }
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
         $this->queue->enqueue($fiber);
     }
@@ -439,10 +460,16 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function afterNext(Fiber $fiber): void {
+        if (isset($this->pending[$fiber])) {
+            throw new LogicException("Fiber is already pending when scheduling with afterNext");
+        }
         $this->whenFlagged($this->afterNextFlag, PHP_FLOAT_MAX, $fiber);
     }
 
     public function whenFlagged(object $flag, float $timeout, Fiber $fiber): void {
+        if (isset($this->pending[$fiber])) {
+            throw new LogicException("Fiber is already pending when enqueueing");
+        }
         if ($flag instanceof Fiber && $this->isBlockedByFlag($flag, $fiber)) {
             // Detect cycles
             throw new LogicException("Await cycle deadlock detected");
@@ -487,10 +514,16 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function whenIdle(float $timeout, Fiber $fiber): void {
+        if (isset($this->pending[$fiber])) {
+            throw new LogicException("Fiber is already pending in whenIdle");
+        }
         $this->whenFlagged($this->idleFlag, $timeout, $fiber);
     }
 
     public function whenResourceActivity(mixed $resource, int $mode, float $timeout, Fiber $fiber): void {
+        if (isset($this->pending[$fiber])) {
+            throw new LogicException("Fiber is already pending in whenResourceActivity");
+        }
         if (!\is_resource($resource) || \get_resource_type($resource) !== 'stream') {
             throw new InvalidArgumentException("Expecting a stream resource type");
         }
@@ -505,6 +538,9 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function whenTimeElapsed(float $seconds, Fiber $fiber): void {
+        if (isset($this->pending[$fiber])) {
+            throw new LogicException("Fiber is already pending in whenTimeElapsed");
+        }
         if ($seconds > 0) {
             $this->pending[$fiber] = PHP_FLOAT_MAX;
             $this->scheduler->schedule($seconds + microtime(true), $fiber);
@@ -620,7 +656,7 @@ final class StreamSelectDriver implements DriverInterface {
      * @param Fiber $fiber 
      * @return FiberExceptionHolder 
      */
-    private function makeExceptionHolder(Throwable $exception, Fiber $fiber): FiberExceptionHolder {        
+    private function makeExceptionHolder(Throwable $exception, Fiber $fiber): FiberExceptionHolder {
         $context = $this->getContext($fiber);
         return FiberExceptionHolder::create($exception, $fiber, static function(Throwable $exception, WeakReference $fiberRef) use ($context) {
             // This fallback should only happen if exceptions are not
@@ -654,13 +690,5 @@ final class StreamSelectDriver implements DriverInterface {
                 $context->setContextException($e);
             }
         }
-    }
-
-    private static function debug_refcount($value) {
-        ob_start();
-        debug_zval_dump($value);
-        $string = ob_get_contents();
-        ob_end_clean();
-        var_dump($string);        
     }
 }

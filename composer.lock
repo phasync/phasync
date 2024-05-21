@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "87ceb53bfa9bded25f05ab4c347a3f1c",
+    "content-hash": "3ed486802246e92c549b548320bc2777",
     "packages": [
         {
             "name": "amphp/hpack",
@@ -3915,7 +3915,7 @@
         }
     ],
     "aliases": [],
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "stability-flags": [],
     "prefer-stable": false,
     "prefer-lowest": false,

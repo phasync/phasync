@@ -20,7 +20,7 @@
         "pestphp/pest": "^2.34",
         "guzzlehttp/promises": "^2.0"
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "autoload": {
         "psr-4": {
             "phasync\\": "src/"

@@ -1,6 +1,7 @@
 <?php
 namespace phasync\Internal;
 
+use phasync\CancelledException;
 use phasync\WriteChannelInterface;
 use Serializable;
 

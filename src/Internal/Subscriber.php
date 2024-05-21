@@ -8,10 +8,10 @@ use Traversable;
 
 final class Subscriber implements ReadChannelInterface, IteratorAggregate {
 
-    private ?Publisher $publisher;
+    private ?Subscribers $publisher;
     private ChannelMessage $currentMessage;
 
-    public function __construct(Publisher $publisher) {
+    public function __construct(Subscribers $publisher) {
         $this->publisher = $publisher;
         $this->currentMessage = $this->publisher->getStartMessage();
 

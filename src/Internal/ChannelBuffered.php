@@ -2,9 +2,11 @@
 namespace phasync\Internal;
 
 use Fiber;
+use IteratorAggregate;
 use phasync;
 use phasync\ChannelException;
 use Serializable;
+use Traversable;
 
 /**
  * This is a highly optimized implementation of a bi-directional channel
@@ -19,7 +21,7 @@ use Serializable;
  * @internal
  * @package phasync
  */
-final class ChannelBuffered implements ChannelBackendInterface {
+final class ChannelBuffered implements ChannelBackendInterface, IteratorAggregate {
     use SelectableTrait;
 
     const READY = 0;
@@ -73,6 +75,12 @@ final class ChannelBuffered implements ChannelBackendInterface {
 
     public function __destruct() {
         $this->closed = true;
+    }
+
+    public function getIterator(): Traversable {
+        while (!$this->isClosed()) {
+            yield $this->read();
+        }
     }
 
     public function close(): void {

@@ -30,9 +30,9 @@ use WeakMap;
 final class Flag implements ObjectPoolInterface {
     use ObjectPoolTrait;
 
+    private static array $allFibers = [];
+    private int $id;
     private DriverInterface $driver;
-
-    private array $fibers = [];
 
     public static function create(DriverInterface $driver): Flag {
         $instance = self::popInstance();
@@ -44,17 +44,28 @@ final class Flag implements ObjectPoolInterface {
     }
 
     private function __construct(DriverInterface $driver) {
+        $this->id = \spl_object_id($this);
         $this->driver = $driver;
+        self::$allFibers[$this->id] = [];
+    }
+
+    public function listFibers(): void {
+        foreach (self::$allFibers[$this->id] as $fiber) {
+            echo " - " . Debug::getDebugInfo($fiber) . "\n";
+        }
     }
 
     public function raiseFlag(): int {
-        if (count($this->fibers) === 0) {
+        if (!isset(self::$allFibers[$this->id])) {
+            throw new LogicException("Flag is no longer valid and can't be raised");
+        }
+        if (count(self::$allFibers[$this->id]) === 0) {
             return 0;
         }
         $driver = $this->driver;
         $count = 0;
-        foreach ($this->fibers as $k => $fiber) {
-            unset($this->fibers[$k]);
+        foreach (self::$allFibers[$this->id] as $k => $fiber) {
+            unset(self::$allFibers[$this->id][$k]);
             unset($driver->flagGraph[$fiber]);
             $this->driver->enqueue($fiber);
             ++$count;
@@ -63,8 +74,11 @@ final class Flag implements ObjectPoolInterface {
     }
 
     public function cancelAll(?Throwable $cancellationException = null): void {
-        foreach ($this->fibers as $fid => $fiber) {
-            unset($this->fibers[$fid]);
+        if (count(self::$allFibers[$this->id])===0) {
+            return;
+        }
+        foreach (self::$allFibers[$this->id] as $fid => $fiber) {
+            unset(self::$allFibers[$this->id][$fid]);
             unset($this->driver->flagGraph[$fiber]);
             $this->driver->enqueueWithException($fiber, $cancellationException ?? new CancelledException("The operation was cancelled"));
         }
@@ -81,31 +95,32 @@ final class Flag implements ObjectPoolInterface {
      */
     public function __destruct() {
         $this->cancelAll(new CancelledException("The flag no longer exists"));
+        unset(self::$allFibers[$this->id]);
     }
 
     public function count(): int {
-        return count($this->fibers);
+        return count(self::$allFibers[$this->id]);
     }
 
     public function add(Fiber $fiber): void {
         $fid = \spl_object_id($fiber);
-        if (isset($this->fibers[$fid])) {
+        if (isset(self::$allFibers[$this->id][$fid])) {
             throw new LogicException("Fiber is already added");
         }
-        $this->fibers[$fid] = $fiber;
+        self::$allFibers[$this->id][$fid] = $fiber;
     }
 
     public function remove(Fiber $fiber): void {
         $fid = \spl_object_id($fiber);
-        if (!isset($this->fibers[$fid])) {
+        if (!isset(self::$allFibers[$this->id][$fid])) {
             throw new LogicException("Fiber is not contained here");
         }
-        unset($this->fibers[$fid]);
+        unset(self::$allFibers[$this->id][$fid]);
         unset($this->driver->flagGraph[$fiber]);
     }
 
     public function contains(Fiber $fiber): bool {
         $fid = \spl_object_id($fiber);
-        return isset($this->fibers[$fid]);
+        return isset(self::$allFibers[$this->id][$fid]);
     }
 }

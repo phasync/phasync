@@ -279,7 +279,7 @@ class CurlResponse implements ResponseInterface {
     }
 
     private function curlXferInfoFunction(CurlHandle $curl, $downloadSize, $downloaded, $uploadSize, $uploaded) {
-        echo "curlXferInfoFunction: $downloadSize $downloaded $uploadSize $uploaded\n";die();
+        // This function don't appear to be invoked.
         $this->downloadSize = $downloadSize;
         $this->downloaded = $downloaded;
         $this->uploadSize = $uploadSize;
