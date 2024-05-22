@@ -152,6 +152,13 @@ final class StreamSelectDriver implements DriverInterface {
      */
     private bool $shouldGarbageCollect = false;
 
+    /**
+     * The time since the last garbage collect cycles invoked.
+     * 
+     * @var bool
+     */
+    private float $lastGarbageCollect = 0;
+
     private ServiceContext $serviceContext;
 
     private stdClass $idleFlag;
@@ -381,9 +388,10 @@ final class StreamSelectDriver implements DriverInterface {
         $this->currentFiber = null;
         $this->currentContext = null;
 
-        if ($this->shouldGarbageCollect) {
+        if ($this->shouldGarbageCollect && $now - $this->lastGarbageCollect > 0.5) {
             \gc_collect_cycles();
-            $this->shouldGarbageCollect = false;
+            $this->lastGarbageCollect = $now;
+            $this->shouldGarbageCollect = false;    
         }
     }
 
