@@ -622,20 +622,20 @@ final class phasync {
         $fiber = $driver->getCurrentFiber();
         if ($fiber === null) {
             // simulate the behavior
-            $r = $w = $e = [];
-            if ($mode & self::READABLE) {
-                $r[] = $resource;
-            }
-            if ($mode & self::WRITABLE) {
-                $w[] = $resource;
-            }
-            if ($mode & self::EXCEPT) {
-                $e[] = $resource;
-            }
             $stopTime = microtime(true) + ($timeout ?? self::getDefaultTimeout());
             while (true) {
-                $count = @\stream_select($r, $w, $e, 0, 1000000);
-                if (\is_int($count)) {
+                $r = $w = $e = [];
+                if ($mode & self::READABLE) {
+                    $r[] = $resource;
+                }
+                if ($mode & self::WRITABLE) {
+                    $w[] = $resource;
+                }
+                if ($mode & self::EXCEPT) {
+                    $e[] = $resource;
+                }
+                $count = \stream_select($r, $w, $e, 0, 1000000);
+                if (\is_int($count) && $count > 0) {
                     return;
                 }
                 if ($stopTime < microtime(true)) {
