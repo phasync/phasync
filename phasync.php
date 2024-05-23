@@ -621,8 +621,27 @@ final class phasync {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if ($fiber === null) {
-            phasync::run(self::stream(...), [$resource, $mode, $timeout]);
-            return;
+            // simulate the behavior
+            $r = $w = $e = [];
+            if ($mode & self::READABLE) {
+                $r[] = $resource;
+            }
+            if ($mode & self::WRITABLE) {
+                $w[] = $resource;
+            }
+            if ($mode & self::EXCEPT) {
+                $e[] = $resource;
+            }
+            $stopTime = microtime(true) + ($timeout ?? self::getDefaultTimeout());
+            while (true) {
+                $count = @\stream_select($r, $w, $e, 0, 1000000);
+                if (\is_int($count)) {
+                    return;
+                }
+                if ($stopTime < microtime(true)) {
+                    throw new TimeoutException("The operation timed out");
+                }
+            }
         }
         $timeout = $timeout ?? self::getDefaultTimeout();
         $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
@@ -773,7 +792,9 @@ final class phasync {
 
     /**
      * Register a callback to be invoked whenever an application enters the event
-     * loop via a `phasync::run()` call.
+     * loop via the top level `phasync::run()` call. 
+     * 
+     * @see phasync::onExit()
      * 
      * @param Closure $enterCallback 
      * @return void 
@@ -785,6 +806,8 @@ final class phasync {
     /**
      * Register a callback to be invoked whenever an application exits the event
      * loop after a `phasync::run()` call.
+     * 
+     * @see phasync::onEnter()
      * 
      * @param Closure $exitCallback 
      * @return void 
