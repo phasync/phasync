@@ -11,7 +11,6 @@ use phasync\Internal\Subscribers;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\WriteChannel;
 use phasync\ReadChannelInterface;
-use phasync\ReadSelectableInterface;
 use phasync\SelectableInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
@@ -370,7 +369,7 @@ final class phasync {
      * 
      * @param SelectableInterface[] $selectables 
      * @param null|float $timeout 
-     * @return ReadSelectableInterface 
+     * @return SelectableInterface 
      * @throws LogicException 
      * @throws FiberError 
      * @throws Throwable 
