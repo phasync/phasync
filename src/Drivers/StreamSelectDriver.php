@@ -401,6 +401,9 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function create(Closure $closure, array $args = [], ?ContextInterface $context=null): Fiber {                
+        if ($context !== null) {
+            $context->activate();
+        }
         $fiber = new Fiber($closure);
 
         $currentFiber = $this->currentFiber;

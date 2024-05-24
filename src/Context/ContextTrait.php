@@ -1,9 +1,8 @@
 <?php
 namespace phasync\Context;
 
-use Fiber;
-use LogicException;
 use phasync;
+use phasync\ContextUsedException;
 use SplObjectStorage;
 use Throwable;
 use WeakMap;
@@ -17,6 +16,18 @@ trait ContextTrait {
     private ?WeakMap $fibers = null;
     private array $dataKeyed = [];
     private SplObjectStorage $dataObjectKeys;
+    private bool $activated = false;
+
+    public function activate(): void {
+        if ($this->activated) {
+            throw new ContextUsedException();
+        }
+        $this->activated = true;
+    }
+
+    public function isActivated(): bool {
+        return $this->activated;
+    }
 
     public function setContextException(Throwable $exception): void {
         if ($this->contextException !== null) {
