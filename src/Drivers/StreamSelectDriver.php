@@ -292,38 +292,44 @@ final class StreamSelectDriver implements DriverInterface {
             $writes = [];
             $excepts = [];
 
-            foreach ($this->streamModes as $streamId => $streamMode) {
+            foreach ($this->streams as $streamId => $stream) {
+                $streamMode = $this->streamModes[$streamId];
                 if (($streamMode & DriverInterface::STREAM_READ) !== 0) {
-                    $reads[] = $this->streams[$streamId];
+                    $reads[] = $stream;
                 }
                 if (($streamMode & DriverInterface::STREAM_WRITE) !== 0) {
-                    $writes[] = $this->streams[$streamId];
+                    $writes[] = $stream;
                 }
                 if (($streamMode & DriverInterface::STREAM_EXCEPT) !== 0) {
-                    $excepts[] = [];
+                    $excepts[] = $stream;
                 }
             }
 
             $result = \stream_select($reads, $writes, $excepts, \intval($maxSleepTime), ($maxSleepTime - intval($maxSleepTime)) * 1000000);
 
             if (\is_int($result) && $result > 0) {
+                $pollResults = [];
                 foreach ($reads as $readableStream) {
                     $id = \get_resource_id($readableStream);
+                    $pollResults[$id] = DriverInterface::STREAM_READ | ($pollResults[$id] ?? 0);
                     $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
+                    unset($this->streamFibers[$id], $this->streams[$id]);                
                 }
                 foreach ($writes as $writableStream) {
                     $id = \get_resource_id($writableStream);
+                    $pollResults[$id] = DriverInterface::STREAM_WRITE | ($pollResults[$id] ?? 0);
                     if (!isset($this->streams[$id])) continue;
                     $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
+                    unset($this->streamFibers[$id], $this->streams[$id]);
                 }
                 foreach ($excepts as $exceptStream) {
                     $id = \get_resource_id($exceptStream);
+                    $pollResults[$id] = DriverInterface::STREAM_EXCEPT | ($pollResults[$id] ?? 0);
                     if (!isset($this->streams[$id])) continue;
                     $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
+                    unset($this->streamFibers[$id], $this->streams[$id]);
                 }
+                $this->streamModes = \array_replace($this->streamModes, $pollResults);
             }
         } elseif ($maxSleepTime > 0) {
             // There are no fibers waiting for afterNext, and the 
@@ -547,6 +553,11 @@ final class StreamSelectDriver implements DriverInterface {
         $this->streamFibers[$resourceId] = $fiber;
         $this->pending[$fiber] = \microtime(true) + $timeout;
     }
+
+    public function getLastResourceState(mixed $resource): ?int {
+        return $this->streamModes[\get_resource_id($resource)] ?? null;
+    }
+
 
     public function whenTimeElapsed(float $seconds, Fiber $fiber): void {
         if (isset($this->pending[$fiber])) {
