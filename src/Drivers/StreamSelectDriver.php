@@ -305,7 +305,7 @@ final class StreamSelectDriver implements DriverInterface {
                 }
             }
 
-            $result = \stream_select($reads, $writes, $excepts, \intval($maxSleepTime), ($maxSleepTime - intval($maxSleepTime)) * 1000000);
+            $result = \stream_select($reads, $writes, $excepts, (int)($maxSleepTime), ($maxSleepTime - (int)($maxSleepTime)) * 1000000);
 
             if (\is_int($result) && $result > 0) {
                 $pollResults = [];
@@ -333,7 +333,7 @@ final class StreamSelectDriver implements DriverInterface {
             }
         } elseif ($maxSleepTime > 0) {
             // There are no fibers waiting for afterNext, and the 
-            \usleep(intval($maxSleepTime * 1000000));
+            \usleep((int)($maxSleepTime * 1000000));
         }
 
         /**
