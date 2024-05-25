@@ -226,180 +226,180 @@ final class StreamSelectDriver implements DriverInterface {
         return $this->pending->count();
     }
 
-    public function tick(): void {
-        $now = \microtime(true);
-        $queue = $this->queue;
+   public function tick(): void {
+		$now = \microtime(true);
+		$queue = $this->queue;
 
-        // Check if any fibers have timed out
-        if ($now - $this->lastTimeoutCheck > 0.1) {
-            $this->checkTimeouts();
-        }
+		// Check if any fibers have timed out
+		if ($now - $this->lastTimeoutCheck > 0.1) {
+			$this->checkTimeouts();
+		}
 
-        /**
-         * Activate any fibers from the scheduler
-         */
-        while (!$this->scheduler->isEmpty() && $this->scheduler->getNextTimestamp() <= $now) {
-            $fiber = $this->scheduler->extract();
-            $queue->enqueue($fiber);
-        }
+		/**
+		 * Activate any fibers from the scheduler
+		 */
+		while (!$this->scheduler->isEmpty() && $this->scheduler->getNextTimestamp() <= $now) {
+			$fiber = $this->scheduler->extract();
+			$queue->enqueue($fiber);
+		}
 
-        /**
-         * Determine how long it is until the next coroutine will be running
-         */
-        $maxSleepTime = $queue->count() === 0 ? 0.5 : 0;
+		/**
+		 * Determine how long it is until the next coroutine will be running
+		 */
+		$maxSleepTime = $queue->count() === 0 ? 0.5 : 0;
 
-        /**
-         * Ensure the delay is not too long for the scheduler
-         */
-        if ($maxSleepTime > 0 && !$this->scheduler->isEmpty()) {
-            $maxSleepTime = \min($maxSleepTime, $this->scheduler->getNextTimestamp() - $now);
-        }
-        
-        if ($maxSleepTime > 0) {
-            // Use idle times as opportunity to check timeouts
-            if ($now - $this->lastTimeoutCheck > 0.1) {
-                $this->checkTimeouts();
-            }
+		/**
+		 * Ensure the delay is not too long for the scheduler
+		 */
+		if ($maxSleepTime > 0 && !$this->scheduler->isEmpty()) {
+			$maxSleepTime = \min($maxSleepTime, $this->scheduler->getNextTimestamp() - $now);
+		}
 
-            // If work was added, cancel the sleep
-            if ($this->queue->count() > 0) {
-                $maxSleepTime = 0;
-            }
-        } else {
-            // Ensure non-negative sleep time
-            $maxSleepTime = 0;
-        }
+		if ($maxSleepTime > 0) {
+			// Use idle times as opportunity to check timeouts
+			if ($now - $this->lastTimeoutCheck > 0.1) {
+				$this->checkTimeouts();
+			}
 
-        $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
-        $idleCount = isset($this->flaggedFibers[$this->idleFlag]) ? $this->flaggedFibers[$this->idleFlag]->count() : 0;
+			// If work was added, cancel the sleep
+			if ($this->queue->count() > 0) {
+				$maxSleepTime = 0;
+			}
+		} else {
+			// Ensure non-negative sleep time
+			$maxSleepTime = 0;
+		}
 
-        if ($maxSleepTime > 0 && $afterNextCount > 0 && $queue->count() === 0 && count($this->streams) === 0) {
-            $maxSleepTime = 0;
-        }
+		$afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
+		$idleCount = isset($this->flaggedFibers[$this->idleFlag]) ? $this->flaggedFibers[$this->idleFlag]->count() : 0;
 
-        if ($now - $this->lastIdleRun > 1 || ($idleCount > 0 && $maxSleepTime > 0)) {
-            // Raise the idle flag
-            $this->lastIdleRun = $now;
-            $this->raiseFlag($this->idleFlag);
-        }
+		if ($maxSleepTime > 0 && $afterNextCount > 0 && $queue->count() === 0 && count($this->streams) === 0) {
+			$maxSleepTime = 0;
+		}
+
+		if ($now - $this->lastIdleRun > 1 || ($idleCount > 0 && $maxSleepTime > 0)) {
+			// Raise the idle flag
+			$this->lastIdleRun = $now;
+			$this->raiseFlag($this->idleFlag);
+		}
 
 
-        /**
-         * Activate any Fibers waiting for stream activity
-         */
-        if (!empty($this->streamFibers)) {
-            $reads = [];
-            $writes = [];
-            $excepts = [];
+		/**
+		 * Activate any Fibers waiting for stream activity
+		 */
+		if (!empty($this->streamFibers)) {
+			$reads = [];
+			$writes = [];
+			$excepts = [];
 
-            foreach ($this->streams as $streamId => $stream) {
-                $streamMode = $this->streamModes[$streamId];
-                if (($streamMode & DriverInterface::STREAM_READ) !== 0) {
-                    $reads[] = $stream;
-                }
-                if (($streamMode & DriverInterface::STREAM_WRITE) !== 0) {
-                    $writes[] = $stream;
-                }
-                if (($streamMode & DriverInterface::STREAM_EXCEPT) !== 0) {
-                    $excepts[] = $stream;
-                }
-            }
+			foreach ($this->streams as $streamId => $stream) {
+				$streamMode = $this->streamModes[$streamId];
+				if (($streamMode & DriverInterface::STREAM_READ) !== 0) {
+					$reads[] = $stream;
+				}
+				if (($streamMode & DriverInterface::STREAM_WRITE) !== 0) {
+					$writes[] = $stream;
+				}
+				if (($streamMode & DriverInterface::STREAM_EXCEPT) !== 0) {
+					$excepts[] = $stream;
+				}
+			}
 
-            $result = \stream_select($reads, $writes, $excepts, \intval($maxSleepTime), ($maxSleepTime - intval($maxSleepTime)) * 1000000);
+			$result = \stream_select($reads, $writes, $excepts, (int)$maxSleepTime, ($maxSleepTime - (int)$maxSleepTime) * 1000000);
 
-            if (\is_int($result) && $result > 0) {
-                $pollResults = [];
-                foreach ($reads as $readableStream) {
-                    $id = \get_resource_id($readableStream);
-                    $pollResults[$id] = DriverInterface::STREAM_READ | ($pollResults[$id] ?? 0);
-                    $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id]);                
-                }
-                foreach ($writes as $writableStream) {
-                    $id = \get_resource_id($writableStream);
-                    $pollResults[$id] = DriverInterface::STREAM_WRITE | ($pollResults[$id] ?? 0);
-                    if (!isset($this->streams[$id])) continue;
-                    $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id]);
-                }
-                foreach ($excepts as $exceptStream) {
-                    $id = \get_resource_id($exceptStream);
-                    $pollResults[$id] = DriverInterface::STREAM_EXCEPT | ($pollResults[$id] ?? 0);
-                    if (!isset($this->streams[$id])) continue;
-                    $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id]);
-                }
-                $this->streamModes = \array_replace($this->streamModes, $pollResults);
-            }
-        } elseif ($maxSleepTime > 0) {
-            // There are no fibers waiting for afterNext, and the 
-            \usleep(intval($maxSleepTime * 1000000));
-        }
+			if (\is_int($result) && $result > 0) {
+				$pollResults = [];
+				foreach ($reads as $readableStream) {
+					$id = \get_resource_id($readableStream);
+					$pollResults[$id] = DriverInterface::STREAM_READ | ($pollResults[$id] ?? 0);
+					$queue->enqueue($this->streamFibers[$id]);
+					unset($this->streamFibers[$id], $this->streams[$id]);
+				}
+				foreach ($writes as $writableStream) {
+					$id = \get_resource_id($writableStream);
+					$pollResults[$id] = DriverInterface::STREAM_WRITE | ($pollResults[$id] ?? 0);
+					if (!isset($this->streams[$id])) continue;
+					$queue->enqueue($this->streamFibers[$id]);
+					unset($this->streamFibers[$id], $this->streams[$id]);
+				}
+				foreach ($excepts as $exceptStream) {
+					$id = \get_resource_id($exceptStream);
+					$pollResults[$id] = DriverInterface::STREAM_EXCEPT | ($pollResults[$id] ?? 0);
+					if (!isset($this->streams[$id])) continue;
+					$queue->enqueue($this->streamFibers[$id]);
+					unset($this->streamFibers[$id], $this->streams[$id]);
+				}
+				$this->streamModes = \array_replace($this->streamModes, $pollResults);
+			}
+		} elseif ($maxSleepTime > 0) {
+			// There are no fibers waiting for afterNext, and the 
+			\usleep((int)($maxSleepTime * 1000000));
+		}
 
-        /**
-         * Ensure afterNext fibers are given an opportunity to run
-         */
-        $this->raiseFlag($this->afterNextFlag);
+		/**
+		 * Ensure afterNext fibers are given an opportunity to run
+		 */
+		$this->raiseFlag($this->afterNextFlag);
 
-        /**
-         * Run enqueued fibers
-         */
-        $fiberCount = $queue->count();
-        $fiberExceptionHolders = $this->fiberExceptionHolders;
-        $contexts = $this->contexts;
-        for ($i = 0; $i < $fiberCount && !$queue->isEmpty(); $i++) {
-            $fiber = $queue->dequeue();
-            unset($this->pending[$fiber]);
+		/**
+		 * Run enqueued fibers
+		 */
+		$fiberCount = $queue->count();
+		$fiberExceptionHolders = $this->fiberExceptionHolders;
+		$contexts = $this->contexts;
+		for ($i = 0; $i < $fiberCount && !$queue->isEmpty(); $i++) {
+			$fiber = $queue->dequeue();
+			unset($this->pending[$fiber]);
 
-            again:
+			again:
 
-            try {
-                $this->currentFiber = $fiber;
-                $this->currentContext = $contexts[$fiber];
+			try {
+				$this->currentFiber = $fiber;
+				$this->currentContext = $contexts[$fiber];
 
-                if (isset($fiberExceptionHolders[$fiber])) {
-                    // We got an opportunity to throw the exception inside the coroutine
-                    $eh = $fiberExceptionHolders[$fiber];
-                    unset($fiberExceptionHolders[$fiber]);
-                    $exception = $eh->get();
-                    $eh->returnToPool();
-                    $value = $fiber->throw($exception);
-                } else {
-                    $value = $fiber->resume();
-                }
-                if ($value instanceof Fiber) {
-                    // If a Fiber suspends itself with another Fiber, it swaps with that fiber.
-                    // In this case, no exception was thrown and the fiber is not terminated
-                    //$this->enqueue($value);
-                    $fiber = $value;
-                    goto again;
-                }
-            } catch (Throwable $e) {
-                /**
-                 * In case this exception is not caught, we must store it in an
-                 * exception holder which will surface the exception if the fiber
-                 * is garbage collected. Ideally the exception holder will not be
-                 * garbage collected.
-                 */
-                $fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
-            }
-            /**
-             * Whenever a fiber is terminated, we'll actively check it 
-             * here to ensure deferred closures can run as soon as possible
-             */
-            if ($fiber->isTerminated()) {
-                $this->handleTerminatedFiber($fiber);
-            }
-        }
-        $this->currentFiber = null;
-        $this->currentContext = null;
+				if (isset($fiberExceptionHolders[$fiber])) {
+					// We got an opportunity to throw the exception inside the coroutine
+					$eh = $fiberExceptionHolders[$fiber];
+					unset($fiberExceptionHolders[$fiber]);
+					$exception = $eh->get();
+					$eh->returnToPool();
+					$value = $fiber->throw($exception);
+				} else {
+					$value = $fiber->resume();
+				}
+				if ($value instanceof Fiber) {
+					// If a Fiber suspends itself with another Fiber, it swaps with that fiber.
+					// In this case, no exception was thrown and the fiber is not terminated
+					//$this->enqueue($value);
+					$fiber = $value;
+					goto again;
+				}
+			} catch (Throwable $e) {
+				/**
+				 * In case this exception is not caught, we must store it in an
+				 * exception holder which will surface the exception if the fiber
+				 * is garbage collected. Ideally the exception holder will not be
+				 * garbage collected.
+				 */
+				$fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+			}
+			/**
+			 * Whenever a fiber is terminated, we'll actively check it
+			 * here to ensure deferred closures can run as soon as possible
+			 */
+			if ($fiber->isTerminated()) {
+				$this->handleTerminatedFiber($fiber);
+			}
+		}
+		$this->currentFiber = null;
+		$this->currentContext = null;
 
-        if ($this->shouldGarbageCollect && $now - $this->lastGarbageCollect > 0.5) {
-            \gc_collect_cycles();
-            $this->lastGarbageCollect = $now;
-            $this->shouldGarbageCollect = false;    
-        }
-    }
+		if ($this->shouldGarbageCollect && $now - $this->lastGarbageCollect > 0.5) {
+			\gc_collect_cycles();
+			$this->lastGarbageCollect = $now;
+			$this->shouldGarbageCollect = false;
+		}
+	}
 
     public function runService(Closure $closure): void {
         $fiber = self::create($closure, [], $this->serviceContext);
