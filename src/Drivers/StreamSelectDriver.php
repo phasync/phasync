@@ -402,7 +402,7 @@ final class StreamSelectDriver implements DriverInterface {
     }
 
     public function runService(Closure $closure): void {
-        $fiber = self::create($closure, [], $this->serviceContext);
+        $fiber = $this->create(closure: $closure, context: $this->serviceContext);
         unset($this->parentFibers[$fiber]);
     }
 
