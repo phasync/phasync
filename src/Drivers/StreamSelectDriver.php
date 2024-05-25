@@ -155,7 +155,7 @@ final class StreamSelectDriver implements DriverInterface {
     /**
      * The time since the last garbage collect cycles invoked.
      * 
-     * @var bool
+     * @var float
      */
     private float $lastGarbageCollect = 0;
 
