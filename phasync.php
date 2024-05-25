@@ -214,50 +214,49 @@ final class phasync {
      * until it is done by returning or throwing.
      * 
      * If parameter `$concurrent` is greater than 1, the returned coroutine will resolve
-     * into an array of return values or exceptions from each instance of the coroutine.
-     * 
-     * @param Closure $fn 
-     * @param array $args 
-     * @param int $concurrent 
-     * @param ContextInterface $context
-     * @return Fiber 
-     * @throws LogicException
-     * @throws RuntimeException 
-     */
-    public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?ContextInterface $context=null): Fiber {
-        if ($concurrent > 1) {
-            if ($context !== null) {
-                throw new LogicException("Can't create concurrent root coroutines sharing a context");
-            }
-            return self::go(args: [$fn, $args, $concurrent], fn: static function($fn, $args, $concurrent) {
-                $coroutines = [];
-                for ($i = 0; $i < $concurrent; $i++) {
-                    $coroutines[] = self::go($fn, $args);
-                }
-
-                $results = [];
-                foreach ($coroutines as $fiber) {
-                    try {
-                        $results[] = self::await($fiber);
-                    } catch (Throwable $e) {
-                        $results[] = $e;
-                    }
-                }
-                return $results;
-            });
-        }
-        $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
-        if (!$fiber) {
-            throw new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
-        }
-        $result = $driver->create($fn, $args, $context);
-        // Since coroutines start immediately, launching coroutines can effectively
-        // cause a busy loop. The preempt below enables coroutines to proceed while
-        // this launching is going on.
-        self::preempt();
-        return $result;
-    }
+	 * into an array of return values or exceptions from each instance of the coroutine.
+	 * @param  Closure                $fn
+	 * @param  array                  $args
+	 * @param  int                    $concurrent
+	 * @param  ContextInterface|null  $context
+	 *
+	 * @return Fiber
+	 * @throws LogicException
+	 * @throws Throwable
+	 */
+	public static function go(Closure $fn, array $args = [], int $concurrent = 1, ?ContextInterface $context = null): \Fiber {
+		if($concurrent > 1) {
+			if($context !== null) {
+				throw new LogicException("Can't create concurrent root coroutines sharing a context");
+			}
+			return self::go(fn: static function($fn, $args, $concurrent) {
+				$coroutines = [];
+				for($i = 0; $i < $concurrent; $i++) {
+					$coroutines[] = self::go($fn, $args);
+				}
+				$results = [];
+				foreach($coroutines as $fiber) {
+					try {
+						$results[] = self::await($fiber);
+					} catch(Throwable $e) {
+						$results[] = $e;
+					}
+				}
+				return $results;
+			}, args: [$fn, $args, $concurrent]);
+		}
+		$driver = self::getDriver();
+		$fiber = $driver->getCurrentFiber();
+		if(!$fiber) {
+			throw new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
+		}
+		$result = $driver->create($fn, $args, $context);
+		// Since coroutines start immediately, launching coroutines can effectively
+		// cause a busy loop. The preempt below enables coroutines to proceed while
+		// this launching is going on.
+		self::preempt();
+		return $result;
+	}
 
     /**
      * Launches a service coroutine independently of the context scope.
