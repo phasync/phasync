@@ -11,7 +11,6 @@ use phasync\Internal\Subscribers;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\WriteChannel;
 use phasync\ReadChannelInterface;
-use phasync\ReadSelectableInterface;
 use phasync\SelectableInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
@@ -209,7 +208,7 @@ final class phasync {
 
     }
 
-    /**
+  /**
 	 * Creates a normal coroutine and starts running it. The coroutine will be associated
 	 * with the current context, and will block the current coroutine from completing
 	 * until it is done by returning or throwing.
@@ -225,8 +224,7 @@ final class phasync {
 	 * @return Fiber
 	 * @throws LogicException
 	 */
-	public static function go(\Closure $fn, array $args = [], int $concurrent = 1, ?ContextInterface $context = null): \Fiber
-	{
+	public static function go(\Closure $fn, array $args = [], int $concurrent = 1, ?ContextInterface $context = null): \Fiber {
 		if($concurrent > 1) {
 			if($context !== null) {
 				throw new LogicException("Can't create concurrent root coroutines sharing a context");
@@ -259,6 +257,8 @@ final class phasync {
 		self::preempt();
 		return $result;
 	}
+
+
 
     /**
      * Launches a service coroutine independently of the context scope.
@@ -377,7 +377,7 @@ final class phasync {
      * 
      * @param SelectableInterface[] $selectables 
      * @param null|float $timeout 
-     * @return ReadSelectableInterface 
+     * @return SelectableInterface 
      * @throws LogicException 
      * @throws FiberError 
      * @throws Throwable 
@@ -607,21 +607,23 @@ final class phasync {
      * Block the coroutine until the stream resource becomes readable, writable or raises
      * an exception or any combination of these.
      * 
+     * The bitmaps use self::READABLE, self::WRITABLE and self::EXCEPT.
+     * 
      * @param mixed $resource 
      * @param int $mode A bitmap indicating which events on the resource that should resume the coroutine.
      * @param float|null $timeout 
-     * @return void 
+     * @return int A bitmap indicating which events on the resource that was raised
      */
-    public static function stream(mixed $resource, int $mode = self::READABLE|self::WRITABLE, ?float $timeout=null): void {
+    public static function stream(mixed $resource, int $mode = self::READABLE|self::WRITABLE, ?float $timeout=null): int {
         if (!\is_resource($resource) || \get_resource_type($resource) != 'stream') {
-            return;
+            return 0;
         }
         if ($mode & self::READABLE) {
             $metaData = \stream_get_meta_data($resource);
             if ($metaData['unread_bytes'] > 0) {
                 // Avoid the event loop
                 self::preempt();
-                return;
+                return self::READABLE;
             }
         }
         // check using the event loop
@@ -642,8 +644,18 @@ final class phasync {
                     $e[] = $resource;
                 }
                 $count = \stream_select($r, $w, $e, 0, 1000000);
-                if (\is_int($count) && $count > 0) {
-                    return;
+                if (\is_int($count) && $count > 0) {                    
+                    $result = 0;
+                    if (!empty($r)) {
+                        $result |= self::READABLE;
+                    }
+                    if (!empty($w)) {
+                        $result |= self::WRITABLE;
+                    }
+                    if (!empty($e)) {
+                        $result |= self::EXCEPT;
+                    }
+                    return $result;
                 }
                 if ($stopTime < microtime(true)) {
                     throw new TimeoutException("The operation timed out");
@@ -653,6 +665,7 @@ final class phasync {
         $timeout = $timeout ?? self::getDefaultTimeout();
         $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
         Fiber::suspend();
+        return $driver->getLastResourceState($resource);
     }
 
     /**

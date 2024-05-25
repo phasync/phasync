@@ -17,6 +17,22 @@ use WeakMap;
 interface ContextInterface extends ArrayAccess {
 
     /**
+     * Invoked the first time a context is attached to a coroutine.
+     * The function MUST throw {@see ContextUsedException} if it is
+     * was previously activated.
+     * 
+     * @return void 
+     */
+    public function activate(): void;
+
+    /**
+     * Returns true if the context has been activated.
+     * 
+     * @return bool 
+     */
+    public function isActivated(): bool;
+
+    /**
      * If an exception was thrown in the context, and not handled
      * it should be assigned here. This will ensure the exception
      * is thrown by `phasync::run()`.
