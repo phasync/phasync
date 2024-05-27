@@ -1,10 +1,15 @@
 <?php
 namespace phasync\Psr;
 
+use Fiber;
+use FiberError;
 use LogicException;
-use phasync\Legacy\Loop;
+use phasync;
+use phasync\TimeoutException;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
+use Throwable;
+use WeakReference;
 
 /**
  * This StreamInterface implementation uses an in memory string up to
@@ -36,56 +41,63 @@ class BufferedStream implements StreamInterface {
 
     private int $readOffset = 0;
     private int $writeOffset = 0;
+    private ?int $endOffset = null;
     private int $bufferSize;
+    private float $deadlockTimeout;
     private bool $closed = false;
-    private bool $ended = false;
     private bool $locked = false;
+    private bool $detached = false;
+    private WeakReference $creator;
 
-    public function __construct(int $bufferSize = 2*1024*1024) {
+    public function __construct(int $bufferSize = 2*1024*1024, float $deadlockTimeout = 60) {
         $this->bufferSize = $bufferSize;
+        $this->deadlockTimeout = $deadlockTimeout;
+        $this->creator = WeakReference::create(phasync::getFiber());
     }
 
-    public function __toString(): string { 
-        if ($this->file === null) {
-            return $this->buffer;
-        } else {
-            $result = '';
-            for ($i = 0; $i < $this->writeOffset;) {
-                // Block Fiber until file is readable
-                Loop::readable($this->file);
-                \fseek($this->file, $i);
-                $chunk = \fread($this->file, 32768);
-                if ($chunk === false) {
-                    return $result;
-                }
-                $i += \strlen($chunk);
-                $result .= $chunk;
-            }
-            return $result;
+    public function __toString(): string {
+        if ($this->creator->get() === phasync::getFiber()) {
+            return 'Stream Error: Can\'t access stream from the coroutine that created it';
         }
-        
+        if ($this->detached) {
+            return 'Stream Error: Detached';
+        }
+        if ($this->closed) {
+            return 'Stream Error: Closed';
+        }
+        $this->rewind();
+        return $this->getContents();
     }
 
     public function close(): void {
+        // Can't actually close this until the writer has ended
+        $this->blockUntilEnded();
+        if ($this->file) {
+            \fclose($this->file);
+        }
         $this->buffer = '';
         $this->file = null;
         $this->closed = true;
     }
 
     public function detach() {
-        if ($this->file !== null) {
-            $result = $this->file;
-            $this->close();
-            return $result;
+        // Can't actually detach until the writer has ended
+        $this->blockUntilEnded();
+
+        // Ensure there is a stream resource to detach
+        if ($this->file === null) {
+            $this->transitionToFile();
         }
-        $this->close();
+
+        $result = $this->file;
+        $this->file = null;
+        $this->closed = true;        
+        return $result;
     }
 
     public function getSize(): ?int {
-        if ($this->ended) {
-            return $this->writeOffset;
-        }
-        return null;
+        $this->blockUntilEnded();
+        return $this->endOffset;
     }
 
     public function tell(): int {
@@ -93,22 +105,37 @@ class BufferedStream implements StreamInterface {
     }
 
     public function eof(): bool {
-        if ($this->ended) {
-            return $this->readOffset === $this->writeOffset;
-        }
-        return false;
+        // Can respond immediately if not at the eof
+        return $this->readOffset === $this->endOffset;
     }
 
     public function isSeekable(): bool {
-        return false;
+        return true;
     }
 
     public function seek(int $offset, int $whence = SEEK_SET): void {
-        throw new RuntimeException("Stream is not seekable");
+        $this->assertNotCreator();
+        $this->lock();
+        try {
+            switch ($whence) {
+                case SEEK_CUR:
+                    $this->readOffset = \max(0, \min($this->writeOffset, $this->readOffset + $offset));
+                    break;
+                case SEEK_END:
+                    $this->readOffset = \max(0, \min($this->writeOffset, $this->writeOffset + $offset));
+                    break;
+                default:
+                case SEEK_SET:
+                    $this->readOffset = \max(0, \min($this->writeOffset, $offset));
+                    break;
+            }    
+        } finally {
+            $this->unlock();
+        }
     }
 
     public function rewind(): void {
-        throw new RuntimeException("Stream is not seekable");
+        $this->seek(0);
     }
 
     public function isWritable(): bool {
@@ -120,139 +147,252 @@ class BufferedStream implements StreamInterface {
     }
 
     public function isReadable(): bool {
-        return !$this->closed;
+        return !$this->closed && !$this->detached;
     }
 
     public function read(int $length): string {
+        $this->assertNotCreator();
+        if ($this->detached) {
+            throw new RuntimeException("Stream is detached");
+        }        
         if ($this->closed) {
             throw new RuntimeException("Stream is closed");
         }
-        while (!$this->ended && $this->readOffset === $this->writeOffset) {
-            Loop::awaitFlag($this);
+        if ($this->eof()) {
+            return '';
         }
-        if ($this->file === null) {
-            $chunk = \substr($this->buffer, $this->readOffset, $length);
-            $this->readOffset += \strlen($chunk);
-            return $chunk;
-        } else {
-            // Block Fiber until file is readable
-            Loop::readable($this->file);
-            \fseek($this->file, $this->readOffset);
-            $chunk = \fread($this->file, $length);
-            if ($chunk === false) {
-                throw new RuntimeException("Read operation failed");
+        if ($this->readOffset === $this->writeOffset) {
+            $this->waitForUpdate();
+        }
+        $this->lock();
+        try {
+            if ($this->file === null) {
+                $chunk = \substr($this->buffer, $this->readOffset, $length);
+                $this->readOffset += \strlen($chunk);    
+                return $chunk;
+            } else {
+                // Block Fiber until file is readable
+                phasync::readable($this->file);
+                \fseek($this->file, $this->readOffset);
+                $chunk = \fread($this->file, $length);
+                if ($chunk === false) {
+                    throw new RuntimeException("Read operation failed");
+                }
+                $this->readOffset += \strlen($chunk);
+                return $chunk;
             }
-            $this->readOffset += \strlen($chunk);
-            return $chunk;
+        } finally {
+            $this->unlock();
         }
     }
 
     public function getContents(): string {
-        if ($this->file === null) {
-            $chunk = \substr($this->buffer, $this->readOffset);
-            $this->readOffset += \strlen($chunk);
-            return $chunk;
-        }
-        $result = '';
-        while ($this->readOffset < $this->writeOffset) {
-            // Block Fiber until file is readable
-            Loop::readable($this->file);
-            \fseek($this->file, $this->readOffset);
-            $chunk = \fread($this->file, 32768);
-            if ($chunk === false) {
-                throw new RuntimeException("Read operation failed");
+        $this->lock(); 
+        try {
+            $this->blockUntilEnded();
+
+            if ($this->file === null) {
+                $chunk = \substr($this->buffer, $this->readOffset);
+                $this->readOffset = $this->writeOffset;
+                return $chunk;
             }
-            $this->readOffset += \strlen($chunk);
-            $result .= $chunk;
+    
+            $chunks = [];
+            while (!$this->eof()) {
+                $chunks[] = $this->read(65536);
+            }
+            return implode('', $chunks);    
+        } finally {
+            $this->unlock();
         }
-        return $result;
     }
 
     public function getMetadata(?string $key = null) {
-        $data = [
-            'timed_out' => false,
-            'blocked' => false,
-            'eof' => $this->ended && $this->readOffset === $this->writeOffset,
-            'unread_bytes' => 0,
-            'stream_type' => 'custom',
-            'wrapper_type' => '',
-            'wrapper_data' => null,
-            'mode' => "r",
-            'seekable' => false,
-            'uri' => 'resource',
-        ];
-        if ($key !== null) {
-            return $data[$key] ?? null;
+        $this->lock();
+        try {
+            if ($this->file) {
+                $data = \stream_get_meta_data($this->file);
+            } else {
+                $data = [
+                    'timed_out' => false,
+                    'blocked' => false,
+                    'unread_bytes' => 0,
+                    'stream_type' => 'custom',
+                    'wrapper_type' => '',
+                    'wrapper_data' => null,
+                    'mode' => "r",
+                    'seekable' => false,
+                    'uri' => 'resource',
+                ];
+            }
+            $data['eof'] = $this->eof();
+            if ($key !== null) {
+                return $data[$key] ?? null;
+            }
+            return $data;
+        } finally {
+            $this->unlock();
         }
-        return $data;
     }
 
-    public function append(string $chunk): void {        
-        if ($this->ended) {
-            throw new RuntimeException("Stream can't be appended to after ending");
+    /**
+     * Append more data to the stream
+     * 
+     * @param string $chunk 
+     * @return void 
+     * @throws RuntimeException 
+     * @throws TimeoutException 
+     * @throws Throwable 
+     * @throws LogicException 
+     * @throws FiberError 
+     */
+    public function append(string $chunk): void {   
+        $this->lock();
+        try {
+            if ($this->endOffset !== null) {
+                throw new RuntimeException("Stream can't be appended to after ending");
+            }
+            $length = \strlen($chunk);
+            if ($this->writeOffset + $length > $this->bufferSize) {
+                $this->transitionToFile();
+            }
+    
+            if ($this->file === null) {
+                $this->buffer .= $chunk;
+            } else {
+                // Block Fiber until file is writable
+                phasync::writable($this->file);
+                \fseek($this->file, $this->writeOffset);
+                \fwrite($this->file, $chunk);
+            }
+            $this->writeOffset += $length;    
+            $this->notifyUpdate();
+        } finally {
+            $this->unlock();
         }
-        $length = \strlen($chunk);
-        if ($this->writeOffset + $length > $this->bufferSize) {
-            $this->transitionToFile();
-        }
-
-        if ($this->file === null) {
-            $this->buffer .= $chunk;
-        } else {
-            // Block Fiber until file is writable
-            Loop::writable($this->file);
-            \fseek($this->file, $this->writeOffset);
-            \fwrite($this->file, $chunk);
-        }
-        $this->writeOffset += $length;
-        Loop::raiseFlag($this);
     }
 
+    /**
+     * Inform that no more content will be appended to the stream,
+     * effectively declaring the end-of-file position.
+     * 
+     * @return void 
+     * @throws LogicException 
+     */
     public function end(): void {
-        if ($this->ended) {
-            throw new LogicException("Stream was already ended");
+        $this->lock();
+        try {
+            if ($this->endOffset !== null) {
+                throw new LogicException("Stream was already ended");
+            }
+            $this->endOffset = $this->writeOffset;    
+        } finally {
+            $this->locked = false;
+            phasync::raiseFlag($this);
         }
-        $this->ended = true;
-        Loop::raiseFlag($this);
     }
 
+    /**
+     * Transition the in-memory buffer to a disk backed file.
+     * 
+     * @return void 
+     * @throws TimeoutException 
+     * @throws Throwable 
+     * @throws LogicException 
+     * @throws FiberError 
+     */
     private function transitionToFile(): void {
         $this->lock();
-        if ($this->file !== null) {
-            $this->unlock();
-            return;
-        }
-        $this->file = \tmpfile();
-        for ($i = 0; $i < $this->writeOffset;) {
-            // Block Fiber until file is readable
-            Loop::writable($this->file);
-            $written = \fwrite($this->file, \substr($this->buffer, $i, 32768));
-            if ($written === false) {
-                // Abort transition, failed writing so fall back to memory one more chunk
-                $this->file = null;
-                $this->unlock();
+        try {
+            if ($this->file !== null) {
                 return;
             }
-            $i += $written;
+            $this->file = \tmpfile();
+            for ($i = 0; $i < $this->writeOffset;) {
+                // Block Fiber until file is readable
+                phasync::writable($this->file);
+                $written = \fwrite($this->file, \substr($this->buffer, $i, 32768));
+                if ($written === false) {
+                    // Abort transition, failed writing so fall back to memory one more chunk
+                    $this->file = null;
+                    return;
+                }
+                $i += $written;
+            }
+            $this->buffer = '';
+        } finally {
+            $this->unlock();
         }
-        $this->buffer = '';
-        $this->unlock();
     }
 
-    private function lock(): void {
+    /**
+     * Get a lock on the stream. This MUST be followed up by a call
+     * to {@see self::unlock()}
+     * 
+     * @return void 
+     * @throws TimeoutException 
+     * @throws Throwable 
+     */
+    private function lock(): void {        
         while ($this->locked) {
             // Await notification that the lock is gone
-            Loop::awaitFlag($this);
+            $this->waitForUpdate();
         }
         $this->locked = true;
     }
 
+    /**
+     * Release the lock on the stream. This should only be called if
+     * {@see self::lock()} was called first.
+     * 
+     * @return void 
+     * @throws LogicException 
+     */
     private function unlock(): void {
         if (!$this->locked) {
-            throw new LogicException("Stream is not locked");
+            throw new LogicException("Stream is not locked. Only call unlock if you successfully called lock!");
         }
         $this->locked = false;
         // Notify that the lock is gone
-        Loop::raiseFlag($this);
+        $this->notifyUpdate();
+    }
+
+    private function blockUntilEnded(): void {
+        $timeout = \microtime(true) + $this->deadlockTimeout;
+        $this->assertNotCreator();
+        while ($this->endOffset === null) {
+            if ($timeout < \microtime(true)) {
+                throw new TimeoutException("Possible deadlock detected; timeout after 300 seconds");
+            }
+            $this->waitForUpdate();
+        }
+    }
+
+    private function notifyUpdate(): void {
+        if ($this->endOffset !== null) {
+            throw new LogicException("No updates will occur in an ended stream");
+        }
+        phasync::raiseFlag($this);
+    }
+
+    private function waitForUpdate(): void {
+        if ($this->endOffset === null) {
+            try {
+                phasync::awaitFlag($this, $this->deadlockTimeout);
+            } catch (TimeoutException) {
+                throw new RuntimeException("Possible deadlock detected, no update in " . $this->deadlockTimeout . " seconds");
+            }
+        } else {
+            throw new LogicException("No point waiting in an ended stream");
+        }
+    }
+
+    private function assertNotCreator(): void {
+        if ($this->endOffset !== null) {
+            return;
+        }
+        if ($this->creator->get() === phasync::getFiber()) {
+            throw new RuntimeException("Can't use BufferedStream in the coroutine that created it");
+        }
     }
 }
