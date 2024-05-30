@@ -1,0 +1,10 @@
+version: '3.9'
+
+services:
+  phasync-82:
+    build: docker/php-8.2
+    container_name: phasync
+    working_dir: /app
+    tty: true
+    volumes:
+      - .:/app:delegated
