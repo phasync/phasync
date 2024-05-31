@@ -15,12 +15,20 @@ use Traversable;
  * @package phasync\Internal
  */
 final class ReadChannel implements ReadChannelInterface, IteratorAggregate {
+    private int $id;
 
     private ChannelBackendInterface $channel;
 
     public function __construct(ChannelBackendInterface $channel) {
+        $this->id = \spl_object_id($this);
         $this->channel = $channel;
         
+    }
+
+    public function await(): void {
+        if ($this->selectWillBlock()) {
+            $this->channel->getSelectManager()->await();
+        }
     }
 
     public function getSelectManager(): SelectManager {
