@@ -111,6 +111,8 @@ final class StreamSelectDriver implements DriverInterface {
      */
     private array $streamFibers = [];
 
+    private array $streamResults = [];
+
     /**
      * Holds a reference to fibers that are waiting for a flag to be
      * raised. The Flag object will automatically resume all fibers
@@ -308,28 +310,64 @@ final class StreamSelectDriver implements DriverInterface {
             $result = \stream_select($reads, $writes, $excepts, (int)($maxSleepTime), ($maxSleepTime - (int)($maxSleepTime)) * 1000000);
 
             if (\is_int($result) && $result > 0) {
-                $pollResults = [];
+                $fibersToEnqueue = [];
+                $streamResults = [];
                 foreach ($reads as $readableStream) {
                     $id = \get_resource_id($readableStream);
-                    $pollResults[$id] = DriverInterface::STREAM_READ | ($pollResults[$id] ?? 0);
-                    $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id]);                
+                    $streamResults[$id] = DriverInterface::STREAM_READ | ($streamResults[$id] ?? 0);
+                    if (is_array($this->streamFibers[$id])) {
+                        foreach ($this->streamFibers[$id]['r'] as $f) {
+                            $fibersToEnqueue[\spl_object_id($f)] = $f;
+                        }
+                        unset($this->streamFibers[$id]['r']);
+                        if (empty($this->streamFibers[$id])) {
+                            unset($this->streamFibers[$id], $this->streams[$id]);
+                        }
+                        $this->streamModes[$id] = $this->streamModes[$id] & (~DriverInterface::STREAM_READ);
+                    } else {
+                        $fibersToEnqueue[\spl_object_id($this->streamFibers[$id])] = $this->streamFibers[$id];
+                        unset($this->streamFibers[$id], $this->streams[$id]);                
+                    }
                 }
                 foreach ($writes as $writableStream) {
                     $id = \get_resource_id($writableStream);
-                    $pollResults[$id] = DriverInterface::STREAM_WRITE | ($pollResults[$id] ?? 0);
-                    if (!isset($this->streams[$id])) continue;
-                    $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id]);
+                    $streamResults[$id] = DriverInterface::STREAM_WRITE | ($streamResults[$id] ?? 0);
+                    if (is_array($this->streamFibers[$id])) {
+                        foreach ($this->streamFibers[$id]['w'] as $f) {
+                            $fibersToEnqueue[\spl_object_id($f)] = $f;
+                        }
+                        unset($this->streamFibers[$id]['w']);
+                        if (empty($this->streamFibers[$id])) {
+                            unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);
+                        }
+                        $this->streamModes[$id] = $this->streamModes[$id] & (~DriverInterface::STREAM_WRITE);
+                    } else {
+                        $fibersToEnqueue[\spl_object_id($this->streamFibers[$id])] = $this->streamFibers[$id];
+                        unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
+                    }
                 }
                 foreach ($excepts as $exceptStream) {
                     $id = \get_resource_id($exceptStream);
-                    $pollResults[$id] = DriverInterface::STREAM_EXCEPT | ($pollResults[$id] ?? 0);
-                    if (!isset($this->streams[$id])) continue;
-                    $queue->enqueue($this->streamFibers[$id]);
-                    unset($this->streamFibers[$id], $this->streams[$id]);
+                    $streamResults[$id] = DriverInterface::STREAM_EXCEPT | ($streamResults[$id] ?? 0);
+                    if (is_array($this->streamFibers[$id])) {
+                        foreach ($this->streamFibers[$id]['e'] as $f) {
+                            $fibersToEnqueue[\spl_object_id($f)] = $f;
+                        }
+                        unset($this->streamFibers[$id]['e']);
+                        if (empty($this->streamFibers[$id])) {
+                            unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);
+                        }
+                        $this->streamModes[$id] = $this->streamModes[$id] & (~DriverInterface::STREAM_EXCEPT);
+                    } else {
+                        $fibersToEnqueue[\spl_object_id($this->streamFibers[$id])] = $this->streamFibers[$id];
+                        unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);                
+                    }
                 }
-                $this->streamModes = \array_replace($this->streamModes, $pollResults);
+                foreach ($fibersToEnqueue as $f) {
+                    $this->enqueue($f);
+                }
+                unset($fibersToEnqueue, $f);
+                $this->streamResults = \array_replace($this->streamResults, $streamResults);
             }
         } elseif ($maxSleepTime > 0) {
             // There are no fibers waiting for afterNext, and the 
@@ -546,16 +584,47 @@ final class StreamSelectDriver implements DriverInterface {
         }
         $resourceId = \get_resource_id($resource);
         if (isset($this->streams[$resourceId])) {
-            throw new RuntimeException("The stream resource is already being monitored");
+            if (!is_array($this->streamFibers[$resourceId])) {
+                $existingFiber = $this->streamFibers[$resourceId];
+                $this->streamFibers[$resourceId] = [
+                    'r' => [],
+                    'w' => [],
+                    'e' => [],
+                ];
+                if ($this->streamModes[$resourceId] & DriverInterface::STREAM_READ) {
+                    $this->streamFibers[$resourceId]['r'][] = $existingFiber;
+                }
+                if ($this->streamModes[$resourceId] & DriverInterface::STREAM_WRITE) {
+                    $this->streamFibers[$resourceId]['w'][] = $existingFiber;
+                }
+                if ($this->streamModes[$resourceId] & DriverInterface::STREAM_EXCEPT) {
+                    $this->streamFibers[$resourceId]['e'][] = $existingFiber;
+                }
+            }
         }
-        $this->streams[$resourceId] = $resource;
-        $this->streamModes[$resourceId] = $mode;
-        $this->streamFibers[$resourceId] = $fiber;
+        if (isset($this->streams[$resourceId])) {
+            // multi fiber watch mode
+            $this->streamModes[$resourceId] |= $mode;
+            if ($mode & DriverInterface::STREAM_READ) {
+                $this->streamFibers[$resourceId]['r'][] = $fiber;
+            }
+            if ($mode & DriverInterface::STREAM_WRITE) {
+                $this->streamFibers[$resourceId]['w'][] = $fiber;
+            }
+            if ($mode & DriverInterface::STREAM_EXCEPT) {
+                $this->streamFibers[$resourceId]['e'][] = $fiber;
+            }
+        } else {
+            // Single fiber watch mode
+            $this->streams[$resourceId] = $resource;
+            $this->streamModes[$resourceId] = $mode;    
+            $this->streamFibers[$resourceId] = $fiber;
+        }
         $this->pending[$fiber] = \microtime(true) + $timeout;
     }
 
     public function getLastResourceState(mixed $resource): ?int {
-        return $this->streamModes[\get_resource_id($resource)] ?? null;
+        return $this->streamResults[\get_resource_id($resource)] ?? null;
     }
 
 

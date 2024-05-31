@@ -38,7 +38,7 @@
         }
     },
     "scripts": {
-        "test": "@php vendor/bin/pest --stop-on-defect",
+        "test": "@php vendor/bin/pest --stop-on-defect --stop-on-error --stop-on-failure --stop-on-risky --display-deprecations --display-errors --display-notices --display-warnings",
         "test-all": "@php vendor/bin/pest"
     },
     "scripts-descriptions": {
