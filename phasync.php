@@ -11,6 +11,7 @@ use phasync\Internal\Subscribers;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\WriteChannel;
 use phasync\ReadChannelInterface;
+use phasync\RethrowExceptionInterface;
 use phasync\SelectableInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
@@ -348,7 +349,7 @@ final class phasync {
                     throw new TimeoutException("The coroutine did not complete in time");
                 }
                 $driver->whenFlagged($fiber, $remaining, $currentFiber);
-                Fiber::suspend();    
+                self::suspend();    
             }    
         } else {
             /**
@@ -472,26 +473,29 @@ final class phasync {
      * This function is highly optimized, but it benefits a lot from JIT because it
      * seems to be inlined.
      * 
-     * @return void 
-     * @throws RuntimeException 
+     * @return void
      */
     public static function preempt(): void {
-        $elapsed = ($now = \hrtime(true)) - self::$lastPreemptTime;
-        if ($elapsed > self::$preemptInterval) {
-            if (self::getDriver()->getCurrentFiber() === null) {
-                // Minimize cost of calling this outside of phasync
-                return;
+        try {
+            $elapsed = ($now = \hrtime(true)) - self::$lastPreemptTime;
+            if ($elapsed > self::$preemptInterval) {
+                if (self::getDriver()->getCurrentFiber() === null) {
+                    // Minimize cost of calling this outside of phasync
+                    return;
+                }
+                if (self::$lastPreemptTime === 0) {                
+                    // This check is too costly to perform on every preempt()
+                    // call, so we'll just set it here and wait for the next call.
+                    self::$lastPreemptTime = $now;
+                } else {
+                    $driver = self::getDriver();
+                    self::$lastPreemptTime = $now;
+                    $driver->enqueue($driver->getCurrentFiber());
+                    self::suspend();    
+                }
             }
-            if (self::$lastPreemptTime === 0) {                
-                // This check is too costly to perform on every preempt()
-                // call, so we'll just set it here and wait for the next call.
-                self::$lastPreemptTime = $now;
-            } else {
-                $driver = self::getDriver();
-                self::$lastPreemptTime = $now;
-                $driver->enqueue($driver->getCurrentFiber());
-                Fiber::suspend();    
-            }
+        } catch (Throwable) {
+            // Ignore; this function must never throw
         }
     }
 
@@ -510,7 +514,7 @@ final class phasync {
         $fiber = $driver->getCurrentFiber();
         if ($fiber !== null) {
             $driver->whenTimeElapsed($seconds, $fiber);
-            Fiber::suspend();
+            self::suspend();
         } elseif ($seconds <= 0) {
             $driver->tick();
         } else {
@@ -533,9 +537,27 @@ final class phasync {
             return;
         }
         $driver->afterNext($fiber);
-        Fiber::suspend();
+        self::suspend();    
     }
 
+
+    /**
+     * Function is used internally to suspend coroutines and ensure
+     * exceptions have a proper stack trace.
+     * 
+     * @internal
+     * @return void 
+     * @throws FiberError 
+     * @throws Throwable 
+     */
+    private static function suspend(): void {
+        try {
+            Fiber::suspend();
+        } catch (RethrowExceptionInterface $e) {
+            $className = \get_class($e);
+            throw new $className($e->getMessage(), $e->getCode(), $e);
+        }
+    }
 
     /**
      * Suspend the current fiber until the event loop becomes empty or will sleeps while
@@ -551,9 +573,9 @@ final class phasync {
             return;
         }
         $timeout = $timeout ?? self::getDefaultTimeout();
-            $driver->whenIdle($timeout, $fiber);
+        $driver->whenIdle($timeout, $fiber);
         try {
-            Fiber::suspend();
+            self::suspend();
         } catch (TimeoutException) {
             // Timeouts are not errors
         }
@@ -662,7 +684,7 @@ final class phasync {
         }
         $timeout = $timeout ?? self::getDefaultTimeout();
         $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
-        Fiber::suspend();
+        self::suspend();
         return $driver->getLastResourceState($resource);
     }
 
@@ -748,7 +770,7 @@ final class phasync {
         }
 
         $driver->whenFlagged($signal, $timeout ?? self::getDefaultTimeout(), $fiber);
-        Fiber::suspend();
+        self::suspend();    
     }
 
     /**

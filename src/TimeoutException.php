@@ -3,6 +3,6 @@ namespace phasync;
 
 use RuntimeException;
 
-class TimeoutException extends RuntimeException {
+class TimeoutException extends RuntimeException implements RethrowExceptionInterface {
     
 }

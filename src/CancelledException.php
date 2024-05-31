@@ -9,4 +9,4 @@ use RuntimeException;
  * 
  * @package phasync
  */
-class CancelledException extends RuntimeException {}
+class CancelledException extends RuntimeException implements RethrowExceptionInterface {}
