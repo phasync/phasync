@@ -9,6 +9,30 @@ use ReflectionFunction;
 final class Debug {
 
     /**
+     * Format a binary string to be printable, for debugging binary protocols
+     * and other data. The characters that can be printed will be kept, while
+     * binary data will be enclosed in ⟪01FA6B⟫, and when the length 
+     * 
+     * @param string $binary The binary data to print.
+     * @param bool $withLength Should byte sequences longer than 8 bytes ble chunked?
+     * @return string 
+     */
+    public static function binaryString(string $binary, bool $withLength=false): string {
+        $re = '/([\x00-\x1F\x80-\xFF]+([^\x00-\x1F\x80-\xFF]{1,2}[\x00-\x1F\x80-\xFF]+)*)/';
+
+        return \preg_replace_callback($re, subject: $binary, callback: function($matches) use ($withLength) {
+            $string = $matches[0];
+            $chunked = \implode("∙", \str_split(\bin2hex($string), 8));
+            $length = \strlen($string);
+            if ($withLength && $length > 8) {
+                return '⟪'. $length . '|' . $chunked . '⟫';
+            } else {
+                return '⟪'. $chunked . '⟫';
+            }
+        });
+    }
+
+    /**
      * Return a debug string for various objects.
      * 
      * @param mixed $subject 
