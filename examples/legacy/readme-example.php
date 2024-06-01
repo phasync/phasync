@@ -213,7 +213,7 @@ try {
         echo "Waitgroup waiting\n";
 
         // wait for all workers to complete
-        $wait_group->wait();
+        $wait_group->await();
         echo "Waitgroup done\n";
     
     

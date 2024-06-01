@@ -56,6 +56,10 @@ final class ChannelBuffered implements ChannelBackendInterface, IteratorAggregat
         $this->creatingFiber = phasync::getFiber();
     }
 
+    public function activate(): void {
+        $this->creatingFiber = null;
+    }
+
     public function selectWillBlock(): bool {
         return $this->readWillBlock() || $this->writeWillBlock();
     }

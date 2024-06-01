@@ -6,6 +6,13 @@ use phasync\TimeoutException;
 use stdClass;
 use Throwable;
 
+/**
+ * SelectManager provides functionality for awaiting multiple selectables
+ * simultaneously without polling.
+ * 
+ * @internal
+ * @package phasync\Internal
+ */
 final class SelectManager {
 
     private bool $hasFlags = false;

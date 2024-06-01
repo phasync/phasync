@@ -5,6 +5,7 @@ use IteratorAggregate;
 use phasync;
 use phasync\ReadChannelInterface;
 use phasync\TimeoutException;
+use RuntimeException;
 use Serializable;
 use Throwable;
 use Traversable;
@@ -24,6 +25,10 @@ final class Subscriber implements ReadChannelInterface, IteratorAggregate {
         $this->id = \spl_object_id($this);
         $this->publisher = $publisher;
         $this->currentMessage = $this->publisher->getStartMessage();
+    }
+
+    public function activate(): void {
+        throw new RuntimeException("Can't activate a subscriber this way. Use the publisher instead.");
     }
 
     /**

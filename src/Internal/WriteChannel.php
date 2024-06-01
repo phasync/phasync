@@ -20,6 +20,11 @@ final class WriteChannel implements WriteChannelInterface {
         $this->channel = $channel;
     }
 
+    public function activate(): void {
+        $this->channel->activate();
+    }
+
+
     public function await(): void {
         if ($this->selectWillBlock()) {
             $this->channel->getSelectManager()->await();
@@ -53,5 +58,4 @@ final class WriteChannel implements WriteChannelInterface {
     public function selectWillBlock(): bool {
         return $this->channel->writeWillBlock();
     }
-
 }

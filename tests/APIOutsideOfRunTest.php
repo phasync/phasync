@@ -90,7 +90,7 @@ test('using phasync::waitGroup() outside of phasync fails', function() {
     expect(function() {
         $wg = phasync::waitGroup();    
         $wg->add();    
-        $wg->wait();
+        $wg->await();
     })->toThrow(LogicException::class);
 });
 
@@ -110,4 +110,3 @@ test('using phasync::awaitFlag() outside of phasync fails', function() {
         phasync::awaitFlag(new stdClass);
     })->toThrow(LogicException::class);
 });
-

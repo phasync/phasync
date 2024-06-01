@@ -29,9 +29,10 @@ final class ChannelUnbuffered implements ChannelBackendInterface, IteratorAggreg
     const BLOCKING_WRITES = 2;
 
     /**
-     * Waiting readers must be stored here, because if the Channel becomes
-     * garbage collected then the Fiber it is referencing will be destroyed.
-     * Instead we will enqueue the suspended reader in the destructor.
+     * Waiting fibers in all channels are stored in a static array, because
+     * if the instances themselves reference the fiber - the waiting fiber will
+     * also be garbage collected. When the channel is closed, all blocked fibers
+     * must be resumed.
      * 
      * @var array<int, SplQueue<Fiber>>
      */
@@ -41,13 +42,33 @@ final class ChannelUnbuffered implements ChannelBackendInterface, IteratorAggreg
     private bool $closed = false;
     private mixed $value = null;
     private ?Fiber $creatingFiber;
+
+    /**
+     * Channels are either blocking reads or writes. When the channel is in
+     * the {@see self::READY} state, both reads and writes would block.
+     * 
+     * @var int
+     */
     private int $state = self::READY;
+
+    /**
+     * When a channel reads a message from a blocked writer, it temporarily
+     * registers itself as the receiving fiber. The writer is resumed and
+     * writes the value to {@see self::$value} and then immediately resumes
+     * the reader.
+     * 
+     * @var null|Fiber
+     */
     private ?Fiber $receiver;
 
     public function __construct() {
         $this->id = \spl_object_id($this);
         self::$waiting[$this->id] = new SplQueue();
         $this->creatingFiber = phasync::getFiber();
+    }
+
+    public function activate(): void {
+        $this->creatingFiber = null;
     }
 
     public function getIterator(): Traversable {
@@ -61,7 +82,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, IteratorAggreg
     }
 
     public function __destruct() {
-        $this->closed = true;
+        $this->close();
         unset(self::$waiting[$this->id]);
     }
 
@@ -183,7 +204,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, IteratorAggreg
                 $this->creatingFiber = null;
             }
         }
-        return self::$waiting[$this->id]->isEmpty() || $this->state === self::BLOCKING_READS;
+        return $this->state === self::BLOCKING_READS || $this->state === self::READY;
     }
 
     public function writeWillBlock(): bool {
@@ -194,7 +215,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, IteratorAggreg
                 $this->creatingFiber = null;
             }
         }
-        return self::$waiting[$this->id]->isEmpty() || $this->state === self::BLOCKING_WRITES;
+        return $this->state === self::BLOCKING_WRITES || $this->state === self::READY;
     }
 
 }

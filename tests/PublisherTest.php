@@ -64,7 +64,7 @@ test('publisher semantics', function() {
             $pub->close();
             $wg->done();
         });
-        $wg->wait();
+        $wg->await();
 
         phasync::go(function() use ($lastSubscription, &$counter) {
             // Even after closing a channel, a subscriber should still be able to get messages

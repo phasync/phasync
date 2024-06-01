@@ -21,8 +21,11 @@ final class ReadChannel implements ReadChannelInterface, IteratorAggregate {
 
     public function __construct(ChannelBackendInterface $channel) {
         $this->id = \spl_object_id($this);
-        $this->channel = $channel;
-        
+        $this->channel = $channel;        
+    }
+
+    public function activate(): void {
+        $this->channel->activate();
     }
 
     public function await(): void {

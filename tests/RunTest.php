@@ -154,7 +154,7 @@ test('complex nested phasync::run() calls concurrently', function() {
             $totalTime += microtime(true) - $startTime;
             $wg->done();
         });
-        $wg->wait();
+        $wg->await();
         expect(microtime(true)-$startTime)->toBeLessThan(0.5)->toBeGreaterThan(0.35);
         expect($totalTime)->toBeLessThan(1.7)->toBeGreaterThan(1.5);
     });

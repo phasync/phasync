@@ -9,10 +9,13 @@ use phasync\Internal\ChannelBuffered;
 use phasync\Internal\ChannelUnbuffered;
 use phasync\Internal\Subscribers;
 use phasync\Internal\ReadChannel;
+use phasync\Internal\FiberSelector;
+use phasync\Internal\StreamSelector;
 use phasync\Internal\WriteChannel;
 use phasync\ReadChannelInterface;
 use phasync\RethrowExceptionInterface;
 use phasync\SelectableInterface;
+use phasync\SelectorInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
 use phasync\WriteChannelInterface;
@@ -374,36 +377,95 @@ final class phasync {
     /**
      * Block until one of the selectable objects or fibers terminate
      * 
-     * @param SelectableInterface[] $selectables 
+     * @param (SelectableInterface|Fiber)[] $selectables 
      * @param null|float $timeout 
-     * @return SelectableInterface 
+     * @param resource[] $read Wait for stream resources to become readable
+     * @param resource[] $write Wait for stream resources to become writable
+     * @return SelectableInterface|resource|Fiber 
      * @throws LogicException 
      * @throws FiberError 
      * @throws Throwable 
      */
-    public static function select(array $selectables, ?float $timeout=null): ?SelectableInterface {
+    public static function select(array $selectables, ?float $timeout=null, ?array $read=null, ?array $write=null): mixed {
         if (self::getDriver()->getCurrentFiber() === null) {
             throw new LogicException("Can't use phasync::select() outside of phasync. Use `phasync::run()` to launch a context.");
         }
+        $returnables = [];
+
         $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
         $selectFlag = new stdClass;
         try {
-            while (true) {
-                foreach ($selectables as $selectable) {
+            /**
+             * Validate that all selectables are valid and must be awaited,
+             * and convert any supported alterative resources into selectors.
+             */
+            foreach ($selectables as $k => $selectable) {
+                if ($selectable instanceof Fiber) {
+                    if ($selectable->isTerminated()) {
+                        return $selectable;
+                    }
+                    $fiberSelector = FiberSelector::create($selectable);
+                    $returnables[] = $fiberSelector;
+                    $selectables[$k] = $fiberSelector;
+                } elseif ($selectable instanceof SelectableInterface) {
                     if (!$selectable->selectWillBlock()) {
                         return $selectable;
                     }
-                    $selectable->getSelectManager()->addFlag($selectFlag);
+                } else {
+                    throw new InvalidArgumentException("Unexpected " . \get_debug_type($selectable) . " in phasync::select()");
                 }
+            }
+            /**
+             * Convert any stream resources waiting to be readable into
+             * StreamSelectors.
+             */
+            if ($read !== null) {
+                foreach ($read as $r) {
+                    $selector = StreamSelector::create($r, DriverInterface::STREAM_READ);
+                    $selectables[] = $selector;
+                    $returnables[] = $selector;
+                }
+            }
+            /**
+             * Convert any stream resources waiting to be writable into
+             * StreamSelectors.
+             */
+            if ($write !== null) {
+                foreach ($write as $w) {
+                    $selector = StreamSelector::create($w, DriverInterface::STREAM_WRITE);
+                    $selectables[] = $selector;
+                    $returnables[] = $selector;
+                }
+            }
+
+
+            foreach ($selectables as $selectable) {                    
+                $selectable->getSelectManager()->addFlag($selectFlag);
+            }
+            while (true) {
                 try {
                     phasync::awaitFlag($selectFlag, $stopTime - \microtime(true));
+                    foreach ($selectables as $selectable) {
+                        if (!$selectable->selectWillBlock()) {
+                            if ($selectable instanceof SelectorInterface) {
+                                return $selectable->getSelected();
+                            } else {
+                                return $selectable;
+                            }    
+                        }
+                    }
                 } catch (TimeoutException) {
                     return null;
                 }
             }    
         } finally {
             foreach ($selectables as $selectable) {
-                $selectable->getSelectManager()->removeFlag($selectFlag);
+                if ($selectable instanceof SelectableInterface) {
+                    $selectable->getSelectManager()->removeFlag($selectFlag);
+                }
+            }
+            foreach ($returnables as $returnable) {
+                $returnable->returnToPool();
             }
         }
     }
@@ -460,6 +522,10 @@ final class phasync {
      * @throws RuntimeException if the fiber is not currently blocked.
      */
     public static function cancel(Fiber $fiber, ?Throwable $exception=null): void {
+        if ($fiber->isTerminated()) {
+            debug_print_backtrace();
+            throw new InvalidArgumentException("Fiber is already terminated");
+        }
         self::getDriver()->cancel($fiber, $exception);
     }
 
@@ -686,6 +752,32 @@ final class phasync {
         $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
         self::suspend();
         return $driver->getLastResourceState($resource);
+    }
+
+    /**
+     * Check immediately if the stream resource can be read, written or
+     * is in an except state.
+     * 
+     * @internal
+     * @param mixed $resource 
+     * @return int 
+     * @throws InvalidArgumentException 
+     * @throws RuntimeException 
+     */
+    public static function streamPoll($resource): int {
+        if (!\is_resource($resource) || \get_resource_type($resource) !== 'stream') {
+            throw new InvalidArgumentException("Expecting a valid stream resource");
+        }
+        $r = $w = $e = [$resource];
+        $count = \stream_select($r, $w, $e, 0, 0);
+        if ($count === false) {
+            throw new RuntimeException("Unable to poll stream resource");
+        }
+        $result = 0;
+        if (!empty($r)) $result |= self::READABLE;
+        if (!empty($w)) $result |= self::WRITABLE;
+        if (!empty($e)) $result |= self::EXCEPT;
+        return $result;
     }
 
     /**

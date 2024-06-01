@@ -28,6 +28,6 @@ run(function() use ($fileList) {
         });
     }
 
-    $waitGroup->wait(); // Wait for all file processing to finish
+    $waitGroup->await(); // Wait for all file processing to finish
     echo "All files processed!\n";
 });

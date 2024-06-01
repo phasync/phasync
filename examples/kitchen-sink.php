@@ -154,7 +154,7 @@ try {
          */
         phasync::go(function() use ($wg) {
             echo elapsed() . "Wait group waiting: Started coroutine that waits for the wait group\n";
-            $wg->wait();
+            $wg->await();
             echo elapsed() . "Wait group waiting: Wait group finished, throwing exception\n";
             throw new Exception("Demo that this exception will be thrown from the top run() statement");
         });
@@ -180,7 +180,7 @@ try {
          * added coroutines have called `WaitGroup::done()` the main coroutine will
          * resume.
          */
-        $wg->wait();
+        $wg->await();
         echo elapsed() . "----\n";
         echo elapsed() . "Main run context: Wait group finished\n";
 

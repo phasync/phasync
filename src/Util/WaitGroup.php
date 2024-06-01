@@ -75,13 +75,25 @@ final class WaitGroup implements SelectableInterface {
      * is done.
      * 
      * @return void 
-     * @throws UsageError
-     * @throws FiberError 
      * @throws Throwable 
      */
-    public function wait(): void {
+    public function await(): void {
         if ($this->counter > 0) {
             phasync::awaitFlag($this);
         }
     }
+
+    /**
+     * This function was renamed to {@see WaitGroup::await()} to harmonize
+     * with the SelectableInterface API.
+     * 
+     * @see WaitGroup::await()
+     * @deprecated
+     * @return void 
+     * @throws Throwable 
+     */
+    public function wait(): void {
+        $this->await();
+    }
+
 }

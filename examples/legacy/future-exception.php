@@ -42,7 +42,7 @@ $exceptions_handled = run(function() {
     }
     echo "Launched 5000 coroutines in " . (microtime(true) - $lt) . " seconds\n";
 
-    $wg->wait();
+    $wg->await();
 
     return $count;
 });

@@ -17,6 +17,14 @@ use Traversable;
 interface ReadChannelInterface extends SelectableInterface, Traversable {
 
     /**
+     * This function can be used to activate the channel so that
+     * the deadlock protection does not fail.
+     * 
+     * @return void 
+     */
+    public function activate(): void;
+
+    /**
      * Closes the channel.
      * 
      * @return void 
