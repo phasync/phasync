@@ -307,7 +307,7 @@ final class StreamSelectDriver implements DriverInterface {
                 }
             }
 
-            $result = \stream_select($reads, $writes, $excepts, (int)($maxSleepTime), ($maxSleepTime - (int)($maxSleepTime)) * 1000000);
+            $result = \stream_select($reads, $writes, $excepts, (int)($maxSleepTime), (int) (($maxSleepTime - (int)($maxSleepTime)) * 1000000));
 
             if (\is_int($result) && $result > 0) {
                 $fibersToEnqueue = [];
