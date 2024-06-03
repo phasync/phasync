@@ -2,14 +2,15 @@
 
 phasync::setDefaultTimeout(4);
 
-test('performance and scalability', function() {
-    $startTime = microtime(true);
+test('performance and scalability', function () {
+    $startTime = \microtime(true);
 
-    phasync::run(function() {
+    phasync::run(function () {
         $futures = [];
-        for ($i = 0; $i < 5000; $i++) {
-            $futures[] = phasync::go(function() {
+        for ($i = 0; $i < 5000; ++$i) {
+            $futures[] = phasync::go(function () {
                 phasync::sleep(0.01);
+
                 return true;
             });
         }
@@ -20,22 +21,23 @@ test('performance and scalability', function() {
         }
     });
 
-    $endTime = microtime(true);
+    $endTime = \microtime(true);
     $elapsed = $endTime - $startTime;
 
     // Ensure that the elapsed time is reasonable
     expect($elapsed)->toBeLessThan(1); // Assuming all tasks complete within 1 second
 });
 
-test('large-scale concurrent tasks', function() {
-    $numTasks = 10000; // Increase the number of tasks
-    $startTime = microtime(true);
+test('large-scale concurrent tasks', function () {
+    $numTasks  = 10000; // Increase the number of tasks
+    $startTime = \microtime(true);
 
-    phasync::run(function() use ($numTasks) {
+    phasync::run(function () use ($numTasks) {
         $futures = [];
-        for ($i = 0; $i < $numTasks; $i++) {
-            $futures[] = phasync::go(function() {
+        for ($i = 0; $i < $numTasks; ++$i) {
+            $futures[] = phasync::go(function () {
                 phasync::sleep(0.1);
+
                 return true;
             });
         }
@@ -46,26 +48,27 @@ test('large-scale concurrent tasks', function() {
         }
     });
 
-    $endTime = microtime(true);
+    $endTime = \microtime(true);
     $elapsed = $endTime - $startTime;
 
     // Ensure that the elapsed time is reasonable
     expect($elapsed)->toBeLessThan(5); // Assuming all tasks complete within 1 second
 });
 
-test('CPU-bound tasks', function() {
-    $numTasks = 1000;
-    $startTime = microtime(true);
+test('CPU-bound tasks', function () {
+    $numTasks  = 1000;
+    $startTime = \microtime(true);
 
-    phasync::run(function() use ($numTasks) {
+    phasync::run(function () use ($numTasks) {
         $futures = [];
-        for ($i = 0; $i < $numTasks; $i++) {
-            $futures[] = phasync::go(function() {
+        for ($i = 0; $i < $numTasks; ++$i) {
+            $futures[] = phasync::go(function () {
                 // Perform CPU-bound computation (e.g., factorial calculation)
                 $result = 1;
-                for ($j = 1; $j <= 1000; $j++) {
+                for ($j = 1; $j <= 1000; ++$j) {
                     $result *= $j;
                 }
+
                 return $result;
             });
         }
@@ -76,34 +79,36 @@ test('CPU-bound tasks', function() {
         }
     });
 
-    $endTime = microtime(true);
+    $endTime = \microtime(true);
     $elapsed = $endTime - $startTime;
 
     // Ensure that the elapsed time is reasonable
     expect($elapsed)->toBeLessThan(2); // Assuming all tasks complete within 1 second
 });
 
-test('mixed I/O and CPU-bound tasks', function() {
-    $numTasks = 5000;
-    $startTime = microtime(true);
+test('mixed I/O and CPU-bound tasks', function () {
+    $numTasks  = 5000;
+    $startTime = \microtime(true);
 
-    phasync::run(function() use ($numTasks) {
+    phasync::run(function () use ($numTasks) {
         $futures = [];
-        for ($i = 0; $i < $numTasks; $i++) {
-            if ($i % 2 == 0) {
+        for ($i = 0; $i < $numTasks; ++$i) {
+            if (0 === $i % 2) {
                 // I/O-bound task
-                $futures[] = phasync::go(function() {
+                $futures[] = phasync::go(function () {
                     phasync::sleep(0.01);
+
                     return true;
                 });
             } else {
                 // CPU-bound task
-                $futures[] = phasync::go(function() {
+                $futures[] = phasync::go(function () {
                     // Perform CPU-bound computation
                     $result = 1;
-                    for ($j = 1; $j <= 1000; $j++) {
+                    for ($j = 1; $j <= 1000; ++$j) {
                         $result *= $j;
                     }
+
                     return $result;
                 });
             }
@@ -115,7 +120,7 @@ test('mixed I/O and CPU-bound tasks', function() {
         }
     });
 
-    $endTime = microtime(true);
+    $endTime = \microtime(true);
     $elapsed = $endTime - $startTime;
 
     // Ensure that the elapsed time is reasonable

@@ -1,11 +1,10 @@
 <?php
-namespace phasync;
 
-use RuntimeException;
+namespace phasync;
 
 /**
  * A generic exception occurred in the channel.
- * 
- * @package phasync
  */
-class ChannelException extends RuntimeException {}
+class ChannelException extends \RuntimeException
+{
+}

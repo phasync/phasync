@@ -1,21 +1,22 @@
 <?php
+
 require __DIR__ . '/../vendor/autoload.php';
 
 use phasync\HttpClient\HttpClient;
 use Psr\Http\Message\ResponseInterface;
 
-/**
+/*
  * Warning! The HttpClient here is a proof of concept. I want
  * it rewritten to be compatible with PSR, but it demonstrates
  * the {@see phasync\Services\CurlMulti} service in cooperation
  * with the {@see phasync\HttpClient\HttpClient} generating
  * PSR-7 ResponseInterface and PSR-7 StreamInterface.
- * 
+ *
  * This example does in no way appears to be concurrent, but
  * the HTTP client internally uses a coroutine context,
  * making the example async
  */
-phasync::run(function() {
+phasync::run(function () {
     $client = new HttpClient();
 
     /**
@@ -26,11 +27,11 @@ phasync::run(function() {
         ['https://www.microsoft.com/', null],
         ['https://www.db.no/', null],
     ];
-    foreach ($requests as [ $url, &$response ]) {
+    foreach ($requests as [$url, &$response]) {
         echo "GET $url\n";
         $response = $client->get($url);
     }
-    foreach ($requests as [ $url, $response ]) {
-        echo "$url size: " . strlen($response->getBody()) . "\n";
+    foreach ($requests as [$url, $response]) {
+        echo "$url size: " . \mb_strlen($response->getBody()) . "\n";
     }
 });

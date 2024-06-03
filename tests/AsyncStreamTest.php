@@ -1,16 +1,17 @@
 <?php
 
-test('phasync::io() readable stream', function() {
-    $resource = phasync::run(function() {
-        $fp = fopen(__FILE__, 'r');
+test('phasync::io() readable stream', function () {
+    $resource = phasync::run(function () {
+        $fp    = \fopen(__FILE__, 'r');
         $ticks = 0;
-        phasync::go(function() use (&$ticks) {
+        phasync::go(function () use (&$ticks) {
             phasync::sleep();
-            $ticks++;
+            ++$ticks;
         });
         $resource = phasync::io($fp);
         expect(\fread($resource, 4096))->toBeString();
         expect($ticks)->toBe(1);
+
         return $resource;
     });
     expect($resource)->toBeResource();
@@ -18,39 +19,39 @@ test('phasync::io() readable stream', function() {
     expect(\fread($resource, 4096))->toBeString();
 });
 
-test('phasync::io() closing resource closes source', function() {
-    phasync::run(function() {
-        $fp = fopen(__FILE__, 'r');
+test('phasync::io() closing resource closes source', function () {
+    phasync::run(function () {
+        $fp       = \fopen(__FILE__, 'r');
         $resource = phasync::io($fp);
-        fclose($resource); // Close resource to cause an exception
+        \fclose($resource); // Close resource to cause an exception
         expect(\is_resource($fp))->toBeFalse();
     });
 });
 
-test('phasync::io() with non-streams', function() {
-    phasync::run(function() {
+test('phasync::io() with non-streams', function () {
+    phasync::run(function () {
         expect(phasync::io(false))->toBeFalse();
         expect(phasync::io(true))->toBeTrue();
         expect(phasync::io(null))->toBeNull();
-    });    
-});
-
-test('phasync::io() writable stream', function() {
-    phasync::run(function() {
-        $fp = fopen('php://temp', 'r+');
-        $resource = phasync::io($fp);
-        $data = "Test data";
-        fwrite($resource, $data);
-        rewind($resource);
-        expect(fread($resource, strlen($data)))->toBe($data);
     });
 });
 
-test('phasync::io() resource type and metadata', function() {
-    phasync::run(function() {
-        $fp = fopen(__FILE__, 'r');
+test('phasync::io() writable stream', function () {
+    phasync::run(function () {
+        $fp       = \fopen('php://temp', 'r+');
         $resource = phasync::io($fp);
-        $metaData = stream_get_meta_data($resource);
+        $data     = 'Test data';
+        \fwrite($resource, $data);
+        \rewind($resource);
+        expect(\fread($resource, \mb_strlen($data)))->toBe($data);
+    });
+});
+
+test('phasync::io() resource type and metadata', function () {
+    phasync::run(function () {
+        $fp       = \fopen(__FILE__, 'r');
+        $resource = phasync::io($fp);
+        $metaData = \stream_get_meta_data($resource);
         expect($metaData['wrapper_type'])->toBe('user-space');
         expect($metaData['stream_type'])->toBe('user-space');
     });

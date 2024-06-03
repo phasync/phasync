@@ -1,9 +1,11 @@
 <?php
+
 namespace phasync\Server;
 
 use Charm\AbstractOptions;
 
-class TcpServerOptions extends AbstractOptions {
+class TcpServerOptions extends AbstractOptions
+{
     /**
      * Restrict how many concurrent connections will be allowed. When the connection
      * limit is reached, accepting new connections will block.
@@ -25,8 +27,8 @@ class TcpServerOptions extends AbstractOptions {
      * How many connections can be pending on the server socket? The default value
      * of 511 feels arbitrary, but was chosen because ReactPHP uses that.
      */
-    public ?int $socket_backlog = 511;
-    public bool $socket_ipv6_v6only = false;
+    public ?int $socket_backlog      = 511;
+    public bool $socket_ipv6_v6only  = false;
     public bool $socket_so_reuseport = true;
     public bool $socket_so_broadcast = false;
 }

@@ -1,7 +1,8 @@
 <?php
 
+use function phasync\go;
 use phasync\Legacy\Channel\Channel;
-use function phasync\{run, go, sleep};
+use function phasync\run;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -10,13 +11,13 @@ require __DIR__ . '/../vendor/autoload.php';
  * throw an exception if no possible readers will
  * ever read the message.
  */
-$channel = run(function() {
+$channel = run(function () {
     $channel = new Channel(0);
-    $writer = $channel->getWriter();
+    $writer  = $channel->getWriter();
 
-    go(static function() use ($writer) {
+    go(static function () use ($writer) {
         echo "Writing to channel\n";
-        $writer->write("Single message");
+        $writer->write('Single message');
         echo "Wrote to channel\n";
     });
 });
