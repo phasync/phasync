@@ -6,8 +6,13 @@ trait SelectableTrait
 {
     protected ?SelectManager $selectManager = null;
 
-    public function getSelectManager(): SelectManager
-    {
+    public function await(): void {
+        if ($this->selectWillBlock()) {
+            $this->getSelectManager()->await();
+        }
+    }
+
+    public function getSelectManager(): SelectManager {
         if (!$this->selectManager) {
             $this->selectManager = new SelectManager();
         }

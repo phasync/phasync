@@ -1,7 +1,8 @@
 <?php
-
 namespace phasync;
 
-class TimeoutException extends \RuntimeException
-{
+use RuntimeException;
+
+class TimeoutException extends RuntimeException implements RethrowExceptionInterface {
+    
 }

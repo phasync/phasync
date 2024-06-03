@@ -11,6 +11,13 @@ use phasync\Internal\SelectManager;
 interface SelectableInterface
 {
     /**
+     * Wait for the resource to be non-blocking.
+     * 
+     * @return void 
+     */
+    public function await(): void;
+
+    /**
      * Returns the select manager which must be notified whenever the object
      * becomes selectable.
      */

@@ -2,21 +2,55 @@
 
 namespace phasync\Internal;
 
+use IteratorAggregate;
+use phasync;
 use phasync\ReadChannelInterface;
+use phasync\TimeoutException;
+use RuntimeException;
+use Serializable;
+use Throwable;
+use Traversable;
 
-final class Subscriber implements ReadChannelInterface, \IteratorAggregate
-{
+/**
+ * This class is created via phasync::publisher()
+ * 
+ * @internal
+ * @package phasync\Internal
+ */
+final class Subscriber implements ReadChannelInterface, IteratorAggregate {
+    private int $id;
     private ?Subscribers $publisher;
     private ChannelMessage $currentMessage;
 
-    public function __construct(Subscribers $publisher)
-    {
-        $this->publisher      = $publisher;
+    public function __construct(Subscribers $publisher) {
+        $this->id = \spl_object_id($this);
+        $this->publisher = $publisher;
         $this->currentMessage = $this->publisher->getStartMessage();
     }
 
-    public function getSelectManager(): SelectManager
-    {
+    public function activate(): void {
+        throw new RuntimeException("Can't activate a subscriber this way. Use the publisher instead.");
+    }
+
+    /**
+     * Wait for data without reading
+     * 
+     * @return void 
+     * @throws TimeoutException 
+     * @throws Throwable 
+     */
+    public function await(): void {
+        if ($this->selectWillBlock()) {
+            $this->getSelectManager()->await();
+        }
+    }
+
+    /**
+     * Interface for the phasync::select() 
+     * 
+     * @return SelectManager 
+     */
+    public function getSelectManager(): SelectManager {
         return $this->publisher->getSelectManager();
     }
 

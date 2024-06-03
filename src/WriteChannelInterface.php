@@ -1,16 +1,29 @@
 <?php
-
 namespace phasync;
 
-interface WriteChannelInterface extends SelectableInterface
-{
+use Serializable;
+
+interface WriteChannelInterface extends SelectableInterface {
+
+    /**
+     * This function can be used to activate the channel so that
+     * the deadlock protection does not fail.
+     * 
+     * @return void 
+     */
+    public function activate(): void;
+
     /**
      * Closes the channel.
+     * 
+     * @return void 
      */
     public function close(): void;
 
     /**
      * True if the channel is no longer writable.
+     * 
+     * @return bool 
      */
     public function isClosed(): bool;
 
@@ -18,15 +31,16 @@ interface WriteChannelInterface extends SelectableInterface
      * Write a chunk of data to the writable stream. Writing may
      * cause the coroutine to be suspended for example in the case
      * of blocking IO.
-     *
-     * @param string $value
-     *
-     * @return int
+     * 
+     * @param string $value 
+     * @return int 
      */
-    public function write(\Serializable|array|string|float|int|bool $value): void;
+    public function write(Serializable|array|string|float|int|bool $value): void;
 
     /**
      * Returns true if the channel is still readable.
+     * 
+     * @return bool 
      */
     public function isWritable(): bool;
 }
