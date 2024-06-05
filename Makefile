@@ -55,4 +55,6 @@ help:
 	@echo "  make install   - Install dependencies"
 	@echo "  make test      - Run tests"
 	@echo "  make clean     - Clean up generated files"
+	@echo "  make lint      - Check the coding standards"
+	@echo "  make fix       - Fix all file with PHP-CS-Fixer coding standards"
 	@echo "  make update    - Update dependencies"
