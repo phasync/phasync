@@ -43,7 +43,7 @@ test('phasync::io() writable stream', function () {
         $data     = 'Test data';
         \fwrite($resource, $data);
         \rewind($resource);
-        expect(\fread($resource, \mb_strlen($data)))->toBe($data);
+        expect(\fread($resource, \strlen($data)))->toBe($data);
     });
 });
 

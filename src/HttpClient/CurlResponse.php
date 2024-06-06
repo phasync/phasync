@@ -35,7 +35,7 @@ class CurlResponse implements ResponseInterface
     public function __construct(string $method, string $url, mixed $requestData = null, HttpClientOptions $options)
     {
         $this->curl = \curl_init($url);
-        switch (\mb_strtoupper($method)) {
+        switch (\strtoupper($method)) {
             case 'GET':
                 // For GET requests, if there is any request data, append it to the URL
                 if (null !== $requestData) {
@@ -53,7 +53,7 @@ class CurlResponse implements ResponseInterface
                         $url .= '?' . $requestData;
                     }
                 }
-                \curl_setopt($this->curl, \CURLOPT_URL, $url);
+                \curl_setopt($this->curl, CURLOPT_URL, $url);
                 break;
             case 'POST':
                 // For POST requests, set the request data as the POSTFIELDS option
@@ -93,8 +93,8 @@ class CurlResponse implements ResponseInterface
                 if ('' === $this->buffer && $this->done) {
                     return null;
                 }
-                $chunk        = \mb_substr($this->buffer, 0, $length);
-                $this->buffer = \mb_substr($this->buffer, \mb_strlen($chunk));
+                $chunk        = \substr($this->buffer, 0, $length);
+                $this->buffer = \substr($this->buffer, \strlen($chunk));
 
                 return $chunk;
             },
@@ -141,8 +141,8 @@ class CurlResponse implements ResponseInterface
     {
         $this->waitForHeaders();
 
-        $c                                         = clone $this;
-        $c->responseHeaders[\mb_strtolower($name)] = \is_array($value) ? $value : [(string) $value];
+        $c                                      = clone $this;
+        $c->responseHeaders[\strtolower($name)] = \is_array($value) ? $value : [(string) $value];
 
         return $c;
     }
@@ -152,7 +152,7 @@ class CurlResponse implements ResponseInterface
         $this->waitForHeaders();
 
         $c    = clone $this;
-        $name = \mb_strtolower($name);
+        $name = \strtolower($name);
         if (\is_array($value)) {
             foreach ($value as $v) {
                 $c->responseHeaders[$name][] = $v;
@@ -169,7 +169,7 @@ class CurlResponse implements ResponseInterface
         $this->waitForHeaders();
 
         $c = clone $this;
-        unset($c->responseHeaders[\mb_strtolower($name)]);
+        unset($c->responseHeaders[\strtolower($name)]);
 
         return $c;
     }
@@ -209,13 +209,13 @@ class CurlResponse implements ResponseInterface
     {
         $this->waitForheaders();
 
-        return isset($this->responseHeaders[\mb_strtolower($name)]);
+        return isset($this->responseHeaders[\strtolower($name)]);
     }
 
     public function getHeader(string $name): array
     {
         $this->waitForHeaders();
-        $name = \mb_strtolower($name);
+        $name = \strtolower($name);
 
         return isset($this->responseHeaders[$name]) ? [$this->responseHeaders[$name]] : [];
     }
@@ -268,29 +268,29 @@ class CurlResponse implements ResponseInterface
     {
         $trimmed = \trim($header);
         if (empty($trimmed)) {
-            return \mb_strlen($header);  // Ignore empty lines, which can occur in HTTP responses.
+            return \strlen($header);  // Ignore empty lines, which can occur in HTTP responses.
         }
 
         if (null === $this->statusCode && \str_starts_with($trimmed, 'HTTP/')) {
             // Parse status line
             [$protocol, $code, $phrase] = \explode(' ', $trimmed, 3) + [null, null, null];
-            $this->protocolVersion      = \mb_substr($protocol, \mb_strpos($protocol, '/') + 1);
-            $this->statusCode           = (int) $code;
+            $this->protocolVersion      = \substr($protocol, \strpos($protocol, '/') + 1);
+            $this->statusCode           = \intval($code);
             $this->reasonPhrase         = $phrase ?: '';
 
-            return \mb_strlen($header);
+            return \strlen($header);
         }
 
         // Parse headers
         $parts = \explode(':', $trimmed, 2);
         if (2 === \count($parts)) {
             list($key, $value)             = $parts;
-            $key                           = \mb_strtolower(\trim($key));
+            $key                           = \strtolower(\trim($key));
             $value                         = \trim($value);
             $this->responseHeaders[$key][] = $value;
         }
 
-        return \mb_strlen($header);
+        return \strlen($header);
     }
 
     private function curlWriteFunction(\CurlHandle $curl, string $chunk): int
@@ -299,7 +299,7 @@ class CurlResponse implements ResponseInterface
         $this->buffer .= $chunk;
         \phasync::raiseFlag($this);
 
-        return \mb_strlen($chunk);
+        return \strlen($chunk);
     }
 
     private function curlXferInfoFunction(\CurlHandle $curl, $downloadSize, $downloaded, $uploadSize, $uploaded)

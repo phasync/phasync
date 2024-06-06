@@ -64,21 +64,21 @@ class TcpConnection extends EventEmitter
             return $this->readBuffer;
         }
 
-        if (\mb_strlen($this->readBuffer) < $length) {
+        if (\strlen($this->readBuffer) < $length) {
             Loop::readable($this->socket);
 
             if ($this->eof()) {
                 return $this->readBuffer;
             }
 
-            $chunk = \fread($this->socket, $length - \mb_strlen($this->readBuffer));
+            $chunk = \fread($this->socket, $length - \strlen($this->readBuffer));
             if (false === $chunk) {
                 return $this->readBuffer;
             }
             $this->readBuffer .= $chunk;
         }
 
-        return \mb_substr($this->readBuffer, 0, $length);
+        return \substr($this->readBuffer, 0, $length);
     }
 
     public function read(int $length=8192): string
@@ -94,7 +94,7 @@ class TcpConnection extends EventEmitter
             $this->assertConnected();
 
             // We must check if the buffer contains enough data
-            $readBufferLength = \mb_strlen($this->readBuffer);
+            $readBufferLength = \strlen($this->readBuffer);
             // If the data is already in the buffer, no need to block or do anything
             if ($readBufferLength >= $length) {
                 return $this->readFromBuffer($length);
@@ -178,17 +178,17 @@ class TcpConnection extends EventEmitter
 
             if (\preg_match($pattern, $this->readBuffer, $matches)) {
                 // Buffer contains a line
-                return $this->read(\mb_strlen($matches[0]));
+                return $this->read(\strlen($matches[0]));
             }
 
-            if (\mb_strlen($this->readBuffer) >= $length) {
+            if (\strlen($this->readBuffer) >= $length) {
                 // Buffer can't grow anymore and we have no line
                 return $this->readFromBuffer($length);
             }
 
             // Fill the buffer
             Loop::readable($this->socket);
-            $chunk = \fread($this->socket, $length - \mb_strlen($this->readBuffer));
+            $chunk = \fread($this->socket, $length - \strlen($this->readBuffer));
             if (false === $chunk || '' === $chunk) {
                 if (\feof($this->socket)) {
                     $temp             = $this->readBuffer;
@@ -245,9 +245,9 @@ class TcpConnection extends EventEmitter
 
     protected function readFromBuffer(int $length): string
     {
-        $result           = \mb_substr($this->readBuffer, 0, $length);
-        $length           = \mb_strlen($result);
-        $this->readBuffer = \mb_substr($this->readBuffer, $length);
+        $result           = \substr($this->readBuffer, 0, $length);
+        $length           = \strlen($result);
+        $this->readBuffer = \substr($this->readBuffer, $length);
 
         return $result;
     }

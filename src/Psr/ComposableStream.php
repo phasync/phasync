@@ -54,7 +54,7 @@ class ComposableStream implements StreamInterface
             } catch (\RuntimeException) {
             }
             while (!$this->eof()) {
-                $result .= $this->read(\PHP_INT_MAX);
+                $result .= $this->read(PHP_INT_MAX);
             }
         }
 
@@ -104,9 +104,9 @@ class ComposableStream implements StreamInterface
         return null !== $this->seekFunction;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek(int $offset, int $whence = SEEK_SET): void
     {
-        if (null === $this->seekFunction || \SEEK_SET !== $whence) {
+        if (null === $this->seekFunction || SEEK_SET !== $whence) {
             throw new \RuntimeException('Stream is not seekable or whence != SEEK_SET');
         }
         ($this->seekFunction)($offset, $whence);
@@ -130,7 +130,7 @@ class ComposableStream implements StreamInterface
         }
         $result = ($this->writeFunction)($string);
         if (!\is_int($result)) {
-            $result = \mb_strlen($string);
+            $result = \strlen($string);
         }
         $this->offset += $result;
 
@@ -158,7 +158,7 @@ class ComposableStream implements StreamInterface
 
             return '';
         }
-        $readLength = \mb_strlen($chunk);
+        $readLength = \strlen($chunk);
         if ($readLength > $length) {
             throw new \RuntimeException("The stream readFunction returned a chunk that was longer than the expected length ($length bytes).");
         }
@@ -171,7 +171,7 @@ class ComposableStream implements StreamInterface
     {
         $data = '';
         while (!$this->eof()) {
-            $data .= $this->read(\PHP_INT_MAX);
+            $data .= $this->read(PHP_INT_MAX);
         }
 
         return $data;

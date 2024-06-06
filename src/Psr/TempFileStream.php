@@ -52,9 +52,9 @@ final class TempFileStream implements StreamInterface
      */
     private string $mode;
 
-    public static function fromString(string $contents): self
+    public static function fromString(string $contents): TempFileStream
     {
-        $stream = new self();
+        $stream = new TempFileStream();
         $stream->write($contents);
         $stream->rewind();
 
@@ -90,7 +90,7 @@ final class TempFileStream implements StreamInterface
         if ($this->closed || $this->detached) {
             return '';
         }
-        $this->offset = \mb_strlen($this->buffer);
+        $this->offset = \strlen($this->buffer);
 
         return $this->buffer;
     }
@@ -144,7 +144,7 @@ final class TempFileStream implements StreamInterface
             return null;
         }
 
-        return \mb_strlen($this->buffer);
+        return \strlen($this->buffer);
     }
 
     /**
@@ -175,7 +175,7 @@ final class TempFileStream implements StreamInterface
             return $this->stream->eof();
         }
 
-        return $this->offset >= \mb_strlen($this->buffer);
+        return $this->offset >= \strlen($this->buffer);
     }
 
     /**
@@ -220,7 +220,7 @@ final class TempFileStream implements StreamInterface
         } elseif (\SEEK_CUR === $whence) {
             $this->offset += $offset;
         } elseif (\SEEK_END === $whence) {
-            $this->offset = \mb_strlen($this->buffer) + $offset;
+            $this->offset = \strlen($this->buffer) + $offset;
         } else {
             throw new \RuntimeException('Invalid $whence value');
         }
@@ -292,17 +292,17 @@ final class TempFileStream implements StreamInterface
             throw new \RuntimeException('Stream is not writable');
         }
 
-        $bytesToWrite = \mb_strlen($string);
-        $bufferLength = \mb_strlen($this->buffer);
+        $bytesToWrite = \strlen($string);
+        $bufferLength = \strlen($this->buffer);
         if ($this->offset + $bytesToWrite > $this->maxBufferSize) {
             // Transition to using a stream resource
             $fp = \tmpfile();
             \stream_set_blocking($fp, false);
             $offset       = 0;
-            $bufferLength = \mb_strlen($this->buffer);
+            $bufferLength = \strlen($this->buffer);
             $chunkSize    = 32768;
             for ($offset = 0; $offset < $bufferLength;) {
-                $chunk = \mb_substr($this->buffer, $offset, $chunkSize);
+                $chunk = \substr($this->buffer, $offset, $chunkSize);
                 Loop::writable($fp);
                 $written = \fwrite($fp, $chunk);
                 if (false === $written) {
@@ -324,14 +324,14 @@ final class TempFileStream implements StreamInterface
             // need to fill with spaces
             $spacesToFill = $this->offset - $bufferLength;
             $this->buffer .= \str_repeat(' ', $spacesToFill) . $string;
-            $this->offset = \mb_strlen($this->buffer);
+            $this->offset = \strlen($this->buffer);
 
-            return \mb_strlen($string);
+            return \strlen($string);
         }
 
-        $this->buffer = \mb_substr($this->buffer, 0, $this->offset) . $string . \mb_substr($this->buffer, $this->offset + \mb_strlen($string));
+        $this->buffer = \substr($this->buffer, 0, $this->offset) . $string . \substr($this->buffer, $this->offset + \strlen($string));
 
-        return \mb_strlen($string);
+        return \strlen($string);
     }
 
     /**
@@ -372,8 +372,8 @@ final class TempFileStream implements StreamInterface
         if (!$this->isReadable()) {
             throw new \RuntimeException('Stream is not readable');
         }
-        $result = \mb_substr($this->buffer, $this->offset, $length);
-        $this->offset += \mb_strlen($result);
+        $result = \substr($this->buffer, $this->offset, $length);
+        $this->offset += \strlen($result);
 
         return $result;
     }
@@ -393,7 +393,7 @@ final class TempFileStream implements StreamInterface
             throw new \RuntimeException('Stream is closed or detached');
         }
 
-        return \mb_substr($this->buffer, $this->offset);
+        return \substr($this->buffer, $this->offset);
     }
 
     /**
@@ -424,7 +424,7 @@ final class TempFileStream implements StreamInterface
         $meta = [
             'timed_out'    => false,
             'blocked'      => false,
-            'eof'          => $this->offset >= \mb_strlen($this->buffer),
+            'eof'          => $this->offset >= \strlen($this->buffer),
             'unread_bytes' => 0,
             'stream_type'  => 'string',
             'wrapper_type' => 'string',

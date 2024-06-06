@@ -210,7 +210,7 @@ final class ResourceStream implements StreamInterface
      *
      * @throws \RuntimeException on failure
      */
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek(int $offset, int $whence = SEEK_SET): void
     {
         if ($this->closed || $this->detached) {
             throw new \RuntimeException('Stream is closed or detached');

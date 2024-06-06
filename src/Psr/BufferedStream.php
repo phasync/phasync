@@ -113,20 +113,20 @@ class BufferedStream implements StreamInterface
         return true;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek(int $offset, int $whence = SEEK_SET): void
     {
         $this->assertNotCreator();
         $this->lock();
         try {
             switch ($whence) {
-                case \SEEK_CUR:
+                case SEEK_CUR:
                     $this->readOffset = \max(0, \min($this->writeOffset, $this->readOffset + $offset));
                     break;
-                case \SEEK_END:
+                case SEEK_END:
                     $this->readOffset = \max(0, \min($this->writeOffset, $this->writeOffset + $offset));
                     break;
                 default:
-                case \SEEK_SET:
+                case SEEK_SET:
                     $this->readOffset = \max(0, \min($this->writeOffset, $offset));
                     break;
             }
@@ -173,8 +173,8 @@ class BufferedStream implements StreamInterface
         $this->lock();
         try {
             if (null === $this->file) {
-                $chunk = \mb_substr($this->buffer, $this->readOffset, $length);
-                $this->readOffset += \mb_strlen($chunk);
+                $chunk = \substr($this->buffer, $this->readOffset, $length);
+                $this->readOffset += \strlen($chunk);
 
                 return $chunk;
             }
@@ -185,7 +185,7 @@ class BufferedStream implements StreamInterface
             if (false === $chunk) {
                 throw new \RuntimeException('Read operation failed');
             }
-            $this->readOffset += \mb_strlen($chunk);
+            $this->readOffset += \strlen($chunk);
 
             return $chunk;
         } finally {
@@ -200,7 +200,7 @@ class BufferedStream implements StreamInterface
             $this->blockUntilEnded();
 
             if (null === $this->file) {
-                $chunk            = \mb_substr($this->buffer, $this->readOffset);
+                $chunk            = \substr($this->buffer, $this->readOffset);
                 $this->readOffset = $this->writeOffset;
 
                 return $chunk;
@@ -263,7 +263,7 @@ class BufferedStream implements StreamInterface
             if (null !== $this->endOffset) {
                 throw new \RuntimeException("Stream can't be appended to after ending");
             }
-            $length = \mb_strlen($chunk);
+            $length = \strlen($chunk);
             if ($this->writeOffset + $length > $this->bufferSize) {
                 $this->transitionToFile();
             }
@@ -322,7 +322,7 @@ class BufferedStream implements StreamInterface
             for ($i = 0; $i < $this->writeOffset;) {
                 // Block Fiber until file is readable
                 \phasync::writable($this->file);
-                $written = \fwrite($this->file, \mb_substr($this->buffer, $i, 32768));
+                $written = \fwrite($this->file, \substr($this->buffer, $i, 32768));
                 if (false === $written) {
                     // Abort transition, failed writing so fall back to memory one more chunk
                     $this->file = null;

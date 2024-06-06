@@ -185,7 +185,7 @@ final class ReadChannelStream implements StreamInterface
         }
         $chunk = $this->source->read();
         if (\is_string($chunk)) {
-            $this->offset += \mb_strlen($chunk);
+            $this->offset += \strlen($chunk);
 
             return $chunk;
         }

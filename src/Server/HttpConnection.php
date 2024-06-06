@@ -88,7 +88,7 @@ class HttpConnection
     {
         $this->connection = $connection;
         $requestHead      = $connection->peek(32768);
-        $headLength       = \mb_strlen($requestHead);
+        $headLength       = \strlen($requestHead);
         $server           = self::parseHead($requestHead);
 
         if (null === $server) {
@@ -100,7 +100,7 @@ class HttpConnection
         }
 
         // Ensure only the request body remains in the buffer
-        $consumedLength = $headLength - \mb_strlen($requestHead);
+        $consumedLength = $headLength - \strlen($requestHead);
         $connection->read($consumedLength);
 
         if (null !== $connection->peerName) {
@@ -149,10 +149,10 @@ class HttpConnection
             return;
         }
         $this->assertNotCompleted();
-        $length = \mb_strlen($chunk);
+        $length = \strlen($chunk);
         if (!$this->headersSent) {
             // We can fully decide which encoding to use
-            $this->setResponseHeader('Content-Length: ' . \mb_strlen($chunk));
+            $this->setResponseHeader('Content-Length: ' . \strlen($chunk));
         }
         $this->write($chunk);
         $this->completed = true;
@@ -166,7 +166,7 @@ class HttpConnection
             $this->sendHeaders();
         }
 
-        $length = \mb_strlen($chunk);
+        $length = \strlen($chunk);
 
         if (-1 === $this->remainingLength) {
             $this->connection->write(\dechex($length) . "\r\n" . $chunk . "\r\n");
@@ -197,7 +197,7 @@ class HttpConnection
             // This is setting a header
             $parts[0]                            = \trim($parts[0]);
             $parts[1]                            = \trim($parts[1]);
-            $lcHeader                            = \mb_strtolower($parts[0]);
+            $lcHeader                            = \strtolower($parts[0]);
             $this->responseHeaderCase[$lcHeader] = $parts[0];
             if ($replace) {
                 $this->responseHeaders[$lcHeader] = [$parts[1]];
@@ -214,7 +214,7 @@ class HttpConnection
             }
         } elseif (\preg_match('/^HTTP\/(?<VERSION>[0-9]++\.[0-9]++)\ (?<CODE>[1-5][0-9]{2}+)\ (?<STATUS>[^\r\n]++)/', $header, $matches)) {
             $this->protocolVersion = $matches['VERSION'];
-            $this->responseCode    = (int) $matches['CODE'];
+            $this->responseCode    = \intval($matches['CODE']);
             $this->responseStatus  = $matches['STATUS'];
         } else {
             throw new \LogicException('Invalid header or status message format');
@@ -236,7 +236,7 @@ class HttpConnection
             $this->responseHeaders    = [];
             $this->responseHeaderCase = [];
         } else {
-            $lcName = \mb_strtolower($name);
+            $lcName = \strtolower($name);
             unset($this->responseHeaders[$lcName], $this->responseHeaderCase[$lcName]);
         }
     }
@@ -299,7 +299,7 @@ class HttpConnection
      */
     public function getResponseHeader(string $name): ?string
     {
-        $lcName = \mb_strtolower($name);
+        $lcName = \strtolower($name);
         if (!empty($this->responseHeaders[$lcName])) {
             return \implode(', ', $this->responseHeaders[$lcName]);
         }
@@ -309,7 +309,7 @@ class HttpConnection
 
     public function getRequestHeader(string $name): ?string
     {
-        $lcName = \mb_strtolower($name);
+        $lcName = \strtolower($name);
         if (!empty($this->server['HEADERS'][$lcName])) {
             return \implode(', ', $this->server['HEADERS'][$lcName]);
         }
@@ -404,10 +404,10 @@ class HttpConnection
             $headerRegex = '/(?<KEY>[\w-]++):\s*(?<VALUE>[^\r\n]*+)\r?\n/';
             if (isset($matches['HEADER']) && \preg_match_all($headerRegex, $matches['HEADER'], $headerMatches, \PREG_SET_ORDER)) {
                 foreach ($headerMatches as $header) {
-                    $lcName                          = \mb_strtolower($header['KEY']);
+                    $lcName                          = \strtolower($header['KEY']);
                     $result['HEADERS'][$lcName][]    = $header['VALUE'];
                     $result['HEADERS_CASE'][$lcName] = $header['KEY'];
-                    $phpName                         = 'HTTP_' . \mb_strtoupper(\str_replace('-', '_', $header['KEY']));
+                    $phpName                         = 'HTTP_' . \strtoupper(\str_replace('-', '_', $header['KEY']));
                     $result[$phpName]                = $header['VALUE'];
                 }
             }
@@ -422,7 +422,7 @@ class HttpConnection
             }
 
             // Update the buffer to remove the parsed head
-            $buffer = \mb_substr($buffer, \mb_strlen($matches[0]));
+            $buffer = \substr($buffer, \strlen($matches[0]));
 
             return $result;
         }

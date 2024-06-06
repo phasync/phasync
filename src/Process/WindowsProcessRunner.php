@@ -57,7 +57,7 @@ final class WindowsProcessRunner implements ProcessInterface
         $this->command         = $command;
 
         // Using ProcessRunner from amphp to ensure non-blocking behavior on Windows
-        $wrapper = \dirname(__DIR__, 2) . '\\bin\ProcessRunner' . (\PHP_INT_SIZE === 8 ? '64' : '') . '.exe';
+        $wrapper = \dirname(__DIR__, 2) . '\\bin\ProcessRunner' . (PHP_INT_SIZE === 8 ? '64' : '') . '.exe';
 
         $wrapperCommand = \sprintf(
             '%s --address=%s --port=%d --token-size=%d',
@@ -101,7 +101,7 @@ final class WindowsProcessRunner implements ProcessInterface
         \fclose($pipes[0]);
         \fclose($pipes[1]);
 
-        if ($written !== self::SECURITY_TOKEN_SIZE * 6 + \mb_strlen($commandString) + 2) {
+        if ($written !== self::SECURITY_TOKEN_SIZE * 6 + \strlen($commandString) + 2) {
             \fclose($pipes[2]);
             \proc_terminate($process);
             \proc_close($process);
@@ -109,7 +109,7 @@ final class WindowsProcessRunner implements ProcessInterface
             throw new \RuntimeException('Could not send security tokens / command to process wrapper');
         }
 
-        $this->securityTokens = \mb_str_split($securityTokens, self::SECURITY_TOKEN_SIZE);
+        $this->securityTokens = \str_split($securityTokens, self::SECURITY_TOKEN_SIZE);
         $this->wrapperPid     = $status['pid'];
 
         try {

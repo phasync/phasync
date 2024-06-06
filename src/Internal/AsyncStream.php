@@ -52,8 +52,8 @@ class AsyncStream
         }
         $ctxOptions = \stream_context_get_options($this->context);
         if (!isset($ctxOptions['phasyncio']['resource'])) {
-            if ($options & \STREAM_REPORT_ERRORS) {
-                \trigger_error('Invalid use of PhasyncStream wrapper', \E_USER_WARNING);
+            if ($options & STREAM_REPORT_ERRORS) {
+                \trigger_error('Invalid use of PhasyncStream wrapper', E_USER_WARNING);
             }
 
             return false;
@@ -62,8 +62,8 @@ class AsyncStream
         // Use the underlying stream resource
         $this->resource = $ctxOptions['phasyncio']['resource'];
         if (!\is_resource($this->resource) || 'stream' !== \get_resource_type($this->resource)) {
-            if ($options & \STREAM_REPORT_ERRORS) {
-                \trigger_error('Can only wrap a stream resource', \E_USER_WARNING);
+            if ($options & STREAM_REPORT_ERRORS) {
+                \trigger_error('Can only wrap a stream resource', E_USER_WARNING);
             }
 
             return false;
@@ -95,7 +95,7 @@ class AsyncStream
     public function stream_cast(int $cast_as)
     {
         // Do not allow double-polling of the stream resource
-        if (\STREAM_CAST_FOR_SELECT === $cast_as) {
+        if (STREAM_CAST_FOR_SELECT === $cast_as) {
             return $this->resource;
         }
 
@@ -120,10 +120,10 @@ class AsyncStream
     public function url_stat($path, $flags)
     {
         // Perform the stat operation
-        return ($flags & \STREAM_URL_STAT_LINK) ? \lstat($path) : \stat($path);
+        return ($flags & STREAM_URL_STAT_LINK) ? \lstat($path) : \stat($path);
     }
 
-    public function stream_seek($offset, $whence = \SEEK_SET)
+    public function stream_seek($offset, $whence = SEEK_SET)
     {
         return 0 === \fseek($this->resource, $offset, $whence);
     }
@@ -156,21 +156,21 @@ class AsyncStream
         // Perform the metadata operation
         $result = false;
         switch ($option) {
-            case \STREAM_META_TOUCH:
+            case STREAM_META_TOUCH:
                 \phasync::idle(0.5);
                 $result = \touch($path, $var[0], $var[1]);
                 break;
-            case \STREAM_META_OWNER_NAME:
-            case \STREAM_META_OWNER:
+            case STREAM_META_OWNER_NAME:
+            case STREAM_META_OWNER:
                 \phasync::idle(0.5);
                 $result = \chown($path, $var);
                 break;
-            case \STREAM_META_GROUP_NAME:
-            case \STREAM_META_GROUP:
+            case STREAM_META_GROUP_NAME:
+            case STREAM_META_GROUP:
                 \phasync::idle(0.5);
                 $result = \chgrp($path, $var);
                 break;
-            case \STREAM_META_ACCESS:
+            case STREAM_META_ACCESS:
                 \phasync::idle(0.5);
                 $result = \chmod($path, $var);
                 break;

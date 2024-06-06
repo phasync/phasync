@@ -41,8 +41,8 @@ class FastCGIHelper
 
     public static function buildNameValuePair(string $name, string $value): string
     {
-        $nameLength  = \mb_strlen($name);
-        $valueLength = \mb_strlen($value);
+        $nameLength  = \strlen($name);
+        $valueLength = \strlen($value);
 
         $nvpair = '';
 
@@ -65,7 +65,7 @@ class FastCGIHelper
 
     public static function buildStdin(string $data): string
     {
-        $length = \mb_strlen($data);
+        $length = \strlen($data);
 
         return \pack(
             'C2nC2',
@@ -87,7 +87,7 @@ class FastCGIHelper
             'SCRIPT_FILENAME' => $scriptFilename,
             'REQUEST_METHOD'  => 'POST',
             'CONTENT_TYPE'    => 'application/x-www-form-urlencoded',
-            'CONTENT_LENGTH'  => \mb_strlen($data),
+            'CONTENT_LENGTH'  => \strlen($data),
         ];
 
         \fwrite($sock, self::buildBeginRequest());

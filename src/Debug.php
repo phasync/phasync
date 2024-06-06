@@ -20,16 +20,16 @@ final class Debug
     {
         $re = '/([\x00-\x1F\x80-\xFF]+([^\x00-\x1F\x80-\xFF]{1,2}[\x00-\x1F\x80-\xFF]+)*)/';
 
-        return \preg_replace_callback($re, callback: function ($matches) use ($withLength) {
+        return \preg_replace_callback($re, subject: $binary, callback: function ($matches) use ($withLength) {
             $string  = $matches[0];
-            $chunked = \implode('∙', \mb_str_split(\bin2hex($string), 8));
-            $length  = \mb_strlen($string);
+            $chunked = \implode('∙', \str_split(\bin2hex($string), 8));
+            $length  = \strlen($string);
             if ($withLength && $length > 8) {
                 return '⟪' . $length . '|' . $chunked . '⟫';
             }
 
             return '⟪' . $chunked . '⟫';
-        }, subject: $binary);
+        });
     }
 
     /**
@@ -63,7 +63,7 @@ final class Debug
                 $startLine
             );
         } elseif (\is_object($subject)) {
-            return $subject::class . \spl_object_id($subject);
+            return \get_class($subject) . \spl_object_id($subject);
         }
 
         return 'Unsupported subject type (' . \get_debug_type($subject) . ').';

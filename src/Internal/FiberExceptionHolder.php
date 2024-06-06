@@ -22,7 +22,7 @@ final class FiberExceptionHolder
      */
     private static array $pool = [];
 
-    public static function create(\Throwable $exception, \Fiber $fiber, ?\Closure $handler): self
+    public static function create(\Throwable $exception, \Fiber $fiber, ?\Closure $handler): FiberExceptionHolder
     {
         if ([] !== self::$pool) {
             $eh            = \array_pop(self::$pool);
@@ -34,7 +34,7 @@ final class FiberExceptionHolder
             return $eh;
         }
 
-        return new self($exception, $fiber, $handler);
+        return new FiberExceptionHolder($exception, $fiber, $handler);
     }
 
     private bool $handled = false;

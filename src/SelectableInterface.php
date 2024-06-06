@@ -12,8 +12,6 @@ interface SelectableInterface
 {
     /**
      * Wait for the resource to be non-blocking.
-     * 
-     * @return void 
      */
     public function await(): void;
 

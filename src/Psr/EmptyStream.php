@@ -44,7 +44,7 @@ final class EmptyStream implements StreamInterface
         return false;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek(int $offset, int $whence = SEEK_SET): void
     {
     }
 

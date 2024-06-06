@@ -131,12 +131,12 @@ php_admin_value[auto_prepend_file] = {$vendorAutoload}
     private function parseFastCGIResponse(string $response): array
     {
         // FastCGI responses have a header we need to skip
-        $pos = \mb_strpos($response, "\r\n\r\n");
+        $pos = \strpos($response, "\r\n\r\n");
         if (false === $pos) {
             throw new \RuntimeException('Invalid FastCGI response');
         }
 
-        $body = \mb_substr($response, $pos + 4);
+        $body = \substr($response, $pos + 4);
 
         return \unserialize($body);
     }

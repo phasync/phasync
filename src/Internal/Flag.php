@@ -25,7 +25,7 @@ final class Flag implements ObjectPoolInterface
     private int $id;
     private DriverInterface $driver;
 
-    public static function create(DriverInterface $driver): self
+    public static function create(DriverInterface $driver): Flag
     {
         $instance = self::popInstance();
         if ($instance) {
@@ -34,7 +34,7 @@ final class Flag implements ObjectPoolInterface
             return $instance;
         }
 
-        return new self($driver);
+        return new Flag($driver);
     }
 
     private function __construct(DriverInterface $driver)

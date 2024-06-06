@@ -12,7 +12,7 @@ use phasync\Legacy\Loop;
  *
  * @internal
  */
-final class ClosureStore implements \Countable, \IteratorAggregate
+final class ClosureStore_niu implements \Countable, \IteratorAggregate
 {
     private static array $pool = [];
 

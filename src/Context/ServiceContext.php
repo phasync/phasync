@@ -21,9 +21,9 @@ final class ServiceContext implements ContextInterface
 
     public function setContextException(\Throwable $exception): void
     {
-        \fwrite(\STDERR, "ERROR IN SERVICE CONTEXT:\n=====================================\n" . $exception . "\n=====================================\nTHIS IS A FATAL ERROR. ALWAYS HANDLE EXCEPTIONS IN SERVICES\n");
+        \fwrite(STDERR, "ERROR IN SERVICE CONTEXT:\n=====================================\n" . $exception . "\n=====================================\nTHIS IS A FATAL ERROR. ALWAYS HANDLE EXCEPTIONS IN SERVICES\n");
         foreach ($this->getFibers() as $fiber => $void) {
-            \fwrite(\STDERR, Debug::getDebugInfo($fiber) . "\n");
+            \fwrite(STDERR, Debug::getDebugInfo($fiber) . "\n");
         }
     }
 }

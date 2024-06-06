@@ -14,13 +14,13 @@ class UdpServer
         // Create UDP socket using stream context
         $context = \stream_context_create([
             'socket' => [
-                'domain'       => \AF_INET,
-                'type'         => \SOCK_DGRAM,
-                'protocol'     => \SOL_UDP,
+                'domain'       => AF_INET,
+                'type'         => SOCK_DGRAM,
+                'protocol'     => SOL_UDP,
                 'so_reuseaddr' => true, // Enable port reuse
             ],
         ]);
-        $this->socket = \stream_socket_server($address, $error_code, $error_message, \STREAM_SERVER_BIND, $context);
+        $this->socket = \stream_socket_server($address, $error_code, $error_message, STREAM_SERVER_BIND, $context);
         if (false === $this->socket) {
             throw new IOException("Failed to create socket: $error_message", $error_code);
         }
