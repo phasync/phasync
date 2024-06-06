@@ -44,7 +44,7 @@ final class PosixProcessRunner implements ProcessInterface {
      * @param array<string, string> $env The environment for the process (or null to inherit env from the PHP process)
      * @return void 
      */
-    public function __construct(array $command, string $cwd = null, array $env = null) {
+    public function __construct(array $command, ?string $cwd = null, ?array $env = null) {
         $this->command = $command;
 
         \set_error_handler(static function (int $code, string $message): never {

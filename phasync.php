@@ -854,7 +854,7 @@ final class phasync {
      * @throws TimeoutException if the timeout is reached.
      * @throws Throwable 
      */
-    public static function awaitFlag(object $signal, float $timeout=null): void {
+    public static function awaitFlag(object $signal, ?float $timeout=null): void {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if ($fiber === null) {
@@ -983,7 +983,7 @@ final class phasync {
      */
     public static function getPromiseHandler(): Closure {
         if (self::$promiseHandlerFunction === null) {
-            self::$promiseHandlerFunction = static function(mixed $promiseLike, Closure $onFulfilled=null, ?Closure $onRejected=null): bool {
+            self::$promiseHandlerFunction = static function(mixed $promiseLike, ?Closure $onFulfilled=null, ?Closure $onRejected=null): bool {
                 if (!\is_object($promiseLike) || !\method_exists($promiseLike, 'then')) {
                     return false;
                 }

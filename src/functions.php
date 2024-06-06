@@ -377,7 +377,7 @@ function ftruncate($stream, int $size): int|false {
  * @throws Exception 
  * @throws Throwable 
  */
-function flock($stream, int $operation, int &$would_block = null): bool {
+function flock($stream, int $operation, ?int &$would_block = null): bool {
     if (!Fiber::getCurrent()) {
         return \flock($stream, $operation, $would_block);
     }
