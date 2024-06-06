@@ -1,7 +1,9 @@
 <?php
+
 namespace phasync\Internal;
 
-trait SelectableTrait {
+trait SelectableTrait
+{
     protected ?SelectManager $selectManager = null;
 
     public function await(): void {
@@ -14,6 +16,7 @@ trait SelectableTrait {
         if (!$this->selectManager) {
             $this->selectManager = new SelectManager();
         }
+
         return $this->selectManager;
     }
 

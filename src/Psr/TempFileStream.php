@@ -1,36 +1,30 @@
 <?php
+
 namespace phasync\Psr;
 
 use phasync\Legacy\Loop;
 use Psr\Http\Message\StreamInterface;
-use RuntimeException;
 
 /**
  * Represents a file backed temporary buffer that can be accessed
  * asynchronously.
- * 
- * @package phasync
  */
-final class TempFileStream implements StreamInterface {
-
+final class TempFileStream implements StreamInterface
+{
     /**
      * True if the stream resource has been closed.
-     * 
-     * @var bool
      */
     protected bool $closed = false;
 
     /**
      * True if the stream resource has been detached.
-     * 
-     * @var bool
      */
     protected bool $detached = false;
 
     /**
      * The in-memory buffer, used if {@see TempStream::$stream} is
      * null.
-     * 
+     *
      * @var string|null
      */
     private string $buffer = '';
@@ -38,45 +32,39 @@ final class TempFileStream implements StreamInterface {
     /**
      * The StreamInterface instance used when the memory buffer grows
      * too large.
-     * 
-     * @var StreamInterface
      */
     private ?StreamInterface $stream = null;
 
     /**
      * The maximum length of the {@see FileBuffer::$buffer} string.
-     * 
+     *
      * @todo For future implementation
-     * 
-     * @var int
      */
     private int $maxBufferSize = 2 * 1024 * 1024;
 
     /**
      * The virtual file offset.
-     * 
-     * @var int
      */
     private int $offset = 0;
 
     /**
      * The simulated file mode. {@see \fopen()}
-     * 
-     * @var string
      */
     private string $mode;
 
-    public static function fromString(string $contents): TempFileStream {
-        $stream = new TempFileStream();
+    public static function fromString(string $contents): self
+    {
+        $stream = new self();
         $stream->write($contents);
         $stream->rewind();
+
         return $stream;
     }
 
-
-    public function __construct(string $mode = 'r+') {
-        if (\trim($mode, 'r+waxce') !== '') {
-            throw new RuntimeException("Invalid mode string '$mode'");
+    public function __construct(string $mode = 'r+')
+    {
+        if ('' !== \trim($mode, 'r+waxce')) {
+            throw new \RuntimeException("Invalid mode string '$mode'");
         }
         $this->mode = $mode;
     }
@@ -93,26 +81,26 @@ final class TempFileStream implements StreamInterface {
      * string casting operations.
      *
      * @see http://php.net/manual/en/language.oop5.magic.php#object.tostring
-     * @return string
      */
-    public function __toString(): string {
-        if ($this->stream !== null) {
+    public function __toString(): string
+    {
+        if (null !== $this->stream) {
             return $this->stream->__toString();
         }
         if ($this->closed || $this->detached) {
             return '';
         }
-        $this->offset = \strlen($this->buffer);
+        $this->offset = \mb_strlen($this->buffer);
+
         return $this->buffer;
     }
 
     /**
      * Closes the stream and any underlying resources.
-     *
-     * @return void
      */
-    public function close(): void {
-        if ($this->stream !== null) {
+    public function close(): void
+    {
+        if (null !== $this->stream) {
             return $this->stream->close();
         }
         if ($this->closed || $this->detached) {
@@ -129,102 +117,112 @@ final class TempFileStream implements StreamInterface {
      *
      * @return resource|null Underlying PHP stream, if any
      */
-    public function detach() {
-        if ($this->stream !== null) {
+    public function detach()
+    {
+        if (null !== $this->stream) {
             return $this->stream->detach();
         }
-        $this->closed = true;
+        $this->closed   = true;
         $this->detached = true;
-        $this->offset = 0;
-        $this->buffer = '';
+        $this->offset   = 0;
+        $this->buffer   = '';
+
         return null;
     }
 
     /**
      * Get the size of the stream if known.
      *
-     * @return int|null Returns the size in bytes if known, or null if unknown.
+     * @return int|null returns the size in bytes if known, or null if unknown
      */
-    public function getSize(): ?int {
-        if ($this->stream !== null) {
+    public function getSize(): ?int
+    {
+        if (null !== $this->stream) {
             return $this->stream->getSize();
         }
         if ($this->closed || $this->detached) {
             return null;
-        }        
-        return \strlen($this->buffer);
+        }
+
+        return \mb_strlen($this->buffer);
     }
 
     /**
      * Returns the current position of the file read/write pointer
      *
+     * @throws \RuntimeException on error
+     *
      * @return int Position of the file pointer
-     * @throws \RuntimeException on error.
      */
-    public function tell(): int {
-        if ($this->stream !== null) {
+    public function tell(): int
+    {
+        if (null !== $this->stream) {
             return $this->stream->tell();
         }
         if ($this->closed || $this->detached) {
-            throw new RuntimeException("Stream is closed or detached");
+            throw new \RuntimeException('Stream is closed or detached');
         }
+
         return $this->offset;
     }
 
     /**
      * Returns true if the stream is at the end of the stream.
-     *
-     * @return bool
-     */    
-    public function eof(): bool { 
-        if ($this->stream !== null) {
+     */
+    public function eof(): bool
+    {
+        if (null !== $this->stream) {
             return $this->stream->eof();
         }
-        return $this->offset >= \strlen($this->buffer);
+
+        return $this->offset >= \mb_strlen($this->buffer);
     }
 
     /**
      * Returns whether or not the stream is seekable.
-     *
-     * @return bool
      */
-    public function isSeekable(): bool {
-        if ($this->stream !== null) {
+    public function isSeekable(): bool
+    {
+        if (null !== $this->stream) {
             return $this->stream->isSeekable();
         }
         if ($this->closed || $this->detached) {
             return false;
         }
+
         return \str_contains($this->mode, '+') || !\str_contains($this->mode, 'a');
     }
 
     /**
      * Seek to a position in the stream.
      *
-     * @link http://www.php.net/manual/en/function.fseek.php
+     * @see http://www.php.net/manual/en/function.fseek.php
+     *
      * @param int $offset Stream offset
      * @param int $whence Specifies how the cursor position will be calculated
-     *     based on the seek offset. Valid values are identical to the built-in
-     *     PHP $whence values for `fseek()`.  SEEK_SET: Set position equal to
-     *     offset bytes SEEK_CUR: Set position to current location plus offset
-     *     SEEK_END: Set position to end-of-stream plus offset.
-     * @throws \RuntimeException on failure.
+     *                    based on the seek offset. Valid values are identical to the built-in
+     *                    PHP $whence values for `fseek()`.  SEEK_SET: Set position equal to
+     *                    offset bytes SEEK_CUR: Set position to current location plus offset
+     *                    SEEK_END: Set position to end-of-stream plus offset.
+     *
+     * @throws \RuntimeException on failure
      */
-    public function seek(int $offset, int $whence = \SEEK_SET): void {
-        if ($this->stream !== null) {
+    public function seek(int $offset, int $whence = \SEEK_SET): void
+    {
+        if (null !== $this->stream) {
             return $this->stream->seek($offset, $whence);
         }
         if ($this->closed || $this->detached) {
-            throw new RuntimeException("Stream is closed or detached");            
+            throw new \RuntimeException('Stream is closed or detached');
         }
-        if ($whence === \SEEK_SET) {
+        if (\SEEK_SET === $whence) {
             $this->offset = $offset;
-        } elseif ($whence === \SEEK_CUR) {
+        } elseif (\SEEK_CUR === $whence) {
             $this->offset += $offset;
-        } elseif ($whence === \SEEK_END) {
-            $this->offset = \strlen($this->buffer) + $offset;
+        } elseif (\SEEK_END === $whence) {
+            $this->offset = \mb_strlen($this->buffer) + $offset;
         } else {
-            throw new RuntimeException("Invalid \$whence value");
+            throw new \RuntimeException('Invalid $whence value');
         }
         if ($this->offset < 0) {
             $this->offset = 0;
@@ -238,73 +236,79 @@ final class TempFileStream implements StreamInterface {
      * otherwise, it will perform a seek(0).
      *
      * @see seek()
-     * @link http://www.php.net/manual/en/function.fseek.php
-     * @throws \RuntimeException on failure.
+     * @see http://www.php.net/manual/en/function.fseek.php
+     *
+     * @throws \RuntimeException on failure
      */
-    public function rewind(): void {
-        if ($this->stream !== null) {
+    public function rewind(): void
+    {
+        if (null !== $this->stream) {
             $this->stream->rewind();
+
             return;
         }
         if ($this->closed || $this->detached) {
-            throw new RuntimeException("Stream is closed or detached");
+            throw new \RuntimeException('Stream is closed or detached');
         }
         if (!$this->isSeekable()) {
-            throw new RuntimeException("Stream is not seekable");
+            throw new \RuntimeException('Stream is not seekable');
         }
         $this->offset = 0;
     }
 
     /**
      * Returns whether or not the stream is writable.
-     *
-     * @return bool
      */
-    public function isWritable(): bool {
-        if ($this->stream !== null) {
+    public function isWritable(): bool
+    {
+        if (null !== $this->stream) {
             return $this->stream->isWritable();
         }
         if ($this->closed || $this->detached) {
             return false;
         }
+
         return \str_contains($this->mode, '+') || \str_contains($this->mode, 'x') || \str_contains($this->mode, 'w') || \str_contains($this->mode, 'a') || \str_contains($this->mode, 'c');
     }
 
     /**
      * Write data to the stream.
      *
-     * @param string $string The string that is to be written.
-     * @return int Returns the number of bytes written to the stream.
-     * @throws \RuntimeException on failure.
+     * @param string $string the string that is to be written
+     *
+     * @throws \RuntimeException on failure
+     *
+     * @return int returns the number of bytes written to the stream
      */
-    public function write(string $string): int {
-        if ($this->stream !== null) {
+    public function write(string $string): int
+    {
+        if (null !== $this->stream) {
             return $this->stream->write($string);
         }
         if ($this->closed || $this->detached) {
-            throw new RuntimeException("Stream is closed or detached");
+            throw new \RuntimeException('Stream is closed or detached');
         }
         if (!$this->isWritable()) {
-            throw new RuntimeException("Stream is not writable");
+            throw new \RuntimeException('Stream is not writable');
         }
 
-        $bytesToWrite = \strlen($string);
-        $bufferLength = \strlen($this->buffer);
+        $bytesToWrite = \mb_strlen($string);
+        $bufferLength = \mb_strlen($this->buffer);
         if ($this->offset + $bytesToWrite > $this->maxBufferSize) {
             // Transition to using a stream resource
             $fp = \tmpfile();
             \stream_set_blocking($fp, false);
-            $offset = 0;
-            $bufferLength = \strlen($this->buffer);
-            $chunkSize = 32768;
+            $offset       = 0;
+            $bufferLength = \mb_strlen($this->buffer);
+            $chunkSize    = 32768;
             for ($offset = 0; $offset < $bufferLength;) {
-                $chunk = \substr($this->buffer, $offset, $chunkSize);
+                $chunk = \mb_substr($this->buffer, $offset, $chunkSize);
                 Loop::writable($fp);
                 $written = \fwrite($fp, $chunk);
-                if ($written === false) {
+                if (false === $written) {
                     \fclose($fp);
                     $this->detach();
-                    throw new RuntimeException("Failed writing to file system");
+                    throw new \RuntimeException('Failed writing to file system');
                 }
                 $offset += $written;
             }
@@ -312,6 +316,7 @@ final class TempFileStream implements StreamInterface {
             $this->stream->seek($this->offset);
             $this->buffer = '';
             $this->offset = 0;
+
             return $this->stream->write($string);
         }
 
@@ -319,23 +324,25 @@ final class TempFileStream implements StreamInterface {
             // need to fill with spaces
             $spacesToFill = $this->offset - $bufferLength;
             $this->buffer .= \str_repeat(' ', $spacesToFill) . $string;
-            $this->offset = \strlen($this->buffer);
-            return \strlen($string);
+            $this->offset = \mb_strlen($this->buffer);
+
+            return \mb_strlen($string);
         }
-        
-        $this->buffer = \substr($this->buffer, 0, $this->offset) . $string . \substr($this->buffer, $this->offset + \strlen($string));
-        return \strlen($string);
+
+        $this->buffer = \mb_substr($this->buffer, 0, $this->offset) . $string . \mb_substr($this->buffer, $this->offset + \mb_strlen($string));
+
+        return \mb_strlen($string);
     }
 
     /**
      * Returns whether or not the stream is readable.
-     *
-     * @return bool
      */
-    public function isReadable(): bool {
+    public function isReadable(): bool
+    {
         if ($this->closed || $this->detached) {
             return false;
         }
+
         return \str_contains($this->mode, '+') || \str_contains($this->mode, 'r');
     }
 
@@ -343,45 +350,50 @@ final class TempFileStream implements StreamInterface {
      * Read data from the stream.
      *
      * @param int $length Read up to $length bytes from the object and return
-     *     them. Fewer than $length bytes may be returned if underlying stream
-     *     call returns fewer bytes.
-     * @return string Returns the data read from the stream, or an empty string
-     *     if no bytes are available.
-     * @throws \RuntimeException if an error occurs.
+     *                    them. Fewer than $length bytes may be returned if underlying stream
+     *                    call returns fewer bytes.
+     *
+     * @throws \RuntimeException if an error occurs
+     *
+     * @return string returns the data read from the stream, or an empty string
+     *                if no bytes are available
      */
-    public function read(int $length): string {
-        if ($this->stream !== null) {
+    public function read(int $length): string
+    {
+        if (null !== $this->stream) {
             return $this->stream->read($length);
         }
         if ($this->closed || $this->detached) {
-            throw new RuntimeException("Stream is closed or detached");
+            throw new \RuntimeException('Stream is closed or detached');
         }
         if ($length < 0) {
-            throw new RuntimeException("Can't read a negative amount");
+            throw new \RuntimeException("Can't read a negative amount");
         }
         if (!$this->isReadable()) {
-            throw new RuntimeException("Stream is not readable");
+            throw new \RuntimeException('Stream is not readable');
         }
-        $result = \substr($this->buffer, $this->offset, $length);
-        $this->offset += \strlen($result);
+        $result = \mb_substr($this->buffer, $this->offset, $length);
+        $this->offset += \mb_strlen($result);
+
         return $result;
     }
 
     /**
      * Returns the remaining contents in a string
      *
-     * @return string
      * @throws \RuntimeException if unable to read or an error occurs while
-     *     reading.
-     */    
-    public function getContents(): string {
-        if ($this->stream !== null) {
+     *                           reading
+     */
+    public function getContents(): string
+    {
+        if (null !== $this->stream) {
             return $this->stream->getContents();
         }
         if ($this->closed || $this->detached) {
-            throw new RuntimeException("Stream is closed or detached");
+            throw new \RuntimeException('Stream is closed or detached');
         }
-        return \substr($this->buffer, $this->offset);
+
+        return \mb_substr($this->buffer, $this->offset);
     }
 
     /**
@@ -390,38 +402,41 @@ final class TempFileStream implements StreamInterface {
      * The keys returned are identical to the keys returned from PHP's
      * stream_get_meta_data() function.
      *
-     * @link http://php.net/manual/en/function.stream-get-meta-data.php
-     * @param string|null $key Specific metadata to retrieve.
+     * @see http://php.net/manual/en/function.stream-get-meta-data.php
+     *
+     * @param string|null $key specific metadata to retrieve
+     *
      * @return array|mixed|null Returns an associative array if no key is
-     *     provided. Returns a specific key value if a key is provided and the
-     *     value is found, or null if the key is not found.
+     *                          provided. Returns a specific key value if a key is provided and the
+     *                          value is found, or null if the key is not found.
      */
-    public function getMetadata(?string $key = null) {
-        if ($this->stream !== null) {
+    public function getMetadata(?string $key = null)
+    {
+        if (null !== $this->stream) {
             return $this->stream->getMetadata($key);
         }
         if ($this->closed || $this->detached) {
             return null;
         }
-        if ($key === 'mode') {
+        if ('mode' === $key) {
             return $this->mode;
         }
         $meta = [
-            'timed_out' => false,
-            'blocked' => false,
-            'eof' => $this->offset >= \strlen($this->buffer),
+            'timed_out'    => false,
+            'blocked'      => false,
+            'eof'          => $this->offset >= \mb_strlen($this->buffer),
             'unread_bytes' => 0,
-            'stream_type' => 'string',
+            'stream_type'  => 'string',
             'wrapper_type' => 'string',
             'wrapper_data' => null,
-            'mode' => $this->mode,
-            'seekable' => $this->isSeekable(),
-            'uri' => 'php://temp',
+            'mode'         => $this->mode,
+            'seekable'     => $this->isSeekable(),
+            'uri'          => 'php://temp',
         ];
-        if ($key !== null) {
+        if (null !== $key) {
             return $meta[$key] ?? null;
         }
+
         return $meta;
     }
-
 }

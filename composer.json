@@ -3,6 +3,7 @@
     "description": "phasync asyncio library for PHP, providing seamless and efficient coroutines via PHP fibers",
     "license": "MIT",
     "type": "library",
+    "prefer-stable": true,
     "authors": [
         {
             "name": "Frode Børli",
@@ -17,7 +18,8 @@
     },
     "require-dev": {
         "pestphp/pest": "^2.34",
-        "guzzlehttp/promises": "^2.0"
+        "guzzlehttp/promises": "^2.0",
+        "friendsofphp/php-cs-fixer": "^3.58"
     },
     "minimum-stability": "dev",
     "autoload": {
@@ -37,8 +39,10 @@
         }
     },
     "scripts": {
-        "test": "@php vendor/bin/pest --stop-on-defect --stop-on-error --stop-on-failure --stop-on-risky --display-deprecations --display-errors --display-notices --display-warnings",
-        "test-all": "@php vendor/bin/pest"
+        "test": "@php vendor/bin/pest --stop-on-defect",
+        "test-all": "@php vendor/bin/pest",
+        "php-cs-fixer": "vendor/bin/php-cs-fixer fix --verbose",
+        "php-cs-fixer-dry-run": "vendor/bin/php-cs-fixer fix --verbose --diff --dry-run"
     },
     "scripts-descriptions": {
         "test": "Test until first defect",

@@ -1,9 +1,11 @@
 <?php
+
 namespace phasync\Server;
 
 use Charm\AbstractOptions;
 
-class TcpConnectionOptions extends AbstractOptions {
+class TcpConnectionOptions extends AbstractOptions
+{
     /**
      * Configure a timeout for socket operations in seconds.
      */
@@ -37,4 +39,5 @@ class TcpConnectionOptions extends AbstractOptions {
      * The default maximum line length when using Client::readLine().
      * {@see https://www.php.net/manual/en/function.stream-get-line.php}
      */
-    public int $lineLength = 65536;}
+    public int $lineLength = 65536;
+}

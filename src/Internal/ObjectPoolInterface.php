@@ -1,6 +1,8 @@
 <?php
+
 namespace phasync\Internal;
 
-interface ObjectPoolInterface {
+interface ObjectPoolInterface
+{
     public function returnToPool(): void;
 }

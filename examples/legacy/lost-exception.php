@@ -1,6 +1,9 @@
 <?php
 
-use function phasync\{run, go, sleep, await};
+use function phasync\await;
+use function phasync\go;
+use function phasync\run;
+use function phasync\sleep;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -10,16 +13,16 @@ require __DIR__ . '/../vendor/autoload.php';
  * nobody waiting for it. The coroutine would normally be garbage
  * collected at the end of the run()-function.
  */
-$t = microtime(true);
+$t = \microtime(true);
 try {
-    run(function() {
-        $task = go(function() {
+    run(function () {
+        $task = go(function () {
             sleep(0.1);
-            throw new Exception("This exception will not be handled");
+            throw new Exception('This exception will not be handled');
         });
         await($task); // Wait for the coroutine to finish and handle its exception
     });
 } catch (Exception $e) {
-    echo "Caught exception: " . $e->getMessage() . "\n";
+    echo 'Caught exception: ' . $e->getMessage() . "\n";
 }
-echo "Time: " . (microtime(true) - $t) . " seconds\n";
+echo 'Time: ' . (\microtime(true) - $t) . " seconds\n";

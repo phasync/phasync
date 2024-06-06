@@ -1,4 +1,5 @@
 <?php
+
 namespace phasync\Internal;
 
 use phasync;
@@ -16,7 +17,16 @@ use Throwable;
 final class SelectManager {
 
     private bool $hasFlags = false;
-    private array $flags = [];
+    private array $flags   = [];
+
+    public function addFlag(object $flag): void
+    {
+        $this->hasFlags                     = true;
+        $this->flags[\spl_object_id($flag)] = $flag;
+    }
+
+    public function removeFlag(object $flag): void
+    {
 
     /**
      * Block the current coroutine until the select manager becomes
@@ -59,7 +69,7 @@ final class SelectManager {
             return;
         }
         foreach ($this->flags as $key => $flag) {
-            phasync::raiseFlag($flag);
+            \phasync::raiseFlag($flag);
             unset($this->flags[$key]);
         }
         $this->hasFlags = false;

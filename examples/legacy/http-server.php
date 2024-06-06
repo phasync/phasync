@@ -2,19 +2,23 @@
 
 use phasync\Server\HttpServer;
 
-require "../vendor/autoload.php";
+require '../vendor/autoload.php';
 
-use function phasync\{run, sleep, go, file_put_contents, await};
+use function phasync\await;
+use function phasync\file_put_contents;
+use function phasync\go;
+use function phasync\run;
+use function phasync\sleep;
 
-/**
+/*
  * This script sets up a TcpServer that listens on port 8080.
  * It echoes back any received data to the client and then closes the connection.
  */
-run(function() {
+run(function () {
     // Create the TCP Server instance
     $server = new HttpServer('0.0.0.0', 8080);
 
-    go(function() {
+    go(function () {
         while (true) {
             echo "Tick\n";
             sleep(1);
@@ -22,15 +26,15 @@ run(function() {
         }
     });
 
-    $future = go(function() {
+    $future = go(function () {
         sleep(10);
-        return "Done";
+
+        return 'Done';
     });
 
     // Starts listening to requests asynchronously
     // and each request is handled in a separate fiber.
-    $server->run(function($server, $connection) {
-
+    $server->run(function ($server, $connection) {
         // $server contains the same values as $_SERVER
         // would contain in a normal PHP application
 
@@ -41,12 +45,11 @@ run(function() {
         if (!empty($_SERVER['QUERY_STRING'])) {
             \parse_str($server['QUERY_STRING'], $get);
         }
-        
-        if ($server['REQUEST_METHOD'] == 'GET') {
 
+        if ('GET' === $server['REQUEST_METHOD']) {
             // The phasync namespace contains a set of utility
-            // functions like `sleep`, `fread`, `fwrite`, 
-            // `file_get_contents`, `file_put_contents` which 
+            // functions like `sleep`, `fread`, `fwrite`,
+            // `file_get_contents`, `file_put_contents` which
             // are all transparently causing a context switch
             // to allow other requests to be accepted
             phasync\sleep(1);
@@ -59,7 +62,7 @@ run(function() {
                 "Content-Type: text/plain; charset=utf-8\r\n" .
                 "Connection: close\r\n" .
                 "\r\n" .
-                "Hello World"
+                'Hello World'
             );
         } else {
             $connection->write(
@@ -67,12 +70,12 @@ run(function() {
                 "Content-Type: text/plain; charset=utf-8\r\n" .
                 "Connection: close\r\n" .
                 "\r\n" .
-                "The request was not permitted"
+                'The request was not permitted'
             );
         }
     });
 
     echo "Server is running on tcp://0.0.0.0:8080\n";
 
-    echo "Terminating: " . await($future) . "\n";
+    echo 'Terminating: ' . await($future) . "\n";
 });
