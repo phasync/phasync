@@ -1,6 +1,10 @@
 <?php
 namespace phasync;
 
-interface SubscriberInterface extends ReadChannelInterface {
+use IteratorAggregate;
+
+interface SubscriberInterface extends ReadChannelInterface, IteratorAggregate {
+
+    
     
 }

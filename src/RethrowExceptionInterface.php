@@ -8,4 +8,5 @@ namespace phasync;
  */
 interface RethrowExceptionInterface extends \Throwable
 {
+    public function rebuildStackTrace(): void;
 }

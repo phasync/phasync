@@ -17,7 +17,8 @@ final class Subscriber implements SubscriberInterface, IteratorAggregate
 {
     private int $id;
     private ?Subscribers $publisher;
-    private ChannelMessage $currentMessage;
+    private ?ChannelMessage $currentMessage;
+    private bool $closed = false;
 
     public function __construct(Subscribers $publisher)
     {
@@ -39,8 +40,8 @@ final class Subscriber implements SubscriberInterface, IteratorAggregate
      */
     public function await(): void
     {
-        if ($this->selectWillBlock()) {
-            $this->getSelectManager()->await();
+        if (!$this->isClosed()) {
+            $this->publisher->waitForMessage();
         }
     }
 
@@ -54,10 +55,13 @@ final class Subscriber implements SubscriberInterface, IteratorAggregate
 
     public function selectWillBlock(): bool
     {
+        if ($this->closed) {
+            return false;
+        }
         if (!$this->publisher) {
             return false;
         }
-        if ($this->currentMessage->next) {
+        if ($this->currentMessage->next === $this->currentMessage) {
             return false;
         }
 
@@ -83,28 +87,27 @@ final class Subscriber implements SubscriberInterface, IteratorAggregate
 
     public function isClosed(): bool
     {
-        return null === $this->publisher;
+        return null === $this->publisher || $this->currentMessage->next === $this->currentMessage;
     }
 
     public function read(): \Serializable|array|string|float|int|bool|null
     {
-        if (null === $this->publisher) {
+        if ($this->isClosed()) {
             return null;
         }
         if (!$this->currentMessage->next) {
-            $this->publisher->wait();
+            $this->publisher->waitForMessage();
         }
         $message              = $this->currentMessage->message;
         $this->currentMessage = $this->currentMessage->next;
-        if (null === $message) {
+        if ($this->currentMessage->next === $this->currentMessage) {
             $this->close();
         }
-
         return $message;
     }
 
     public function isReadable(): bool
     {
-        return null !== $this->publisher;
+        return !$this->isClosed();
     }
 }

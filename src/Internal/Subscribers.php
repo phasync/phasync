@@ -2,6 +2,7 @@
 
 namespace phasync\Internal;
 
+use phasync;
 use phasync\ChannelException;
 use phasync\ReadChannelInterface;
 use phasync\SubscriberInterface;
@@ -26,7 +27,6 @@ final class Subscribers implements SubscribersInterface
     private ChannelMessage $lastMessage;
     private \stdClass $notifyMessageFlag;
     private int $waiting = 0;
-    private bool $closed = false;
     private ?\Fiber $creatingFiber;
 
     public function __construct(ReadChannelInterface $readChannel)
@@ -37,37 +37,38 @@ final class Subscribers implements SubscribersInterface
         $notifyMessageFlag   = $this->notifyMessageFlag = new \stdClass();
         $lastMessage         = $this->lastMessage = new ChannelMessage();
         $waiting             = &$this->waiting;
-        $closed              = &$this->closed;
         $this->readChannel   = $readChannel;
         $this->creatingFiber = \phasync::getFiber();
 
-        \phasync::service(static function () use ($lastMessage, $notifyMessageFlag, $readChannel, &$waiting, &$closed) {
+        \phasync::service(static function () use ($lastMessage, $notifyMessageFlag, $readChannel, &$waiting) {
             try {
-                do {
+                while ($waiting === 0) {
+                    if ($readChannel->isClosed()) {
+                        return;
+                    }
+                    // Don't start reading until somebody is waiting
                     \phasync::yield();
-                    if ($closed) {
+                }
+                do {
+                    $message              = $readChannel->read();
+                    if ($message === null && $readChannel->isClosed()) {
                         break;
                     }
-                    if (0 === $waiting) {
-                        continue;
-                    }
-                    $message              = $readChannel->read();
                     $lastMessage->message = $message;
                     $lastMessage->next    = new ChannelMessage();
                     $lastMessage          = $lastMessage->next;
                     if ($waiting > 0) {
                         \phasync::raiseFlag($notifyMessageFlag);
+                        \phasync::yield();
                     }
-                } while (null !== $message);
+                } while (!$readChannel->isClosed());
             } finally {
                 $readChannel->close();
+                // A reference to self means there will be no more messages and the channel is closed
+                $lastMessage->next = $lastMessage;
+                \phasync::raiseFlag($notifyMessageFlag);
             }
         });
-    }
-
-    public function __destruct()
-    {
-        $this->closed = true;
     }
 
     public function getSelectManager(): SelectManager
@@ -123,7 +124,7 @@ final class Subscribers implements SubscribersInterface
      * @throws TimeoutException
      * @throws \Throwable
      */
-    public function wait(): void
+    public function waitForMessage(): void
     {
         try {
             ++$this->waiting;

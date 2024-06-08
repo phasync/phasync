@@ -118,7 +118,9 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
 
         if ($this->creatingFiber) {
             if ($this->creatingFiber === $fiber) {
-                throw new ChannelException("Can't open a channel from the same coroutine that created it");
+                $e = new ChannelException("Can't open a channel from the same coroutine that created it");
+                $e->rebuildStackTrace();
+                throw $e;
             }
             $this->creatingFiber = null;
         }

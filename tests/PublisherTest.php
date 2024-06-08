@@ -79,3 +79,26 @@ test('publisher semantics', function () {
         return $counter;
     }))->toBe(9);
 });
+test('sending null via publisher', function() {
+    phasync::run(function() {
+        phasync::publisher($s, $p);
+        $messages = [];
+        $subscriber = phasync::go(function() use ($s, &$messages) {
+            $s = $s->subscribe();
+            while (!$s->isClosed()) {
+                $message = $s->read();
+                if (!$s->isClosed()) {
+                    $messages[] = $message;
+                }
+            }
+        });
+        \phasync::go(function() use ($p) {
+            $p->write(null);
+            $p->write("Great success");
+            $p->write(null);
+            $p->close();
+        });
+        \phasync::await($subscriber);
+        expect($messages)->toBe([null, 'Great success', null]);
+    });
+});
