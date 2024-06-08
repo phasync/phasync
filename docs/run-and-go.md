@@ -1,5 +1,7 @@
 # `phasync::run()` and `phasync::go()`
 
+[Back to README.md](../README.md)
+
 These are the two most important functions to use. The `phasync::run()` function creates an event loop which allows coroutines to run concurrently, so that when one coroutine is waiting for IO operation or is just pausing - then other coroutines are automatically resumed to do work.
 
 ## `phasync::run(Closure $fn, ?array $args=[], ?ContextInterface $context=null): mixed`
