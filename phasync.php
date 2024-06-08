@@ -17,6 +17,7 @@ use phasync\ReadChannelInterface;
 use phasync\RethrowExceptionInterface;
 use phasync\SelectableInterface;
 use phasync\SelectorInterface;
+use phasync\SubscribersInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
 use phasync\WriteChannelInterface;
@@ -590,25 +591,6 @@ final class phasync
     }
 
     /**
-     * Function is used internally to suspend coroutines and ensure
-     * exceptions have a proper stack trace.
-     *
-     * @internal
-     *
-     * @throws FiberError
-     * @throws Throwable
-     */
-    private static function suspend(): void
-    {
-        try {
-            Fiber::suspend();
-        } catch (RethrowExceptionInterface $e) {
-            $className = $e::class;
-            throw new $className($e->getMessage(), $e->getCode(), $e);
-        }
-    }
-
-    /**
      * Suspend the current fiber until the event loop becomes empty or will sleeps while
      * waiting for future events.
      */
@@ -686,90 +668,61 @@ final class phasync
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             return 0;
         }
-        if ($mode & self::READABLE) {
-            $metaData = \stream_get_meta_data($resource);
-            if ($metaData['unread_bytes'] > 0) {
-                // Avoid the event loop
-                self::preempt();
-
-                return self::READABLE;
-            }
+        $metaData = \stream_get_meta_data($resource);
+        if (self::$runDepth === 0 && $metaData['blocked']) {
+            // No point in blocking here; instead the fwrite/fread call will block
+            return $mode & (self::READABLE | self::WRITABLE);
         }
+
+        if ($mode & self::READABLE && $metaData['unread_bytes'] > 0) {
+            // Can always non-blockingly read if there are unread bytes in the stream buffer
+            self::preempt();
+
+            return self::READABLE;
+        }
+
         // check using the event loop
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
-        if (null === $fiber) {
-            // simulate the behavior
-            $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
-            while (true) {
-                $r = $w = $e = [];
-                if ($mode & self::READABLE) {
-                    $r[] = $resource;
-                }
-                if ($mode & self::WRITABLE) {
-                    $w[] = $resource;
-                }
-                if ($mode & self::EXCEPT) {
-                    $e[] = $resource;
-                }
-                $count = \stream_select($r, $w, $e, 0, 1000000);
-                if (\is_int($count) && $count > 0) {
-                    $result = 0;
-                    if (!empty($r)) {
-                        $result |= self::READABLE;
-                    }
-                    if (!empty($w)) {
-                        $result |= self::WRITABLE;
-                    }
-                    if (!empty($e)) {
-                        $result |= self::EXCEPT;
-                    }
+        if ($fiber = $driver->getCurrentFiber()) {
+            $timeout = $timeout ?? self::getDefaultTimeout();
+            $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
+            self::suspend();
 
-                    return $result;
+            return $driver->getLastResourceState($resource);
+        }
+
+        // The functionality should work on non-blocking resources even outside of phasync
+        $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
+        while (true) {
+            $r = $w = $e = [];
+            if ($mode & self::READABLE) {
+                $r[] = $resource;
+            }
+            if ($mode & self::WRITABLE) {
+                $w[] = $resource;
+            }
+            if ($mode & self::EXCEPT) {
+                $e[] = $resource;
+            }
+            $count = \stream_select($r, $w, $e, 0, 1000000);
+            if (\is_int($count) && $count > 0) {
+                $result = 0;
+                if (!empty($r)) {
+                    $result |= self::READABLE;
                 }
-                if ($stopTime < \microtime(true)) {
-                    throw new TimeoutException('The operation timed out');
+                if (!empty($w)) {
+                    $result |= self::WRITABLE;
                 }
+                if (!empty($e)) {
+                    $result |= self::EXCEPT;
+                }
+
+                return $result;
+            }
+            if ($stopTime < \microtime(true)) {
+                throw new TimeoutException('The operation timed out');
             }
         }
-        $timeout = $timeout ?? self::getDefaultTimeout();
-        $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
-        self::suspend();
-
-        return $driver->getLastResourceState($resource);
-    }
-
-    /**
-     * Check immediately if the stream resource can be read, written or
-     * is in an except state.
-     *
-     * @internal
-     *
-     * @throws InvalidArgumentException
-     * @throws RuntimeException
-     */
-    public static function streamPoll($resource): int
-    {
-        if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
-            throw new InvalidArgumentException('Expecting a valid stream resource');
-        }
-        $r     = $w = $e = [$resource];
-        $count = \stream_select($r, $w, $e, 0, 0);
-        if (false === $count) {
-            throw new RuntimeException('Unable to poll stream resource');
-        }
-        $result = 0;
-        if (!empty($r)) {
-            $result |= self::READABLE;
-        }
-        if (!empty($w)) {
-            $result |= self::WRITABLE;
-        }
-        if (!empty($e)) {
-            $result |= self::EXCEPT;
-        }
-
-        return $result;
     }
 
     /**
@@ -800,7 +753,7 @@ final class phasync
      * A publisher works like channels, but supports many subscribing coroutines
      * concurrently.
      */
-    public static function publisher(?Subscribers &$subscribers, ?WriteChannelInterface &$publisher): void
+    public static function publisher(?SubscribersInterface &$subscribers, ?WriteChannelInterface &$publisher): void
     {
         self::channel($internalReadChannel, $publisher, 0);
         $subscribers = new Subscribers($internalReadChannel);
@@ -847,31 +800,6 @@ final class phasync
 
         $driver->whenFlagged($signal, $timeout ?? self::getDefaultTimeout(), $fiber);
         self::suspend();
-    }
-
-    /**
-     * Enqueue a Fiber with the event loop while throwing an exception in it. This is
-     * an internal function intended for advanced use cases and the API may change
-     * without notice.
-     *
-     * @internal
-     *
-     * @param Throwable|null $exception
-     */
-    public static function enqueueWithException(Fiber $fiber, Throwable $exception): void
-    {
-        self::getDriver()->enqueueWithException($fiber, $exception);
-    }
-
-    /**
-     * Enqueue a Fiber with the event loop. This is an internal function intended
-     * for advanced use cases and the API may change without notice.
-     *
-     * @internal
-     */
-    public static function enqueue(Fiber $fiber): void
-    {
-        self::getDriver()->enqueue($fiber);
     }
 
     /**
@@ -1058,6 +986,83 @@ final class phasync
     public static function getDefaultTimeout(): float
     {
         return self::$timeout;
+    }
+
+    /**
+     * Check immediately if the stream resource can be read, written or
+     * is in an except state.
+     *
+     * @internal
+     *
+     * @throws InvalidArgumentException
+     * @throws RuntimeException
+     */
+    public static function streamPoll($resource): int
+    {
+        if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
+            throw new InvalidArgumentException('Expecting a valid stream resource');
+        }
+        $r     = $w = $e = [$resource];
+        $count = \stream_select($r, $w, $e, 0, 0);
+        if (false === $count) {
+            throw new RuntimeException('Unable to poll stream resource');
+        }
+        $result = 0;
+        if (!empty($r)) {
+            $result |= self::READABLE;
+        }
+        if (!empty($w)) {
+            $result |= self::WRITABLE;
+        }
+        if (!empty($e)) {
+            $result |= self::EXCEPT;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Function is used internally to suspend coroutines and ensure
+     * exceptions have a proper stack trace.
+     *
+     * @internal
+     *
+     * @throws FiberError
+     * @throws Throwable
+     */
+    private static function suspend(): void
+    {
+        try {
+            Fiber::suspend();
+        } catch (RethrowExceptionInterface $e) {
+            $className = $e::class;
+            throw new $className($e->getMessage(), $e->getCode(), $e);
+        }
+    }
+
+    /**
+     * Enqueue a Fiber with the event loop while throwing an exception in it. This is
+     * an internal function intended for advanced use cases and the API may change
+     * without notice.
+     *
+     * @internal
+     *
+     * @param Throwable|null $exception
+     */
+    public static function enqueueWithException(Fiber $fiber, Throwable $exception): void
+    {
+        self::getDriver()->enqueueWithException($fiber, $exception);
+    }
+
+    /**
+     * Enqueue a Fiber with the event loop. This is an internal function intended
+     * for advanced use cases and the API may change without notice.
+     *
+     * @internal
+     */
+    public static function enqueue(Fiber $fiber): void
+    {
+        self::getDriver()->enqueue($fiber);
     }
 
     /**

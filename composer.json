@@ -27,7 +27,8 @@
             "phasync\\": "src/"
         },
         "classmap": [
-            "phasync.php"
+            "phasync.php",
+            "io.php"
         ],
         "files": [
             "src/functions.php"

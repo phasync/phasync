@@ -2,8 +2,10 @@
 
 namespace phasync\Internal;
 
+use IteratorAggregate;
 use phasync;
 use phasync\ReadChannelInterface;
+use phasync\SubscriberInterface;
 use phasync\TimeoutException;
 
 /**
@@ -11,7 +13,7 @@ use phasync\TimeoutException;
  *
  * @internal
  */
-final class Subscriber implements ReadChannelInterface, \IteratorAggregate
+final class Subscriber implements SubscriberInterface, IteratorAggregate
 {
     private int $id;
     private ?Subscribers $publisher;

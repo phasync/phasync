@@ -37,9 +37,7 @@ class AsyncStream
         $options['phasyncio'] = ['resource' => $resource];
 
         \stream_wrapper_register('phasyncio', self::class);
-
-        $wrappedResource = \fopen('phasyncio://' . ($metadata['uri'] ?? 'void'), '', false, \stream_context_create($options));
-
+        $wrappedResource = \fopen('phasyncio://void', '', false, \stream_context_create($options));
         \stream_wrapper_unregister('phasyncio');
 
         return $wrappedResource;
@@ -95,7 +93,7 @@ class AsyncStream
     public function stream_cast(int $cast_as)
     {
         // Do not allow double-polling of the stream resource
-        if (STREAM_CAST_FOR_SELECT === $cast_as) {
+        if ($cast_as & STREAM_CAST_FOR_SELECT) {
             return $this->resource;
         }
 

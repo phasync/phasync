@@ -4,6 +4,8 @@ namespace phasync\Internal;
 
 use phasync\ChannelException;
 use phasync\ReadChannelInterface;
+use phasync\SubscriberInterface;
+use phasync\SubscribersInterface;
 use phasync\TimeoutException;
 
 /**
@@ -13,7 +15,7 @@ use phasync\TimeoutException;
  *
  * @internal
  */
-final class Subscribers implements \IteratorAggregate
+final class Subscribers implements SubscribersInterface
 {
     /**
      * @var \WeakMap<ReadChannelInterface, array>|null
@@ -76,7 +78,7 @@ final class Subscribers implements \IteratorAggregate
     /**
      * Get a new subscription for the read channel.
      */
-    public function subscribe(): Subscriber
+    public function subscribe(): SubscriberInterface
     {
         if ($this->creatingFiber) {
             if (\phasync::getFiber() === $this->creatingFiber) {
