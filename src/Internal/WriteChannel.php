@@ -51,7 +51,7 @@ final class WriteChannel implements WriteChannelInterface
         return $this->channel->isClosed();
     }
 
-    public function write(\Serializable|array|string|float|int|bool $value): void
+    public function write(\Serializable|array|string|float|int|bool|null $value): void
     {
         $this->channel->write($value);
     }

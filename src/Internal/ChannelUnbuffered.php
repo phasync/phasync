@@ -106,7 +106,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
         return $this->closed;
     }
 
-    public function write(\Serializable|array|string|float|int|bool $value): void
+    public function write(\Serializable|array|string|float|int|bool|null $value): void
     {
         if ($this->closed) {
             throw new ChannelException('Channel is closed');

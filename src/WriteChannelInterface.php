@@ -29,7 +29,7 @@ interface WriteChannelInterface extends SelectableInterface
      *
      * @return int
      */
-    public function write(\Serializable|array|string|float|int|bool $value): void;
+    public function write(\Serializable|array|string|float|int|bool|null $value): void;
 
     /**
      * Returns true if the channel is still readable.

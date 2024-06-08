@@ -508,7 +508,6 @@ final class phasync
     public static function cancel(Fiber $fiber, ?Throwable $exception=null): void
     {
         if ($fiber->isTerminated()) {
-            \debug_print_backtrace();
             throw new InvalidArgumentException('Fiber is already terminated');
         }
         self::getDriver()->cancel($fiber, $exception);
@@ -1035,8 +1034,8 @@ final class phasync
         try {
             Fiber::suspend();
         } catch (RethrowExceptionInterface $e) {
-            $className = $e::class;
-            throw new $className($e->getMessage(), $e->getCode(), $e);
+            $e->rebuildStackTrace();
+            throw $e;
         }
     }
 

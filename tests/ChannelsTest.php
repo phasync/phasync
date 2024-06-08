@@ -237,3 +237,25 @@ test('buffered channel tests', function () {
         });
     });
 });
+
+test('writing null via a channel without closing it', function() {
+    phasync::run(function() {
+        $received = [];
+        phasync::channel($r, $w);
+        $reader = phasync::go(function() use ($r, &$received) {
+            $counter = 1;
+            while (!$r->isClosed()) {
+                $message = $r->read();
+                $received[] = $message;
+            }
+        });
+        phasync::go(function() use ($w) {
+            $w->write(null);
+            $w->write("After null");
+            $w->write(null);
+            $w->close();
+        });
+        phasync::await($reader);
+        expect($received)->toBe([null, "After null", null, null]);
+    });
+});
