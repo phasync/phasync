@@ -31,6 +31,9 @@ return (new PhpCsFixer\Config())
         'native_function_invocation' => [
             'include' => ['@internal'],
         ],
+        'native_constant_invocation' => [
+            'include' => ['@internal'],
+        ],
         'ordered_imports'                  => true,
         'random_api_migration'             => true,
         'phpdoc_summary'                   => false,
