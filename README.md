@@ -1,6 +1,12 @@
+# VERSION 1.0.0 LAUNCHED
+
+We're happy to announce that the core `phasync/phasync` library is feature complete and has been stable for a long time. While the project has not reached the maturity that we would recommend putting it directly into production without proper testing, the top priority will be bug fixes and optimizations while ensuring that all unit tests keep succeeding.
+
+
 # phasync: High-concurrency PHP
 
 Asynchronous programming should not be difficult. This is a new microframework for doing asynchronous programming in PHP. It tries to do for PHP, what the `asyncio` package does for Python, and what Go does by default. For some background from what makes *phasync* different from other asynchronous big libraries like *reactphp* and *amphp* is that *phasync* does not attempt to redesign how you program. *phasync* can be used in a single function, somewhere in your big application, just where you want to speed up some task by doing it in parallel.
+
 
 ## Installation
 
@@ -16,7 +22,7 @@ We have started to work more on documentation. The code is also well documented.
 
  * [INTRO: `phasync::run() and phasync::go()`](docs/run-and-go.md)
  * [Using phasync in existing projects](docs/use-in-existing-projects.md)
- * [Write a simple async server](docs/build-async-server.md)
+ * [Write a basic web server](docs/build-async-server.md)
 
 ## About phasync
 

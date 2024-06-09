@@ -218,3 +218,69 @@ This snippet ensures that after the server binds to a privileged port, it operat
  * *Use HTTPS*: Always use TLS/SSL to encrypt data transmitted between the server and clients. The reverse proxy does an excellent job at handling this for you.
 
  * *Regularly Update Dependencies*: Keep all server software and dependencies up-to-date to protect against known vulnerabilities.
+
+
+## The final script
+
+Testing the below script shows that the server is able to handle around 10k requests per second on a single CPU core (on a Linode 8GB server). To reach this performance you must disable logging the headers to the console.
+
+```php
+<?php
+require('vendor/autoload.php');
+
+// Set up the socket server on port 8080
+$ctx = stream_context_create([
+    'socket' => [
+        'backlog' => 511,  // Configure the kernel backlog size
+        'so_reuseport' => true,  // Allow reconnection to a recently closed port
+    ]
+]);
+
+$server = stream_socket_server('tcp://0.0.0.0:8080', $errorCode, $errorMessage, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $ctx);
+
+phasync::run(function() use ($server) {
+    echo "Server is accepting connections...\n";
+
+    while ($client = stream_socket_accept(phasync::readable($server), 3600, $peerName)) {
+        // At this point, a connection from a client (browser) that connected to http://localhost:8080/ on your computer has been accepted.
+        // Launch a coroutine to handle the connection:
+        phasync::go(handle_connection(...), args: [$client, $peerName]);
+    }
+});
+
+function handle_connection($client, string $peerName): void {
+    // Read a large chunk of data from the client
+    $buffer = fread(phasync::readable($client), 65536);
+    if ($buffer === false || $buffer === '') {
+        echo "$peerName: Unable to read request data or connection closed\n";
+        fclose($client);
+        return;
+    }
+
+    // Split the request into headers and body (if any)
+    $parts = explode("\r\n\r\n", $buffer, 2);
+    $head = $parts[0];
+    $body = $parts[1] ?? '';
+
+    // Split the head into individual lines
+    $headerLines = explode("\r\n", $head);
+
+    // Display the received HTTP request
+    echo "$peerName: Received an HTTP request:\n";
+    foreach ($headerLines as $headerLine) {
+        echo "  $headerLine\n";
+    }
+
+    // Example response preparation and sending
+    $response   = "HTTP/1.1 200 OK\r\n"
+                . "Connection: close\r\n"
+                . "Content-Type: text/html\r\n"
+                . "Date: " . gmdate('r') . "\r\n"
+                . "\r\n"
+                . "<html><body>Hello, World!</body></html>";
+
+    fwrite(phasync::writable($client), $response);
+
+    fclose($client);
+}
+```

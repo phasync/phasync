@@ -21,7 +21,7 @@
         "guzzlehttp/promises": "^2.0",
         "friendsofphp/php-cs-fixer": "^3.58"
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "autoload": {
         "psr-4": {
             "phasync\\": "src/"
