@@ -1,4 +1,4 @@
-# Using phasync in legacy projects
+# Using phasync in existing projects
 
 [Back to README.md](../README.md)
 

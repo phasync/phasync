@@ -629,13 +629,14 @@ final class phasync
      * by wrapping `phasync::stream($resource, $timeout, phasync::READABLE)`.
      *
      * @param resource $resource
-     *
+     * @return resource Returns the same resource for convenience
      * @throws FiberError
      * @throws Throwable
      */
-    public static function readable(mixed $resource, ?float $timeout=null): void
+    public static function readable(mixed $resource, ?float $timeout=null): mixed
     {
         self::stream($resource, self::READABLE, $timeout);
+        return $resource;
     }
 
     /**
@@ -643,13 +644,14 @@ final class phasync
      * by wrapping `phasync::stream($resource, $timeout, phasync::WRITABLE)`.
      *
      * @param resource $resource
-     *
+     * @return resource Returns the same resource for convenience
      * @throws FiberError
      * @throws Throwable
      */
-    public static function writable(mixed $resource, ?float $timeout=null): void
+    public static function writable(mixed $resource, ?float $timeout=null): mixed
     {
         self::stream($resource, self::WRITABLE, $timeout);
+        return $resource;
     }
 
     /**

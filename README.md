@@ -15,7 +15,8 @@ The only requirement for phasync is PHP >= 8.1. It runs well inside php-fpm and 
 We have started to work more on documentation. The code is also well documented. The INTRO document gives you everything you need to get started.
 
  * [INTRO: `phasync::run() and phasync::go()`](docs/run-and-go.md)
- * [Using phasync in legacy projects](docs/start-small.md)
+ * [Using phasync in existing projects](docs/use-in-existing-projects.md)
+ * [Write a simple async server](docs/build-async-server.md)
 
 ## About phasync
 
