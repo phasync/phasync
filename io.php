@@ -238,7 +238,7 @@ class io
             throw new \TypeError('Argument #1 ($stream) must be of type resource, ' . \get_debug_type($stream) . ' given');
         }
 
-        return self::_ensure_nonblocking([$stream, $fields, $separator, $enclosure, $escape, $eol], function ($stream, $fields, $separator, $enclosure, $escape, $eol): array|false {
+        return self::_ensure_nonblocking([$stream, $fields, $separator, $enclosure, $escape, $eol], function ($stream, $fields, $separator, $enclosure, $escape, $eol): int|false {
             \phasync::writable($stream);
 
             return \fputcsv($stream, $fields, $separator, $enclosure, $escape, $eol);

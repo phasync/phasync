@@ -2,33 +2,12 @@
 
 namespace phasync\Util;
 
-use phasync;
 use phasync\Internal\SelectableTrait;
 use phasync\SelectableInterface;
 
 /**
  * This class provides an efficient tool for waiting until multiple coroutines have
  * completed their task.
- *
- * Example:
- *
- * ```php
- * phasync::run(function() {
- *   $wg = new WaitGroup();
- *   phasync::go(function() use ($wg) {
- *     $wg->add();
- *     phasync::sleep(0.5); // simulate work
- *     $wg->done();
- *   });
- *   phasync::go(function() use ($wg) {
- *     $wg->add();
- *     phasync::sleep(1); // simulate work
- *     $wg->done();
- *   });
- *
- *   $wg->wait(); // pause until the two coroutines finish after 1 second
- * });
- * ```
  */
 final class WaitGroup implements SelectableInterface
 {

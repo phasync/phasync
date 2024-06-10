@@ -7,6 +7,8 @@ We're happy to announce that the core `phasync/phasync` library is feature compl
 
 Asynchronous programming should not be difficult. This is a new microframework for doing asynchronous programming in PHP. It tries to do for PHP, what the `asyncio` package does for Python, and what Go does by default. For some background from what makes *phasync* different from other asynchronous big libraries like *reactphp* and *amphp* is that *phasync* does not attempt to redesign how you program. *phasync* can be used in a single function, somewhere in your big application, just where you want to speed up some task by doing it in parallel.
 
+> [What benefits can it bring to my existing codebase?](docs/benefits.md)
+
 
 ## Installation
 
@@ -21,8 +23,14 @@ The only requirement for phasync is PHP >= 8.1. It runs well inside php-fpm and 
 We have started to work more on documentation. The code is also well documented. The INTRO document gives you everything you need to get started.
 
  * [INTRO: `phasync::run() and phasync::go()`](docs/run-and-go.md)
+ * [Asynchronous IO core functionality](docs/async-io-basics.md)
  * [Using phasync in existing projects](docs/use-in-existing-projects.md)
+ * [Perform concurrent HTTP requests with CurlMulti](docs/curl-multi.md)
+ * [Using the RateLimiter class to throttle](docs/rate-limiter.md)
+ * [Using WaitGroup to coordinate multiple tasks](docs/wait-group.md)
+ * [Ensure CPU bound code does not block the entire application with `phasync::preempt()`](docs/preempt.md)
  * [Write a basic web server](docs/build-async-server.md)
+
 
 ## About phasync
 
@@ -30,9 +38,11 @@ We have started to work more on documentation. The code is also well documented.
 
 *phasync* brings Go-inspired concurrency to PHP, utilizing native and ultra-fast coroutines to manage thousands of simultaneous operations efficiently. By leveraging modern PHP features like fibers, *phasync* simplifies asynchronous programming, allowing for clean, maintainable code that performs multiple tasks simultaneously with minimal overhead.
 
+
 ## ChatGPT assistance!
 
-By pasting the `CHATBOT.txt` file into ChatGPT or your preferred chatbot, you can get assistance and ask questions about how to integrate `phasync` with your projects.
+By pasting the `[CHATBOT.txt](./CHATBOT.txt)` file into ChatGPT or your preferred chatbot, you can get assistance and ask questions about how to integrate `phasync` with your projects.
+
 
 ## Making your code coroutine friendly
 

@@ -629,13 +629,16 @@ final class phasync
      * by wrapping `phasync::stream($resource, $timeout, phasync::READABLE)`.
      *
      * @param resource $resource
-     * @return resource Returns the same resource for convenience
+     *
      * @throws FiberError
      * @throws Throwable
+     *
+     * @return resource Returns the same resource for convenience
      */
     public static function readable(mixed $resource, ?float $timeout=null): mixed
     {
         self::stream($resource, self::READABLE, $timeout);
+
         return $resource;
     }
 
@@ -644,13 +647,16 @@ final class phasync
      * by wrapping `phasync::stream($resource, $timeout, phasync::WRITABLE)`.
      *
      * @param resource $resource
-     * @return resource Returns the same resource for convenience
+     *
      * @throws FiberError
      * @throws Throwable
+     *
+     * @return resource Returns the same resource for convenience
      */
     public static function writable(mixed $resource, ?float $timeout=null): mixed
     {
         self::stream($resource, self::WRITABLE, $timeout);
+
         return $resource;
     }
 
@@ -669,60 +675,61 @@ final class phasync
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             return 0;
         }
-        $metaData = \stream_get_meta_data($resource);
-        if (self::$runDepth === 0 && $metaData['blocked']) {
-            // No point in blocking here; instead the fwrite/fread call will block
-            return $mode & (self::READABLE | self::WRITABLE);
+
+        if (0 === self::$runDepth) {
+            $metadata = \stream_get_meta_data($resource);
+            if ($metadata['blocked'] ?? false) {
+                // No point in blocking here; instead the fwrite/fread call will block
+                return $mode & (self::READABLE | self::WRITABLE);
+            }
+        } else {
+            \stream_set_blocking($resource, false);
         }
 
-        if ($mode & self::READABLE && $metaData['unread_bytes'] > 0) {
-            // Can always non-blockingly read if there are unread bytes in the stream buffer
-            self::preempt();
+        try {
+            // check using the event loop
+            $driver = self::getDriver();
+            if ($fiber = $driver->getCurrentFiber()) {
+                $timeout = $timeout ?? self::getDefaultTimeout();
+                $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
+                self::suspend();
 
-            return self::READABLE;
-        }
-
-        // check using the event loop
-        $driver = self::getDriver();
-        if ($fiber = $driver->getCurrentFiber()) {
-            $timeout = $timeout ?? self::getDefaultTimeout();
-            $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
-            self::suspend();
-
-            return $driver->getLastResourceState($resource);
-        }
-
-        // The functionality should work on non-blocking resources even outside of phasync
-        $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
-        while (true) {
-            $r = $w = $e = [];
-            if ($mode & self::READABLE) {
-                $r[] = $resource;
+                return $driver->getLastResourceState($resource);
             }
-            if ($mode & self::WRITABLE) {
-                $w[] = $resource;
-            }
-            if ($mode & self::EXCEPT) {
-                $e[] = $resource;
-            }
-            $count = \stream_select($r, $w, $e, 0, 1000000);
-            if (\is_int($count) && $count > 0) {
-                $result = 0;
-                if (!empty($r)) {
-                    $result |= self::READABLE;
+
+            // The functionality should work on non-blocking resources even outside of phasync
+            $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
+            while (true) {
+                $r = $w = $e = [];
+                if ($mode & self::READABLE) {
+                    $r[] = $resource;
                 }
-                if (!empty($w)) {
-                    $result |= self::WRITABLE;
+                if ($mode & self::WRITABLE) {
+                    $w[] = $resource;
                 }
-                if (!empty($e)) {
-                    $result |= self::EXCEPT;
+                if ($mode & self::EXCEPT) {
+                    $e[] = $resource;
                 }
+                $count = \stream_select($r, $w, $e, 0, 1000000);
+                if (\is_int($count) && $count > 0) {
+                    $result = 0;
+                    if (!empty($r)) {
+                        $result |= self::READABLE;
+                    }
+                    if (!empty($w)) {
+                        $result |= self::WRITABLE;
+                    }
+                    if (!empty($e)) {
+                        $result |= self::EXCEPT;
+                    }
 
-                return $result;
+                    return $result;
+                }
+                if ($stopTime < \microtime(true)) {
+                    throw new TimeoutException('The operation timed out');
+                }
             }
-            if ($stopTime < \microtime(true)) {
-                throw new TimeoutException('The operation timed out');
-            }
+        } finally {
         }
     }
 

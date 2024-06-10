@@ -515,7 +515,7 @@ final class StreamSelectDriver implements DriverInterface
         if (isset($this->pending[$fiber])) {
             throw new \LogicException('Fiber is already pending when scheduling with afterNext');
         }
-        $this->whenFlagged($this->afterNextFlag, PHP_FLOAT_MAX, $fiber);
+        $this->whenFlagged($this->afterNextFlag, \PHP_FLOAT_MAX, $fiber);
     }
 
     public function whenFlagged(object $flag, float $timeout, \Fiber $fiber): void
@@ -631,7 +631,7 @@ final class StreamSelectDriver implements DriverInterface
             throw new \LogicException('Fiber is already pending in whenTimeElapsed');
         }
         if ($seconds > 0) {
-            $this->pending[$fiber] = PHP_FLOAT_MAX;
+            $this->pending[$fiber] = \PHP_FLOAT_MAX;
             $this->scheduler->schedule($seconds + \microtime(true), $fiber);
         } else {
             $this->enqueue($fiber);
@@ -651,7 +651,10 @@ final class StreamSelectDriver implements DriverInterface
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
         if (!isset($this->pending[$fiber])) {
-            throw new \RuntimeException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not blocked');
+            // Assume that the fiber was being managed by an external method
+            $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
+
+            return;
         }
 
         // Search for fibers waiting for IO

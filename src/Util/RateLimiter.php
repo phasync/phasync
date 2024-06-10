@@ -34,13 +34,19 @@ final class RateLimiter implements SelectableInterface
             throw new \InvalidArgumentException('Events per second must be greater than 0');
         }
         $interval = (1 / $eventsPerSecond);
-        \phasync::channel($this->readChannel, $writeChannel, $burst);
+        \phasync::channel($readChannel, $writeChannel, $burst);
+        $this->readChannel = $readChannel;
         \phasync::go(static function () use ($interval, $writeChannel) {
             do {
                 $writeChannel->write(true);
                 \phasync::sleep($interval);
             } while (!$writeChannel->isClosed());
         });
+    }
+
+    public function await(): void
+    {
+        $this->readChannel->await();
     }
 
     public function getSelectManager(): SelectManager
