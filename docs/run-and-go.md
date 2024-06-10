@@ -82,7 +82,7 @@ function read_countries_csv(): array {
 }
 ```
 
-Every single time the `fgetcsv` function is run your application may be paused paused doing nothing.
+Every single time the `fgetcsv` function is run your application may be paused doing nothing.
 
 Let's put the function inside the example code from above:
 
