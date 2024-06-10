@@ -36,7 +36,7 @@ phasync::run(function() {
     });
     // Count from 4 to 6
     phasync::go(function() {
-        for ($i = 11; $i <= 3; $i++) {
+        for ($i = 4; $i <= 6; $i++) {
             echo "Counting: 3 < $i <= 6\n";
         }
     });
@@ -58,7 +58,7 @@ phasync::run(function() {
     });
     // Count from 4 to 6
     phasync::go(function() {
-        for ($i = 11; $i <= 3; $i++) {
+        for ($i = 4; $i <= 6; $i++) {
             echo "Counting: 3 < $i <= 6\n";
             phasync::sleep();
         }
@@ -82,7 +82,7 @@ function read_countries_csv(): array {
 }
 ```
 
-Every single time the `fgetcsv` function is run your application may be paused paused doing nothing.
+Every single time the `fgetcsv` function is run your application may be paused doing nothing.
 
 Let's put the function inside the example code from above:
 
@@ -97,7 +97,7 @@ phasync::run(function() {
     });
     // Count from 4 to 6
     phasync::go(function() {
-        for ($i = 11; $i <= 3; $i++) {
+        for ($i = 4; $i <= 6; $i++) {
             echo "Counting: 3 < $i <= 6\n";
             read_countries_csv();
         }
