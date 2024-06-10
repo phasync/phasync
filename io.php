@@ -22,7 +22,7 @@ class io
 
         try {
             while (!\feof($fp)) {
-                $buffer = \fread($fp, 65536);
+                $buffer = \fread(\phasync::readable($fp), 65536);
                 if (false === $buffer) {
                     throw new \Exception("Read error with file '$filename'");
                 }
@@ -61,13 +61,12 @@ class io
             return self::_ensure_nonblocking([$data, $filename, $fp], function ($data, $filename, $fp) {
                 while (!\feof($data)) {
                     \phasync::readable($data);
-                    $chunk = \fread($data, 65536);
+                    $chunk = \fread(\phasync::readable($data), 65536);
                     if (false === $chunk) {
                         throw new \RuntimeException('Unable to read from stream resource ' . \get_resource_id($data));
                     }
                     while (true) {
-                        \phasync::writable($fp);
-                        $written = \fwrite($fp, $chunk);
+                        $written = \fwrite(\phasync::writable($fp), $chunk);
                         if (false === $written) {
                             throw new \RuntimeException("Unable to write to $filename");
                         } elseif ($written < \strlen($chunk)) {
@@ -89,8 +88,7 @@ class io
             $written = 0;
 
             while ($written < $len) {
-                \phasync::writable($fp);
-                $fwrite = \fwrite($fp, \substr($data, $written));
+                $fwrite = \fwrite(\phasync::writable($fp), \substr($data, $written));
                 if (false === $fwrite) {
                     throw new \RuntimeException("Failed to write to file '$filename'.");
                 }
@@ -265,9 +263,7 @@ class io
         }
 
         return self::_ensure_nonblocking([$stream, $data], function ($stream, $data) {
-            \phasync::writable($stream);
-
-            return \fwrite($stream, $data);
+            return \fwrite(\phasync::writable($stream), $data);
         });
     }
 
