@@ -36,7 +36,7 @@ phasync::run(function() {
     });
     // Count from 4 to 6
     phasync::go(function() {
-        for ($i = 11; $i <= 3; $i++) {
+        for ($i = 4; $i <= 6; $i++) {
             echo "Counting: 3 < $i <= 6\n";
         }
     });
@@ -58,7 +58,7 @@ phasync::run(function() {
     });
     // Count from 4 to 6
     phasync::go(function() {
-        for ($i = 11; $i <= 3; $i++) {
+        for ($i = 4; $i <= 6; $i++) {
             echo "Counting: 3 < $i <= 6\n";
             phasync::sleep();
         }
