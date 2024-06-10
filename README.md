@@ -1,6 +1,4 @@
-# VERSION 1.0.0 LAUNCHED
-
-We're happy to announce that the core `phasync/phasync` library is feature complete and has been stable for a long time. While the project has not reached the maturity that we would recommend putting it directly into production without proper testing, the top priority will be bug fixes and optimizations while ensuring that all unit tests keep succeeding.
+![phasync](docs/phasync-illustration2.webp)
 
 
 # phasync: High-concurrency PHP
