@@ -2,7 +2,6 @@
 
 namespace phasync\Internal;
 
-use phasync;
 use phasync\ChannelException;
 use phasync\ReadChannelInterface;
 use phasync\SubscriberInterface;
@@ -42,7 +41,7 @@ final class Subscribers implements SubscribersInterface
 
         \phasync::service(static function () use ($lastMessage, $notifyMessageFlag, $readChannel, &$waiting) {
             try {
-                while ($waiting === 0) {
+                while (0 === $waiting) {
                     if ($readChannel->isClosed()) {
                         return;
                     }
@@ -51,7 +50,7 @@ final class Subscribers implements SubscribersInterface
                 }
                 do {
                     $message              = $readChannel->read();
-                    if ($message === null && $readChannel->isClosed()) {
+                    if (null === $message && $readChannel->isClosed()) {
                         break;
                     }
                     $lastMessage->message = $message;

@@ -54,7 +54,7 @@ class ComposableStream implements StreamInterface
             } catch (\RuntimeException) {
             }
             while (!$this->eof()) {
-                $result .= $this->read(PHP_INT_MAX);
+                $result .= $this->read(\PHP_INT_MAX);
             }
         }
 
@@ -104,9 +104,9 @@ class ComposableStream implements StreamInterface
         return null !== $this->seekFunction;
     }
 
-    public function seek(int $offset, int $whence = SEEK_SET): void
+    public function seek(int $offset, int $whence = \SEEK_SET): void
     {
-        if (null === $this->seekFunction || SEEK_SET !== $whence) {
+        if (null === $this->seekFunction || \SEEK_SET !== $whence) {
             throw new \RuntimeException('Stream is not seekable or whence != SEEK_SET');
         }
         ($this->seekFunction)($offset, $whence);
@@ -171,7 +171,7 @@ class ComposableStream implements StreamInterface
     {
         $data = '';
         while (!$this->eof()) {
-            $data .= $this->read(PHP_INT_MAX);
+            $data .= $this->read(\PHP_INT_MAX);
         }
 
         return $data;

@@ -36,7 +36,7 @@ final class FiberSelector implements SelectorInterface, ObjectPoolInterface
         $instance->fiber     = $fiber;
         $instance->waitFiber = \phasync::go(args: [$instance], fn: static function (FiberSelector $instance) {
             try {
-                \phasync::await($instance->fiber, PHP_FLOAT_MAX);
+                \phasync::await($instance->fiber, \PHP_FLOAT_MAX);
             } catch (\Throwable $e) {
                 // Ignore errors in the wait fiber
             } finally {

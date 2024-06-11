@@ -57,7 +57,7 @@ final class WindowsProcessRunner implements ProcessInterface
         $this->command         = $command;
 
         // Using ProcessRunner from amphp to ensure non-blocking behavior on Windows
-        $wrapper = \dirname(__DIR__, 2) . '\\bin\ProcessRunner' . (PHP_INT_SIZE === 8 ? '64' : '') . '.exe';
+        $wrapper = \dirname(__DIR__, 2) . '\\bin\ProcessRunner' . (\PHP_INT_SIZE === 8 ? '64' : '') . '.exe';
 
         $wrapperCommand = \sprintf(
             '%s --address=%s --port=%d --token-size=%d',

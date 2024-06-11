@@ -2,9 +2,7 @@
 
 namespace phasync\Internal;
 
-use IteratorAggregate;
 use phasync;
-use phasync\ReadChannelInterface;
 use phasync\SubscriberInterface;
 use phasync\TimeoutException;
 
@@ -13,7 +11,7 @@ use phasync\TimeoutException;
  *
  * @internal
  */
-final class Subscriber implements SubscriberInterface, IteratorAggregate
+final class Subscriber implements SubscriberInterface, \IteratorAggregate
 {
     private int $id;
     private ?Subscribers $publisher;
@@ -103,6 +101,7 @@ final class Subscriber implements SubscriberInterface, IteratorAggregate
         if ($this->currentMessage->next === $this->currentMessage) {
             $this->close();
         }
+
         return $message;
     }
 
