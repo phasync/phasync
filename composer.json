@@ -19,7 +19,8 @@
     "require-dev": {
         "pestphp/pest": "^2.34",
         "guzzlehttp/promises": "^2.0",
-        "friendsofphp/php-cs-fixer": "^3.58"
+        "friendsofphp/php-cs-fixer": "^3.58",
+        "trusted97/whitecat": "^2.0"
     },
     "minimum-stability": "stable",
     "autoload": {
@@ -41,12 +42,14 @@
     },
     "scripts": {
         "test": "@php vendor/bin/pest --stop-on-defect",
+        "test-with-coverage": "@php vendor/bin/pest --stop-on-defect --coverage-clover clover.xml",
         "test-all": "@php vendor/bin/pest",
         "php-cs-fixer": "vendor/bin/php-cs-fixer fix --verbose",
         "php-cs-fixer-dry-run": "vendor/bin/php-cs-fixer fix --verbose --diff --dry-run"
     },
     "scripts-descriptions": {
         "test": "Test until first defect",
+        "test-with-coverage": "Test until first defect with coverage",
         "test-all": "Run all tests"
     }
 }
