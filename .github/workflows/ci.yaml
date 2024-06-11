@@ -20,6 +20,9 @@ jobs:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
+      - name: Check commit messages
+        uses: webiny/action-conventional-commits@v1.3.0
+
       - name: 🧰 Setup PHP
         uses: shivammathur/setup-php@v2
         with:
