@@ -19,8 +19,7 @@
     "require-dev": {
         "pestphp/pest": "^2.34",
         "guzzlehttp/promises": "^2.0",
-        "friendsofphp/php-cs-fixer": "^3.58",
-        "trusted97/whitecat": "^2.0"
+        "friendsofphp/php-cs-fixer": "^3.58"
     },
     "minimum-stability": "stable",
     "autoload": {
