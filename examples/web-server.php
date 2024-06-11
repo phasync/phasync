@@ -12,11 +12,11 @@ $ctx = \stream_context_create([
 
 $server = \stream_socket_server('tcp://0.0.0.0:8080', $errorCode, $errorMessage, \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN, $ctx);
 
+// In child processes
 phasync::run(function () use ($server) {
     echo "Server is accepting connections...\n";
 
     while ($client = \stream_socket_accept(phasync::readable($server), 3600, $peerName)) {
-        // At this point, a connection from a client (browser) that connected to http://localhost:8080/ on your computer has been accepted.
         // Launch a coroutine to handle the connection:
         phasync::go(handle_connection(...), args: [$client, $peerName]);
     }
@@ -24,38 +24,60 @@ phasync::run(function () use ($server) {
 
 function handle_connection($client, string $peerName): void
 {
-    // Read a large chunk of data from the client
-    // stream_set_blocking($client, false);
-    $buffer = \fread(phasync::readable($client), 65536);
-    if (false === $buffer) {
-        echo "$peerName: Socket invalid when accepting client\n";
-        \fclose($client);
+    \stream_set_blocking($client, false);
 
-        return;
-    } elseif ('' === $buffer) {
-        echo "$peerName: Unable to read request data\n";
-        \fclose($client);
+    while (true) {
+        $buffer = \fread(phasync::readable($client), 65536);
+        if (false === $buffer) {
+            echo "$peerName: Socket invalid when accepting client\n";
+            \fclose($client);
 
-        return;
+            return;
+        } elseif ('' === $buffer) {
+            echo "$peerName: Unable to read request data\n";
+            \fclose($client);
+
+            return;
+        }
+
+        // Split the request into headers and body (if any)
+        $parts = \explode("\r\n\r\n", $buffer, 2);
+        $head  = $parts[0];
+        $body  = $parts[1] ?? '';
+
+        // Split the head into individual lines
+        $headerLines = \explode("\r\n", $head);
+
+        // Check for Connection: keep-alive header
+        $keepAlive = false;
+        foreach ($headerLines as $line) {
+            if (false !== \stripos($line, 'Connection: keep-alive')) {
+                $keepAlive = true;
+                break;
+            }
+        }
+
+        // Example response preparation
+        $response = "HTTP/1.1 200 OK\r\n"
+                  . "Content-Type: text/html\r\n"
+                  . 'Date: ' . \gmdate('r') . "\r\n";
+
+        if ($keepAlive) {
+            $response .= "Connection: keep-alive\r\n"
+                      . "Keep-Alive: timeout=5, max=100\r\n";
+        } else {
+            $response .= "Connection: close\r\n";
+        }
+
+        $response .= "\r\n"
+                  . '<html><body>Hello, World!</body></html>';
+
+        \fwrite(phasync::writable($client), $response);
+
+        if (!$keepAlive) {
+            \fclose($client);
+
+            return;
+        }
     }
-
-    // Split the request into headers and body (if any)
-    $parts = \explode("\r\n\r\n", $buffer, 2);
-    $head  = $parts[0];
-    $body  = $parts[1] ?? '';
-
-    // Split the head into individual lines
-    $headerLines = \explode("\r\n", $head);
-
-    // Example response preparation and sending
-    $response   = "HTTP/1.1 200 OK\r\n"
-                . "Connection: close\r\n"
-                . "Content-Type: text/html\r\n"
-                . 'Date: ' . \gmdate('r') . "\r\n"
-                . "\r\n"
-                . '<html><body>Hello, World!</body></html>';
-
-    \fwrite(phasync::writable($client), $response);
-
-    \fclose($client);
 }
