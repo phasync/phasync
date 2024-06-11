@@ -41,12 +41,14 @@
     },
     "scripts": {
         "test": "@php vendor/bin/pest --stop-on-defect",
+        "test-with-coverage": "@php vendor/bin/pest --stop-on-defect --coverage-clover clover.xml",
         "test-all": "@php vendor/bin/pest",
         "php-cs-fixer": "vendor/bin/php-cs-fixer fix --verbose",
         "php-cs-fixer-dry-run": "vendor/bin/php-cs-fixer fix --verbose --diff --dry-run"
     },
     "scripts-descriptions": {
         "test": "Test until first defect",
+        "test-with-coverage": "Test until first defect with coverage",
         "test-all": "Run all tests"
     }
 }
