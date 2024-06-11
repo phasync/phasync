@@ -113,20 +113,20 @@ class BufferedStream implements StreamInterface
         return true;
     }
 
-    public function seek(int $offset, int $whence = SEEK_SET): void
+    public function seek(int $offset, int $whence = \SEEK_SET): void
     {
         $this->assertNotCreator();
         $this->lock();
         try {
             switch ($whence) {
-                case SEEK_CUR:
+                case \SEEK_CUR:
                     $this->readOffset = \max(0, \min($this->writeOffset, $this->readOffset + $offset));
                     break;
-                case SEEK_END:
+                case \SEEK_END:
                     $this->readOffset = \max(0, \min($this->writeOffset, $this->writeOffset + $offset));
                     break;
                 default:
-                case SEEK_SET:
+                case \SEEK_SET:
                     $this->readOffset = \max(0, \min($this->writeOffset, $offset));
                     break;
             }

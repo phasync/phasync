@@ -1,19 +1,18 @@
 <?php
-namespace phasync;
 
-use Exception;
+namespace phasync;
 
 /**
  * This file provides an interface with functions having the same name as their native PHP
  * equivalents. By importing these functions into your file, you can easily replace the native
  * function with a coroutine aware version. Simply do:
- * 
+ *
  * use function phasync\{
  *     fread,
  *     fwrite,
  *     file_get_contents
  * };
- * 
+ *
  * and you can use `fread`, `fwrite` and `file_get_contents` in your files, and your code will
  * be coroutine aware.
  */

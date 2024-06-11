@@ -53,7 +53,7 @@ class CurlResponse implements ResponseInterface
                         $url .= '?' . $requestData;
                     }
                 }
-                \curl_setopt($this->curl, CURLOPT_URL, $url);
+                \curl_setopt($this->curl, \CURLOPT_URL, $url);
                 break;
             case 'POST':
                 // For POST requests, set the request data as the POSTFIELDS option
