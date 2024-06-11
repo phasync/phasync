@@ -622,7 +622,11 @@ final class StreamSelectDriver implements DriverInterface
 
     public function getLastResourceState(mixed $resource): ?int
     {
-        return $this->streamResults[\get_resource_id($resource)] ?? null;
+        $id     = \get_resource_id($resource);
+        $result = $this->streamResults[$id] ?? null;
+        unset($this->streamResults[$id]);
+
+        return $result;
     }
 
     public function whenTimeElapsed(float $seconds, \Fiber $fiber): void

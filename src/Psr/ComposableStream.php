@@ -22,6 +22,7 @@ class ComposableStream implements StreamInterface
         private ?\Closure $seekFunction = null,
         private ?\Closure $getSizeFunction = null,
         private ?\Closure $closeFunction = null,
+        private ?\Closure $eofFunction = null,
     ) {
         if (!$this->readFunction && !$this->writeFunction) {
             throw new \InvalidArgumentException('Either a readFunction or writeFunction must be provided');
@@ -96,6 +97,10 @@ class ComposableStream implements StreamInterface
 
     public function eof(): bool
     {
+        if (null !== $this->eofFunction) {
+            return ($this->eofFunction)();
+        }
+
         return $this->eof;
     }
 
@@ -148,8 +153,6 @@ class ComposableStream implements StreamInterface
             throw new \RuntimeException('Stream is not readable');
         }
         if ($this->eof) {
-            echo "Read at eof\n";
-
             return '';
         }
         $chunk = ($this->readFunction)($length);
