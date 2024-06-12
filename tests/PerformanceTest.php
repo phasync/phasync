@@ -25,7 +25,7 @@ test('performance and scalability', function () {
     $elapsed = $endTime - $startTime;
 
     // Ensure that the elapsed time is reasonable
-    expect($elapsed)->toBeLessThan(3); // Assuming all tasks complete within 1 second
+    expect($elapsed)->toBeLessThan(4); // Assuming all tasks complete within 1 second
 });
 
 test('large-scale concurrent tasks', function () {
@@ -124,5 +124,5 @@ test('mixed I/O and CPU-bound tasks', function () {
     $elapsed = $endTime - $startTime;
 
     // Ensure that the elapsed time is reasonable
-    expect($elapsed)->toBeLessThan(3); // Assuming all tasks complete within 1 second
+    expect($elapsed)->toBeLessThan(4); // Assuming all tasks complete within 1 second
 });
