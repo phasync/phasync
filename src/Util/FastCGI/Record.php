@@ -2,8 +2,8 @@
 
 namespace phasync\Util\FastCGI;
 
-use phasync\Util\ObjectPoolInterface;
-use phasync\Util\ObjectPoolTrait;
+use phasync\Internal\ObjectPoolInterface;
+use phasync\Internal\ObjectPoolTrait;
 use phasync\Util\StringBuffer;
 
 final class Record implements ObjectPoolInterface
