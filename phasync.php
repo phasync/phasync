@@ -87,7 +87,7 @@ final class phasync
      * coroutines to run.
      *
      * Number is in nanoseconds, measured using \hrtime(true), the
-     * default is 20 ms.
+     * default is 50 ms.
      */
     public const DEFAULT_PREEMPT_INTERVAL = 50000000;
 
@@ -217,7 +217,7 @@ final class phasync
     public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?ContextInterface $context=null): Fiber
     {
         if ($concurrent > 1) {
-            if (null !== $context) {
+            if (null !== $context && 0 === self::$runDepth) {
                 throw new LogicException("Can't create concurrent root coroutines sharing a context");
             }
 
@@ -244,6 +244,7 @@ final class phasync
             throw new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
         }
         $result = $driver->create($fn, $args, $context);
+
         // Since coroutines start immediately, launching coroutines can effectively
         // cause a busy loop. The preempt below enables coroutines to proceed while
         // this launching is going on.
