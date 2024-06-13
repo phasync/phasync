@@ -40,11 +40,13 @@ test('execution order of coroutines', function () {
         phasync::go(function () use (&$step) {
             expect($step++)->toBe(1);
             phasync::sleep(0);
+            expect($step)->not->toBe(2);
             expect($step++)->toBeBetween(4, 5);
         });
         phasync::go(function () use (&$step) {
             expect($step++)->toBe(2);
             phasync::sleep(0);
+            expect($step)->not->toBe(3);
             expect($step++)->toBeBetWeen(4, 5);
         });
         expect($step++)->toBe(3);
