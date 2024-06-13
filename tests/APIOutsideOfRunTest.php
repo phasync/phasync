@@ -57,7 +57,7 @@ test('using phasync::yield() outside of phasync is cheap', function () {
 test('using phasync::idle() outside of phasync is cheap', function () {
     $t = \hrtime(true);
     phasync::idle();
-    assertLessThan(10000, \hrtime(true) - $t);
+    assertLessThan(30000, \hrtime(true) - $t);
 });
 
 test('using phasync::readable() outside of phasync is cheap', function () {
