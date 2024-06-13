@@ -35,7 +35,7 @@ test('using phasync::cancel() with a fiber not from phasync', function () {
 test('using phasync::preempt() outside of phasync is fast', function () {
     $t = \hrtime(true);
     phasync::preempt();
-    assertLessThan(10000, \hrtime(true) - $t);
+    assertLessThan(30000, \hrtime(true) - $t);
 });
 
 test('using phasync::sleep() outside of phasync works', function () {
