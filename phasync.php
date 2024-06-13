@@ -562,13 +562,19 @@ final class phasync
     {
         $driver = self::getDriver();
         $fiber  = $driver->getCurrentFiber();
-        if (null !== $fiber) {
-            $driver->whenTimeElapsed($seconds, $fiber);
+        if ($seconds <= 0) {
+            if (null === $fiber) {
+                return;
+            }
+            $driver->enqueue($fiber);
             self::suspend();
-        } elseif ($seconds <= 0) {
-            $driver->tick();
         } else {
-            \usleep((int) (1000000 * $seconds));
+            if (null === $fiber) {
+                \usleep((int) (1000000 * $seconds));
+            } else {
+                $driver->whenTimeElapsed($seconds, $fiber);
+                self::suspend();
+            }
         }
     }
 
