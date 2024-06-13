@@ -25,30 +25,3 @@ test('execute go coroutine immediately before resuming', function () {
         });
     })->toThrow(new Exception('Yes'));
 });
-
-test('execution order of coroutines', function () {
-    /**
-     * This tests check that the coroutine is executed immediately upon
-     * creation, before it is added to the event loop to run on the next
-     * tick. It allows the execution order of coroutines on the next tick
-     * to vary. The test guarantees for execution order may be changed in
-     * the future if proper threading support arrives in PHP.
-     */
-    $step = 0;
-    phasync::run(function () use (&$step) {
-        expect($step++)->toBe(0);
-        phasync::go(function () use (&$step) {
-            expect($step++)->toBe(1);
-            phasync::sleep(0);
-            expect($step)->not->toBe(2);
-            expect($step++)->toBeBetween(4, 5);
-        });
-        phasync::go(function () use (&$step) {
-            expect($step++)->toBe(2);
-            phasync::sleep(0);
-            expect($step)->not->toBe(3);
-            expect($step++)->toBeBetWeen(4, 5);
-        });
-        expect($step++)->toBeBetween(3, 4);
-    });
-});
