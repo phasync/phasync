@@ -2,9 +2,9 @@
 
 # phasync: High-concurrency PHP
 [![🧪 CI](https://github.com/Trusted97/phasync/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/Trusted97/phasync/actions/workflows/ci.yaml)
-[![Latest Stable Version](https://poser.pugx.org/phasync/phasync/v)](https://packagist.org/packages/phasync/phasync)
-[![License](https://poser.pugx.org/phasync/phasync/license)](https://packagist.org/packages/phasync/phasync)
-[![PHP Version Require](http://poser.pugx.org/phasync/phasync/require/php)](https://packagist.org/packages/phasync/phasync)
+[![Latest Stable Version](https://img.shields.io/packagist/v/phasync/phasync)](https://img.shields.io/packagist/v/phasync/phasync)
+![GitHub](https://img.shields.io/github/license/phasync/phasync)
+[![PHP Version Require](https://img.shields.io/packagist/dependency-v/phasync/phasync/php)](https://img.shields.io/packagist/dependency-v/phasync/phasync/php)
 [![codecov](https://codecov.io/gh/phasync/phasync/graph/badge.svg?token=UUB02FXQH4)](https://codecov.io/gh/phasync/phasync)
 
 Asynchronous programming should not be difficult. This is a new microframework for doing asynchronous programming in PHP. It tries to do for PHP, what the `asyncio` package does for Python, and what Go does by default. For some background from what makes *phasync* different from other asynchronous big libraries like *reactphp* and *amphp* is that *phasync* does not attempt to redesign how you program. *phasync* can be used in a single function, somewhere in your big application, just where you want to speed up some task by doing it in parallel.
