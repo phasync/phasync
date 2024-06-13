@@ -15,7 +15,7 @@ Asynchronous programming should not be difficult. This is a new microframework f
 The only requirement for phasync is PHP >= 8.1. It runs well inside php-fpm and on the command line. Install it using composer, or download it from github.
 
 ```bash
-> composer install phasync/phasync
+composer install phasync/phasync
 ```
 
 ## Documentation
@@ -552,8 +552,6 @@ try {
 }
 ```
 
-
->>>>>>> Stashed changes
 ## Getting Started
 
 Install phasync via Composer and start enhancing your PHP applications with powerful asynchronous capabilities:
