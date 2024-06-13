@@ -1,6 +1,7 @@
 ![phasync](docs/phasync-illustration2.webp)
 
 # phasync: High-concurrency PHP
+[![🧪 CI](https://github.com/Trusted97/phasync/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/Trusted97/phasync/actions/workflows/ci.yaml)
 [![Latest Stable Version](https://poser.pugx.org/phasync/phasync/v)](https://packagist.org/packages/phasync/phasync)
 [![License](https://poser.pugx.org/phasync/phasync/license)](https://packagist.org/packages/phasync/phasync)
 [![PHP Version Require](http://poser.pugx.org/phasync/phasync/require/php)](https://packagist.org/packages/phasync/phasync)
