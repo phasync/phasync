@@ -119,6 +119,5 @@ test('test concurrent versus sequential execution time', function () {
         return \microtime(true) - $start;
     });
 
-    expect($concurrentTime)->toBeLessThan($sequentialTime);
-    expect($concurrentTime)->toBeLessThan(3.0); // Adjusted to a more realistic threshold
+    expect($concurrentTime)->toBeLessThan($sequentialTime * 0.8);
 });
