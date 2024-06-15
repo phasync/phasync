@@ -134,7 +134,7 @@ function file_put_contents(string $filename, mixed $data, int $flags = 0): int|f
  */
 function stream_get_contents($stream, ?int $maxLength = null, int $offset = -1): string|false
 {
-    return stream_get_contents($stream, $maxLength, $offset);
+    return io::stream_get_contents($stream, $maxLength, $offset);
 }
 
 /**

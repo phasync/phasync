@@ -1,4 +1,7 @@
 <?php
+/**
+ * @codeCoverageIgnore
+ */
 
 namespace phasync;
 
