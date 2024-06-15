@@ -15,11 +15,15 @@ interface ContextInterface extends \ArrayAccess
      * Invoked the first time a context is attached to a coroutine.
      * The function MUST throw {@see ContextUsedException} if it is
      * was previously activated.
+     *
+     * @internal
      */
     public function activate(): void;
 
     /**
      * Returns true if the context has been activated.
+     *
+     * @internal
      */
     public function isActivated(): bool;
 
@@ -33,7 +37,10 @@ interface ContextInterface extends \ArrayAccess
     public function setContextException(\Throwable $exception): void;
 
     /**
-     * Returns the exception for the context, if it has been set.
+     * If an unhandled exception was thrown in a coroutine belonging
+     * to this context, this function returns it.
+     *
+     * @internal
      */
     public function getContextException(): ?\Throwable;
 

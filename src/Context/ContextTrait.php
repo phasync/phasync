@@ -63,15 +63,23 @@ trait ContextTrait
         return isset($this->dataKeyed[$offset]) || \array_key_exists($offset, $this->dataKeyed);
     }
 
-    public function offsetGet(mixed $offset): mixed
+    public function &offsetGet(mixed $offset): mixed
     {
         if (\is_object($offset)) {
             $this->enableObjectKeys();
 
+            if (!isset($this->dataObjectKeys[$offset])) {
+                return null;
+            }
+
             return $this->dataObjectKeys[$offset];
         }
 
-        return $this->dataKeyed[$offset] ?? null;
+        if (!isset($this->dataKeyed[$offset])) {
+            return null;
+        }
+
+        return $this->dataKeyed[$offset];
     }
 
     public function offsetSet(mixed $offset, mixed $value): void
