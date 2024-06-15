@@ -16,17 +16,15 @@ test('default context', function () {
             phasync::getContext()->activate();
         })->toThrow(ContextUsedException::class);
 
-        phasync::getContext()["counter"] = 0;
-        phasync::go(function() {
-            phasync::getContext()["counter"]++;
+        phasync::getContext()['counter'] = 0;
+        phasync::go(function () {
+            phasync::getContext()['counter'] = phasync::getContext()['counter'] + 1;
         });
-        phasync::go(context: new DefaultContext(), fn: function() {
-            expect(isset(phasync::getContext()["counter"]))->toBeFalse();
+        phasync::go(context: new DefaultContext(), fn: function () {
+            expect(isset(phasync::getContext()['counter']))->toBeFalse();
         });
-        expect(phasync::getContext()["counter"])->toBe(1);
+        expect(phasync::getContext()['counter'])->toBe(1);
         unset(phasync::getContext()['counter']);
         expect(isset(phasync::getContext()['counter']))->toBeFalse();
-
-
     });
 });

@@ -54,6 +54,9 @@ trait ContextTrait
 
     public function offsetExists(mixed $offset): bool
     {
+        if (null === $offset) {
+            return null;
+        }
         if (\is_object($offset)) {
             $this->enableObjectKeys();
 
@@ -65,6 +68,9 @@ trait ContextTrait
 
     public function &offsetGet(mixed $offset): mixed
     {
+        if (null === $offset) {
+            return null;
+        }
         if (\is_object($offset)) {
             $this->enableObjectKeys();
 
@@ -84,7 +90,9 @@ trait ContextTrait
 
     public function offsetSet(mixed $offset, mixed $value): void
     {
-        if (\is_object($offset)) {
+        if (null === $offset) {
+            $this->dataKeyed[] = $value;
+        } elseif (\is_object($offset)) {
             $this->enableObjectKeys();
             $this->dataObjectKeys[$offset] = $value;
         } else {
