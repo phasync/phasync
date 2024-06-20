@@ -56,3 +56,23 @@ test('phasync::io() resource type and metadata', function () {
         expect($metaData['stream_type'])->toBe('user-space');
     });
 });
+
+test('phasync::io() actually context switches', function () {
+    $fp  = \fopen(__FILE__, 'r');
+    $fpa = phasync::io($fp);
+    phasync::run(function () use ($fpa) {
+        $stop    = false;
+        $counter = 0;
+        phasync::go(function () use (&$stop, &$counter) {
+            while (!$stop) {
+                ++$counter;
+                phasync::sleep();
+            }
+        });
+        $before = $counter;
+        $chunk  = \fread($fpa, 100);
+        expect($before)->toBeLessThan($counter);
+        expect(\strlen($chunk))->toBe(100);
+        $stop = true;
+    });
+});
