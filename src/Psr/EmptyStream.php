@@ -5,11 +5,26 @@ namespace phasync\Psr;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * This StreamInterface implementation represents an empty
- * stream. It is readable but not writable.
+ * A PSR-7 StreamInterface containing an empty stream response.
+ * The implementation is immutable, so a singleton is available
+ * via {@see EmptyStream::create()}.
+ *
  */
 final class EmptyStream implements StreamInterface
 {
+    private static ?EmptyStream $instance = null;
+
+    public static function create(): EmptyStream {
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    private function __construct() {
+
+    }
+
     public function __toString(): string
     {
         return '';

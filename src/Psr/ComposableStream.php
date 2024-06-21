@@ -4,17 +4,12 @@ namespace phasync\Psr;
 
 use Psr\Http\Message\StreamInterface;
 
-/**
- * This StreamInterface implementation allows you to implement
- * functions such as a readFunction, writeFunction, seekFunction
- * and provide them via the constructor to generate a compliant
- * StreamInterface stream.
- */
 class ComposableStream implements StreamInterface
 {
     private bool $eof   = false;
     private int $offset = 0;
     private string $mode;
+    private string $buffer = '';
 
     public function __construct(
         private ?\Closure $readFunction = null,
@@ -77,6 +72,7 @@ class ComposableStream implements StreamInterface
         $this->getSizeFunction = null;
         $this->closeFunction   = null;
         $this->seekFunction    = null;
+        $this->buffer          = '';
 
         return null;
     }
@@ -101,7 +97,7 @@ class ComposableStream implements StreamInterface
             return ($this->eofFunction)();
         }
 
-        return $this->eof;
+        return $this->eof && '' === $this->buffer;
     }
 
     public function isSeekable(): bool
@@ -116,6 +112,8 @@ class ComposableStream implements StreamInterface
         }
         ($this->seekFunction)($offset, $whence);
         $this->offset = $offset;
+        $this->buffer = ''; // Clear the buffer on seek
+        $this->eof    = false; // Reset EOF on seek
     }
 
     public function rewind(): void
@@ -155,19 +153,29 @@ class ComposableStream implements StreamInterface
         if ($this->eof) {
             return '';
         }
-        $chunk = ($this->readFunction)($length);
-        if (!\is_string($chunk)) {
-            $this->eof = true;
 
-            return '';
+        // Use buffered data if available
+        $result = '';
+        if ('' !== $this->buffer) {
+            $result       = \substr($this->buffer, 0, $length);
+            $this->buffer = \substr($this->buffer, $length);
+            $length -= \strlen($result);
         }
-        $readLength = \strlen($chunk);
-        if ($readLength > $length) {
-            throw new \RuntimeException("The stream readFunction returned a chunk that was longer than the expected length ($length bytes).");
-        }
-        $this->offset += $readLength;
 
-        return $chunk;
+        // If more data is needed, call the read function
+        if ($length > 0) {
+            $chunk = ($this->readFunction)($length);
+            if (!\is_string($chunk) || '' === $chunk) {
+                $this->eof = true;
+            } else {
+                $result .= \substr($chunk, 0, $length);
+                $this->buffer .= \substr($chunk, $length);
+            }
+        }
+
+        $this->offset += \strlen($result);
+
+        return $result;
     }
 
     public function getContents(): string
@@ -185,13 +193,13 @@ class ComposableStream implements StreamInterface
         $data = [
             'timed_out'    => false,
             'blocked'      => false,
-            'eof'          => $this->eof,
+            'eof'          => $this->eof(),
             'unread_bytes' => 0,
             'stream_type'  => 'custom',
             'wrapper_type' => '',
             'wrapper_data' => null,
             'mode'         => $this->mode,
-            'seekable'     => $this->seekFunction ? true : false,
+            'seekable'     => $this->isSeekable(),
             'uri'          => 'resource',
         ];
         if (null !== $key) {

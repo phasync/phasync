@@ -6,8 +6,9 @@ use phasync\ReadChannelInterface;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * This implementation of Psr\Http\Message\StreamInterface uses a channel
- * to read from.
+ * A PSR-7 StreamInterface which reads string chunks from a phasync
+ * {@see ReadChannelInterface}.
+ * 
  */
 final class ReadChannelStream implements StreamInterface
 {

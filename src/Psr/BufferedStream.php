@@ -7,14 +7,15 @@ use phasync\TimeoutException;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * This StreamInterface implementation uses an in memory string up to
- * 2 MB of size. If the size is exceeded, the data will be written
- * to disk.
+ * A PSR-7 StreamInterface designed to enable appending a response to
+ * the stream after returning the Stream object. A coroutine can append
+ * data to the stream via the {@see BufferedStream::append()} method,
+ * and once finished, the {@see BufferedStream::end()} method should be
+ * invoked to signal the end of file.
+ * 
+ * By default, content up to 2 MB is buffered in memory, after which
+ * content will be moved to a temporary disk file.
  *
- * The StreamInterface has an {@see BufferedStream::append()} method
- * to facilitate writing more data to the stream, and an
- * {@see BufferedStream::end()} to signal that no more data will be
- * added.
  */
 class BufferedStream implements StreamInterface
 {
