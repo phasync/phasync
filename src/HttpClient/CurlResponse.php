@@ -101,7 +101,7 @@ class CurlResponse implements ResponseInterface
             getSizeFunction: $this->getDownloadSize()
         );
         // \curl_multi_add_handle($this->curlMulti, $this->curl);
-        \phasync::go(function () {
+        \phasync::go(run: true, fn: function () {
             /*
              * Start the curl handle via the event loop, and return when it is
              * done.
