@@ -211,14 +211,23 @@ final class phasync
      * If parameter `$concurrent` is greater than 1, the returned coroutine will resolve
      * into an array of return values or exceptions from each instance of the coroutine.
      *
+     * @param Closure               $fn         The function to run as a coroutine
+     * @param array                 $args       The arguments to pass to the function
+     * @param int                   $concurrent Run the coroutine multiple times
+     * @param ContextInterface|null $context    Set a new context interface
+     * @param bool                  $run        If true, the coroutine will be run in an event loop context
+     *
      * @throws LogicException
-     * @throws Throwable
      */
-    public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?ContextInterface $context=null): Fiber
+    public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?ContextInterface $context=null, bool $run=false): Fiber
     {
         if ($concurrent > 1) {
             if (null !== $context && 0 === self::$runDepth) {
                 throw new LogicException("Can't create concurrent root coroutines sharing a context");
+            }
+
+            if ($run) {
+                throw new LogicException("Can't combine `run=true` with multiple concurrency.");
             }
 
             return self::go(fn: static function ($fn, $args, $concurrent) {
@@ -241,6 +250,13 @@ final class phasync
         $driver = self::getDriver();
         $fiber  = $driver->getCurrentFiber();
         if (!$fiber) {
+            if ($run) {
+                $result = phasync::run($fn, $args, $context);
+
+                return new Fiber(static function () use ($result) {
+                    return $result;
+                });
+            }
             throw new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
         }
         $result = $driver->create($fn, $args, $context);

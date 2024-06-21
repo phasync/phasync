@@ -8,21 +8,22 @@ use Psr\Http\Message\StreamInterface;
  * A PSR-7 StreamInterface containing an empty stream response.
  * The implementation is immutable, so a singleton is available
  * via {@see EmptyStream::create()}.
- *
  */
 final class EmptyStream implements StreamInterface
 {
     private static ?EmptyStream $instance = null;
 
-    public static function create(): EmptyStream {
-        if (self::$instance === null) {
+    public static function create(): EmptyStream
+    {
+        if (null === self::$instance) {
             self::$instance = new self();
         }
+
         return self::$instance;
     }
 
-    private function __construct() {
-
+    private function __construct()
+    {
     }
 
     public function __toString(): string

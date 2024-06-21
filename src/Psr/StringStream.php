@@ -4,7 +4,6 @@ namespace phasync\Psr;
 
 /**
  * A PSR-7 StreamInterface containing a constant string.
- *
  */
 class StringStream extends BufferedStream
 {

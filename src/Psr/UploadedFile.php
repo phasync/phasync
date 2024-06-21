@@ -1,23 +1,25 @@
 <?php
+
 namespace phasync\Psr;
 
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 
-class UploadedFile implements UploadedFileInterface {
-
+class UploadedFile implements UploadedFileInterface
+{
     protected StreamInterface $stream;
-    protected ?string $path = null;
-    protected ?string $filename = null;
+    protected ?string $path      = null;
+    protected ?string $filename  = null;
     protected ?string $mediaType = null;
-    protected ?string $error = null;
-    protected ?int $size = null;
+    protected ?string $error     = null;
+    protected ?int $size         = null;
 
-    public function __construct(StreamInterface $stream, ?int $size=null, int $error = \UPLOAD_ERR_OK, ?string $clientFilename = null, ?string $clientMediaType = null) {
-        $this->stream = $stream;
-        $this->size = $size;
-        $this->error = $error;
-        $this->filename = $clientFilename;
+    public function __construct(StreamInterface $stream, ?int $size=null, int $error = \UPLOAD_ERR_OK, ?string $clientFilename = null, ?string $clientMediaType = null)
+    {
+        $this->stream    = $stream;
+        $this->size      = $size;
+        $this->error     = $error;
+        $this->filename  = $clientFilename;
         $this->mediaType = $clientMediaType;
     }
 
@@ -33,12 +35,15 @@ class UploadedFile implements UploadedFileInterface {
      * If the moveTo() method has been called previously, this method MUST raise
      * an exception.
      *
-     * @return StreamInterface Stream representation of the uploaded file.
-     * @throws \RuntimeException in cases when no stream is available.
-     * @throws \RuntimeException in cases when no stream can be created.
+     * @throws \RuntimeException in cases when no stream is available
+     * @throws \RuntimeException in cases when no stream can be created
+     *
+     * @return StreamInterface stream representation of the uploaded file
      */
-    public function getStream(): StreamInterface {
+    public function getStream(): StreamInterface
+    {
         $this->assertNoError();
+
         return $this->stream;
     }
 
@@ -69,46 +74,51 @@ class UploadedFile implements UploadedFileInterface {
      *
      * @see http://php.net/is_uploaded_file
      * @see http://php.net/move_uploaded_file
-     * @param string $targetPath Path to which to move the uploaded file.
-     * @throws \InvalidArgumentException if the $targetPath specified is invalid.
-     * @throws \RuntimeException on any error during the move operation.
-     * @throws \RuntimeException on the second or subsequent call to the method.
+     *
+     * @param string $targetPath path to which to move the uploaded file
+     *
+     * @throws \InvalidArgumentException if the $targetPath specified is invalid
+     * @throws \RuntimeException         on any error during the move operation
+     * @throws \RuntimeException         on the second or subsequent call to the method
      */
-    public function moveTo($targetPath): void {
+    public function moveTo($targetPath): void
+    {
         $this->assertNoError();
-        if ($this->stream !== null) {
+        if (null !== $this->stream) {
             // we have a stream reference to the upload, so we'll read from that
-            if (!rewind($this->stream)) {
-                throw new \RuntimeException("Unable to rewind the incoming upload stream");
+            if (!\rewind($this->stream)) {
+                throw new \RuntimeException('Unable to rewind the incoming upload stream');
             }
-            $fp = fopen($targetPath, "xn");
+            $fp = \fopen($targetPath, 'xn');
             if (!$fp) {
                 throw new \InvalidArgumentException("Unable to create file '$targetPath'");
             }
-            while (!feof($this->stream)) {
-                $chunk = fread($this->stream, 8192);
-                if ($chunk === false) {
-                    unlink($targetPath);
-                    throw new \RuntimeException("fread() failed on incoming upload stream");
+            while (!\feof($this->stream)) {
+                $chunk = \fread($this->stream, 8192);
+                if (false === $chunk) {
+                    \unlink($targetPath);
+                    throw new \RuntimeException('fread() failed on incoming upload stream');
                 }
-                $written = fwrite($fp, $chunk);
-                if (!is_int($written)) {
-                    unlink($targetPath);
-                    throw new \RuntimeException("fwrite() failed on the destination file");
+                $written = \fwrite($fp, $chunk);
+                if (!\is_int($written)) {
+                    \unlink($targetPath);
+                    throw new \RuntimeException('fwrite() failed on the destination file');
                 }
             }
-            fclose($fp);
-            fclose($this->stream);
+            \fclose($fp);
+            \fclose($this->stream);
+
             return;
         }
         if ($this->path) {
-            if (!(isset($_FILES) && (is_uploaded_file($this->path)))) {
-                throw new \RuntimeException("The file is not an uploaded file");
+            if (!(isset($_FILES) && \is_uploaded_file($this->path))) {
+                throw new \RuntimeException('The file is not an uploaded file');
             }
-            rename($this->path, $targetPath);
+            \rename($this->path, $targetPath);
+
             return;
         }
-        throw new \RuntimeException("Unable to move uploaded file");
+        throw new \RuntimeException('Unable to move uploaded file');
     }
 
     /**
@@ -118,21 +128,23 @@ class UploadedFile implements UploadedFileInterface {
      * the file in the $_FILES array if available, as PHP calculates this based
      * on the actual size transmitted.
      *
-     * @return int|null The file size in bytes or null if unknown.
+     * @return int|null the file size in bytes or null if unknown
      */
-    public function getSize(): ?int {
-        if (is_int($this->size)) {
+    public function getSize(): ?int
+    {
+        if (\is_int($this->size)) {
             return $this->size;
         }
-        if ($this->stream && is_resource($this->stream)) {
-            $stat = fstat($this->stream);
-            if ($stat && key_exists('size', $stat)) {
+        if ($this->stream && \is_resource($this->stream)) {
+            $stat = \fstat($this->stream);
+            if ($stat && \key_exists('size', $stat)) {
                 return $this->size = $stat['size'];
             }
         }
-        if ($this->path && file_exists($this->path)) {
-            return $this->size = filesize($this->path);
+        if ($this->path && \file_exists($this->path)) {
+            return $this->size = \filesize($this->path);
         }
+
         return null;
     }
 
@@ -148,9 +160,11 @@ class UploadedFile implements UploadedFileInterface {
      * the file in the $_FILES array.
      *
      * @see http://php.net/manual/en/features.file-upload.errors.php
-     * @return int One of PHP's UPLOAD_ERR_XXX constants.
+     *
+     * @return int one of PHP's UPLOAD_ERR_XXX constants
      */
-    public function getError(): int {
+    public function getError(): int
+    {
         return $this->error;
     }
 
@@ -164,10 +178,11 @@ class UploadedFile implements UploadedFileInterface {
      * Implementations SHOULD return the value stored in the "name" key of
      * the file in the $_FILES array.
      *
-     * @return string|null The filename sent by the client or null if none
-     *     was provided.
+     * @return string|null the filename sent by the client or null if none
+     *                     was provided
      */
-    public function getClientFilename(): ?string {
+    public function getClientFilename(): ?string
+    {
         return $this->filename;
     }
 
@@ -181,20 +196,21 @@ class UploadedFile implements UploadedFileInterface {
      * Implementations SHOULD return the value stored in the "type" key of
      * the file in the $_FILES array.
      *
-     * @return string|null The media type sent by the client or null if none
-     *     was provided.
+     * @return string|null the media type sent by the client or null if none
+     *                     was provided
      */
-    public function getClientMediaType(): ?string {
+    public function getClientMediaType(): ?string
+    {
         return $this->mediaType;
     }
 
     /**
      * Check that no error condition exists which should prevent this operation
      */
-    protected function assertNoError(): void {
-        if ($this->error !== UPLOAD_ERR_OK) {
-            throw new \RuntimeException("Upload error code ".$this->error." prevented this operation");
+    protected function assertNoError(): void
+    {
+        if (\UPLOAD_ERR_OK !== $this->error) {
+            throw new \RuntimeException('Upload error code ' . $this->error . ' prevented this operation');
         }
     }
-
 }

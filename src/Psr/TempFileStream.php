@@ -2,8 +2,6 @@
 
 namespace phasync\Psr;
 
-use phasync;
-use phasync\Legacy\Loop;
 use Psr\Http\Message\StreamInterface;
 
 /**
@@ -12,7 +10,6 @@ use Psr\Http\Message\StreamInterface;
  */
 final class TempFileStream extends ResourceStream implements StreamInterface
 {
-
     public static function fromString(string $contents): TempFileStream
     {
         $stream = new TempFileStream();

@@ -12,10 +12,9 @@ use Psr\Http\Message\StreamInterface;
  * data to the stream via the {@see BufferedStream::append()} method,
  * and once finished, the {@see BufferedStream::end()} method should be
  * invoked to signal the end of file.
- * 
+ *
  * By default, content up to 2 MB is buffered in memory, after which
  * content will be moved to a temporary disk file.
- *
  */
 class BufferedStream implements StreamInterface
 {

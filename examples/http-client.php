@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * Copyright (c) 2024 Frode Børli. Released under the MIT License.
+ */
+
 require __DIR__ . '/../vendor/autoload.php';
 
 use phasync\HttpClient\HttpClient;

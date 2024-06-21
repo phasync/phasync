@@ -2,12 +2,6 @@
 
 namespace phasync\Psr;
 
-use JsonSerializable;
-use phasync;
-use phasync\io;
-use RuntimeException;
-use SplFileInfo;
-
 class FormDataStream extends ComposableStream implements MultipartStreamInterface
 {
     private string $boundary;
@@ -35,7 +29,7 @@ class FormDataStream extends ComposableStream implements MultipartStreamInterfac
 
     public function getContentType(): string
     {
-        return "multipart/form-data";
+        return 'multipart/form-data';
     }
 
     private function walk(mixed $value, ?string $prefix = null)
@@ -45,13 +39,13 @@ class FormDataStream extends ComposableStream implements MultipartStreamInterfac
                 yield from self::walk($v, null !== $prefix ? $prefix . '[' . $k . ']' : $k);
             }
         } elseif (null !== $prefix) {
-            if ($value instanceof SplFileInfo) {
-                $value = $value->openFile("r");
+            if ($value instanceof \SplFileInfo) {
+                $value = $value->openFile('r');
             }
             if (\is_resource($value) && 'stream' === \get_resource_type($value)) {
                 \stream_set_blocking($value, false);
                 $metadata = \stream_get_meta_data($value);
-                $filename = basename($metadata['uri'] ?? 'unnamed-file');
+                $filename = \basename($metadata['uri'] ?? 'unnamed-file');
                 \rewind($value);
                 $contentType = \mime_content_type($filename) ?: 'application/octet-stream';
                 yield $this->getBoundary([
@@ -59,7 +53,7 @@ class FormDataStream extends ComposableStream implements MultipartStreamInterfac
                     "Content-Type: {$contentType}",
                 ]);
                 while (!\feof($value)) {
-                    phasync::readable($value);
+                    \phasync::readable($value);
                     $chunk = \fread($value, 65536);
                     if (false === $chunk) {
                         throw new \RuntimeException("Unable to read from stream '$filename'");

@@ -8,7 +8,6 @@ use Psr\Http\Message\StreamInterface;
 /**
  * A PSR-7 StreamInterface which reads string chunks from a phasync
  * {@see ReadChannelInterface}.
- * 
  */
 final class ReadChannelStream implements StreamInterface
 {

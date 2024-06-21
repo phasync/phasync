@@ -2,17 +2,14 @@
 
 namespace phasync\Psr;
 
-use InvalidArgumentException;
 use phasync;
-use phasync\Legacy\Loop;
 use phasync\UsageError;
 use Psr\Http\Message\StreamInterface;
 
 /**
  * A PSR-7 StreamInterface which maps directly to a PHP stream resource.
- * This implementation integrates with phasync for read and write 
+ * This implementation integrates with phasync for read and write
  * operations
- *
  */
 final class ResourceStream implements StreamInterface
 {
@@ -62,7 +59,7 @@ final class ResourceStream implements StreamInterface
     /**
      * Reinitialize the stream resource.
      *
-     * @throws InvalidArgumentException
+     * @throws \InvalidArgumentException
      */
     protected function setResource(mixed $resource): void
     {
@@ -70,7 +67,7 @@ final class ResourceStream implements StreamInterface
             $resource = $resource->detach();
         }
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
-            throw new InvalidArgumentException('Not a stream resource');
+            throw new \InvalidArgumentException('Not a stream resource');
         }
         $this->closed   = false;
         $this->detached = false;
@@ -101,7 +98,7 @@ final class ResourceStream implements StreamInterface
             while (!\feof($this->resource)) {
                 $chunk = $this->read(32768);
                 if ('' === $chunk) {
-                    phasync::yield();
+                    \phasync::yield();
                 } else {
                     $chunks[] = $chunk;
                 }
@@ -276,8 +273,8 @@ final class ResourceStream implements StreamInterface
         }
         if (!$this->isWritable()) {
             throw new \RuntimeException('Stream is not writable');
-        }        
-        $result = \fwrite(phasync::writable($this->resource), $string);
+        }
+        $result = \fwrite(\phasync::writable($this->resource), $string);
         if (false === $result) {
             throw new \RuntimeException('Failed writing to stream');
         }
@@ -321,7 +318,7 @@ final class ResourceStream implements StreamInterface
         if (!$this->isReadable()) {
             throw new \RuntimeException('Stream is not writable');
         }
-        $result = \fread(phasync::readable($this->resource), $length);
+        $result = \fread(\phasync::readable($this->resource), $length);
         if (false === $result) {
             throw new \RuntimeException('Failed writing to stream');
         }

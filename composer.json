@@ -12,14 +12,19 @@
     ],
     "require": {
         "php": "^8.2",
-        "charm/options": "^1.1"
+        "charm/options": "^1.1",
+        "psr/http-client": "^1.0",
+        "psr/http-server-handler": "^1.0",
+        "psr/http-message": "^1.0 || ^2.0",
+        "psr/http-factory": "^1.1"
     },
     "require-dev": {
         "pestphp/pest": "^2.34",
-        "guzzlehttp/promises": "^2.0",
-        "friendsofphp/php-cs-fixer": "^3.58",
-        "psr/http-client": "^1.0",
-        "psr/http-message": "^2.0"
+        "friendsofphp/php-cs-fixer": "^3.58"
+    },
+    "provide": {
+        "psr/http-client-implementation": "1.0.3",
+        "psr/http-factory-implementation": "1.1"
     },
     "minimum-stability": "stable",
     "autoload": {
@@ -33,6 +38,11 @@
         "files": [
             "src/functions.php"
         ]
+    },
+    "extra": {
+        "discovery": {
+            "psr/http-factory-implementation": "phasync\\Psr\\PsrFactory"
+        }
     },
     "config": {
         "allow-plugins": {

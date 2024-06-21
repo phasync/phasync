@@ -30,7 +30,7 @@ final class HttpClient implements ClientInterface
 
     /**
      * Wrap the sendRequest method. Example:
-     * 
+     *
      * $client->addMiddlewareFunction(
      *     function(RequestInterface $request, ClientInterface $client): ResponseInterface {
      *         // Do stuff with request here
@@ -47,8 +47,7 @@ final class HttpClient implements ClientInterface
     public function addMiddlewareFunction(\Closure $middleware)
     {
         $client       = $this->client ?? $this;
-        $this->client = new class($client, $middleware) extends ClientInterface
-        {
+        $this->client = new class($client, $middleware) extends ClientInterface {
             public function __construct(private ClientInterface $client, private \Closure $middleware)
             {
             }
