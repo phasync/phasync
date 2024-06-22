@@ -8,6 +8,7 @@ use phasync\Drivers\StreamSelectDriver;
 use phasync\Internal\AsyncStream;
 use phasync\Internal\ChannelBuffered;
 use phasync\Internal\ChannelUnbuffered;
+use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberSelector;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\StreamSelector;
@@ -257,7 +258,7 @@ final class phasync
                     return $result;
                 });
             }
-            throw new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
+            throw ExceptionTool::popTrace(new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context."));
         }
         $result = $driver->create($fn, $args, $context);
 
@@ -826,11 +827,19 @@ final class phasync
         $driver = self::getDriver();
         $fiber  = $driver->getCurrentFiber();
         if (null === $fiber) {
-            throw new LogicException('Can only await flags from within a coroutine');
+            throw ExceptionTool::popTrace(new LogicException('Can only await flags from within a coroutine'));
         }
 
         $driver->whenFlagged($signal, $timeout ?? self::getDefaultTimeout(), $fiber);
         self::suspend();
+    }
+
+    /**
+     * Returns true when called from within a coroutine context.
+     */
+    public static function isRunning(): bool
+    {
+        return self::$runDepth > 0;
     }
 
     /**

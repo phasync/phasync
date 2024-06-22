@@ -12,7 +12,8 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\UriInterface;
 
 /**
- * @deprecated Sorry, this is not tested enough yet. It's just a proof of concept.
+ * A PSR-18 compliant HTTP client which supports asynchronous
+ * fetching.
  */
 final class HttpClient implements ClientInterface
 {
@@ -83,6 +84,7 @@ final class HttpClient implements ClientInterface
         }
 
         $body = $request->getBody();
+
         if ($body instanceof MultipartStreamInterface) {
             $options['headers']['content-type'] = [$body->getContentType()];
         }

@@ -41,7 +41,7 @@ trait MessageTrait
      */
     protected function MessageTrait(mixed $body, array $headers=[], string $protocolVersion='1.1')
     {
-        $this->body            = $body;
+        $this->body            = StreamFactory::create($body);
         $this->protocolVersion = $protocolVersion;
         foreach ($headers as $name => $values) {
             $key                     = \strtolower($name);

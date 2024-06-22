@@ -2,8 +2,12 @@
 
 namespace phasync\HttpClient;
 
+use phasync;
+use phasync\Interfaces\QueueInterface;
 use phasync\Psr\ComposableStream;
 use phasync\Services\CurlMulti;
+use phasync\Util\Collections\Queue;
+use phasync\Util\Synchronized;
 use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
@@ -31,22 +35,45 @@ class CurlResponse implements ResponseInterface
     private ?string $reasonPhrase    = null;
     private ?int $errorNumber        = null;
     private ?string $errorMessage    = null;
+    private bool $startedFetching    = false;
+
+    /**
+     * CurlResponse classes that need to start fetching. This is used to enable
+     * the HttpClient to be used outside of phasync while still supporting
+     * concurrent fetching.
+     *
+     * @var QueueInterface<CurlResponse>
+     */
+    private static ?QueueInterface $fetchQueue = null;
 
     public function __construct(string $method, string $url, mixed $requestData = null, HttpClientOptions $options)
     {
+        if (null === self::$fetchQueue) {
+            Synchronized::run(self::class, static function () {
+                if (null === self::$fetchQueue) {
+                    self::$fetchQueue = new Queue();
+                }
+            });
+        }
         $this->curl = \curl_init($url);
         switch (\strtoupper($method)) {
             case 'GET':
                 // For GET requests, if there is any request data, append it to the URL
-                if (null !== $requestData) {
-                    if ($requestData instanceof \JsonSerializable) {
-                        $requestData = $requestData->jsonSerialize();
-                    }
-                    if (\is_array($requestData)) {
-                        $requestData = \http_build_query($requestData);
-                    } elseif (!\is_string($requestData)) {
-                        throw new \InvalidArgumentException('Request data must be provided as an array, a jsonSerializable object or a string');
-                    }
+                $queryString = null;
+                if (
+                    null === $requestData
+                    || '' === $requestData
+                    || $requestData instanceof StreamInterface && 0 === $requestData->getSize()
+                ) {
+                    // Empty request data is ignored
+                } elseif (\is_array($requestData)) {
+                    $queryString = \http_build_query($requestData);
+                } elseif (\is_string($requestData) || $requestData instanceof \Stringable) {
+                    $queryString = (string) $requestData;
+                } else {
+                    throw new \InvalidArgumentException("Request data of type '" . \get_debug_type($requestData) . "' is not supported for GET requests");
+                }
+                if (null !== $queryString) {
                     if (\str_contains($url, '?')) {
                         $url .= '&' . $requestData;
                     } else {
@@ -82,6 +109,9 @@ class CurlResponse implements ResponseInterface
                 if (null !== $this->errorNumber) {
                     $this->throwError();
                 }
+
+                self::runQueue();
+
                 while ('' === $this->buffer && !$this->done) {
                     // Block the current Fiber until something happens
                     // with $this->stream
@@ -100,20 +130,23 @@ class CurlResponse implements ResponseInterface
             },
             getSizeFunction: $this->getDownloadSize()
         );
-        // \curl_multi_add_handle($this->curlMulti, $this->curl);
-        \phasync::go(run: true, fn: function () {
-            /*
-             * Start the curl handle via the event loop, and return when it is
-             * done.
-             */
-            CurlMulti::await($this->curl);
-            $this->done = true;
-            \phasync::raiseFlag($this);
-            if (0 !== ($errorNumber = \curl_errno($this->curl))) {
-                $this->errorNumber  = $errorNumber;
-                $this->errorMessage = \curl_error($this->curl);
-            }
-        });
+
+        self::$fetchQueue->enqueue($this);
+    }
+
+    private function goCurl(): void
+    {
+        /*
+         * Start the curl handle via the event loop, and return when it is
+         * done.
+         */
+        CurlMulti::await($this->curl);
+        $this->done = true;
+        \phasync::raiseFlag($this);
+        if (0 !== ($errorNumber = \curl_errno($this->curl))) {
+            $this->errorNumber  = $errorNumber;
+            $this->errorMessage = \curl_error($this->curl);
+        }
     }
 
     public function withStatus(int $code, string $reasonPhrase = ''): ResponseInterface
@@ -315,6 +348,7 @@ class CurlResponse implements ResponseInterface
 
     private function waitForHeaders(): void
     {
+        self::runQueue();
         while (!$this->haveHeaders && !$this->done && \is_resource($this->curl)) {
             \phasync::awaitFlag($this);
             if (null !== $this->errorNumber) {
@@ -368,6 +402,17 @@ class CurlResponse implements ResponseInterface
             if (null !== $options[$prop]) {
                 \curl_setopt($this->curl, $opt, $options[$prop]);
             }
+        }
+    }
+
+    private static function runQueue(): void
+    {
+        if (!self::$fetchQueue->isEmpty()) {
+            \phasync::run(function () {
+                while (self::$fetchQueue->tryDequeue($next)) {
+                    \phasync::go($next->goCurl(...));
+                }
+            });
         }
     }
 }
