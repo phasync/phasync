@@ -3,6 +3,7 @@
 namespace phasync\Psr;
 
 use Fiber;
+use phasync\Internal\ExceptionTool;
 use phasync\TimeoutException;
 use Psr\Http\Message\StreamInterface;
 
@@ -66,15 +67,13 @@ class BufferedStream implements StreamInterface
 
     public function __toString(): string
     {
-        if ($this->detached) {
-            return 'Stream Error: Detached';
-        }
-        if ($this->closed) {
-            return 'Stream Error: Closed';
-        }
-        $this->rewind();
+        try {
+            $this->rewind();
 
-        return $this->getContents();
+            return $this->getContents();
+        } catch (\Throwable $e) {
+            return 'Stream Error: ' . (string) $e;
+        }
     }
 
     public function close(): void
@@ -226,6 +225,8 @@ class BufferedStream implements StreamInterface
             }
 
             return \implode('', $chunks);
+        } catch (\Throwable $e) {
+            throw ExceptionTool::popTrace($e, __FILE__);
         } finally {
             $this->unlock();
         }
@@ -388,7 +389,7 @@ class BufferedStream implements StreamInterface
         $timeout = \microtime(true) + $this->deadlockTimeout;
         while (null === $this->endOffset) {
             if ($timeout < \microtime(true)) {
-                throw new TimeoutException('Possible deadlock detected; timeout after 300 seconds');
+                throw ExceptionTool::popTrace(new TimeoutException('Possible deadlock detected; timeout after ' . $this->deadlockTimeout . ' seconds'), __FILE__);
             }
             $this->waitForUpdate();
         }
@@ -408,11 +409,10 @@ class BufferedStream implements StreamInterface
             try {
                 \phasync::awaitFlag($this, $this->deadlockTimeout);
             } catch (TimeoutException) {
-                throw new \RuntimeException('Possible deadlock detected, no update in ' . $this->deadlockTimeout . ' seconds');
+                throw ExceptionTool::popTrace(new \RuntimeException('Possible deadlock detected, no update in ' . $this->deadlockTimeout . ' seconds'), __FILE__);
             }
         } else {
             throw new \LogicException('No point waiting in an ended stream');
         }
     }
-
 }
