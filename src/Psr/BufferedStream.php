@@ -7,11 +7,32 @@ use phasync\TimeoutException;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * A PSR-7 StreamInterface designed to enable appending a response to
- * the stream after returning the Stream object. A coroutine can append
- * data to the stream via the {@see BufferedStream::append()} method,
- * and once finished, the {@see BufferedStream::end()} method should be
- * invoked to signal the end of file.
+ * PSR-7 StreamInterface
+ *
+ * Designed for returning a response which has not been completed yet. A
+ * coroutine can continue appending to the stream. Once the stream buffer
+ * reaches 2 MB, the stream is converted to a disk backed tempfile.
+ *
+ * This is not suitable for streaming unlimited amounts of data; use the
+ * UnbufferedStream class or a ComposableStream instead - which won't be
+ * seekable and won't provide a stream length.
+ *
+ * Usage:
+ *
+ * ```php
+ * $s = new BufferedStream();
+ *
+ * // Create a coroutine which appends to the stream
+ * phasync::go(function() use ($s) {
+ *     // Append chunks as much as you need
+ *     $s->append("A chunk");
+ *     // Signal that the stream is complete
+ *     $s->end();
+ * });
+ *
+ * // Return the stream
+ * return $response->withStream($s);
+ * ```
  *
  * By default, content up to 2 MB is buffered in memory, after which
  * content will be moved to a temporary disk file.
@@ -36,20 +57,15 @@ class BufferedStream implements StreamInterface
     private bool $closed   = false;
     private bool $locked   = false;
     private bool $detached = false;
-    private \WeakReference $creator;
 
     public function __construct(int $bufferSize = 2 * 1024 * 1024, float $deadlockTimeout = 60)
     {
         $this->bufferSize      = $bufferSize;
         $this->deadlockTimeout = $deadlockTimeout;
-        $this->creator         = \WeakReference::create(\phasync::getFiber());
     }
 
     public function __toString(): string
     {
-        if ($this->creator->get() === \phasync::getFiber()) {
-            return 'Stream Error: Can\'t access stream from the coroutine that created it';
-        }
         if ($this->detached) {
             return 'Stream Error: Detached';
         }
@@ -115,7 +131,6 @@ class BufferedStream implements StreamInterface
 
     public function seek(int $offset, int $whence = \SEEK_SET): void
     {
-        $this->assertNotCreator();
         $this->lock();
         try {
             switch ($whence) {
@@ -157,7 +172,6 @@ class BufferedStream implements StreamInterface
 
     public function read(int $length): string
     {
-        $this->assertNotCreator();
         if ($this->detached) {
             throw new \RuntimeException('Stream is detached');
         }
@@ -372,7 +386,6 @@ class BufferedStream implements StreamInterface
     private function blockUntilEnded(): void
     {
         $timeout = \microtime(true) + $this->deadlockTimeout;
-        $this->assertNotCreator();
         while (null === $this->endOffset) {
             if ($timeout < \microtime(true)) {
                 throw new TimeoutException('Possible deadlock detected; timeout after 300 seconds');
@@ -402,13 +415,4 @@ class BufferedStream implements StreamInterface
         }
     }
 
-    private function assertNotCreator(): void
-    {
-        if (null !== $this->endOffset) {
-            return;
-        }
-        if ($this->creator->get() === \phasync::getFiber()) {
-            throw new \RuntimeException("Can't use BufferedStream in the coroutine that created it");
-        }
-    }
 }
