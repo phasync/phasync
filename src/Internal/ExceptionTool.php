@@ -43,8 +43,13 @@ final class ExceptionTool
                 }
             } while ($found);
         } else {
-            $top   = \array_shift($trace);
+            $top = \array_shift($trace);
         }
+
+        if (null === $top) {
+            return $exception;
+        }
+
         $rTrace->setValue($exception, $trace);
 
         $rFile->setValue($exception, $top['file']);

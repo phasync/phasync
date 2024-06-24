@@ -8,6 +8,14 @@ $finder = PhpCsFixer\Finder::create()
 return (new PhpCsFixer\Config())
     ->setRiskyAllowed(true)
     ->setRules([
+        /*
+        'header_comment' => [
+            'header'       => 'Copyright (c) 2024 Frode Børli. Released under the MIT License.',
+            'comment_type' => 'PHPDoc',
+            'location'     => 'after_open',
+            'separate'     => 'both',
+        ],
+*/
         '@Symfony'                              => true,
         '@Symfony:risky'                        => false,
         'linebreak_after_opening_tag'           => true,
