@@ -2,6 +2,11 @@
 
 namespace phasync\Internal;
 
+/**
+ * A class implementing SelectableInterface can implement this trait.
+ * The class must notify the select manager whenever the class becomes selectable
+ * by invoking `$this->getSelectManager()->notify()`.
+ */
 trait SelectableTrait
 {
     protected ?SelectManager $selectManager = null;

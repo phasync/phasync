@@ -54,36 +54,26 @@ class StringBuffer implements SelectableInterface
      */
     private int $totalWritten   = 0;
 
-    /**
-     * The number of blocked readers. This is used to resume readers that
-     * are waiting for data from the string buffer.
-     */
-    private int $blockedReaders = 0;
-
     private bool $ended = false;
 
     public function __construct()
     {
-        $this->queue = new \SplDoublyLinkedList();
+        $this->queue     = new \SplDoublyLinkedList();
     }
 
     public function selectWillBlock(): bool
     {
+        // If the StringBuffer was ended, reading will never block
+        if ($this->ended) {
+            return false;
+        }
+
         return $this->isEmpty();
     }
 
-    public function await(): void
-    {
-        try {
-            ++$this->blockedReaders;
-            if ($this->selectWillBlock()) {
-                $this->getSelectManager()->await();
-            }
-        } finally {
-            --$this->blockedReaders;
-        }
-    }
-
+    /**
+     * Returns true if there is no data currently available to read.
+     */
     public function isEmpty(): bool
     {
         return $this->offset === $this->length && $this->queue->isEmpty();
@@ -103,6 +93,31 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
+     * Read up to $maxLength bytes from the buffer.
+     *
+     * @param bool $await If true, the read result will always return data or an empty string at eof
+     *
+     * @throws \OutOfBoundsException
+     */
+    public function read(int $maxLength, bool $await=false): string
+    {
+        if ($maxLength < 0) {
+            throw new \OutOfBoundsException("Can't read negative lengths");
+        }
+
+        while ($await && !$this->ended && !$this->fill(1)) {
+            $this->await();
+        }
+        $this->fill($maxLength);
+
+        $chunk  = \substr($this->buffer, $this->offset, $maxLength);
+        $length = \strlen($chunk);
+        $this->offset += $length;
+
+        return $chunk;
+    }
+
+    /**
      * Asynchronously read data from the stream resource into the
      * buffer.
      */
@@ -112,6 +127,7 @@ class StringBuffer implements SelectableInterface
             throw new \InvalidArgumentException('Expected stream resource');
         }
         $bufferSize = 1024 * 1024;
+        \stream_set_blocking($resource, false);
 
         return \phasync::go(function () use ($bufferSize, $resource) {
             while (!\feof($resource) && !$this->ended) {
@@ -136,6 +152,9 @@ class StringBuffer implements SelectableInterface
      */
     public function end(): void
     {
+        if ($this->ended) {
+            throw new \LogicException('StringBuffer already ended');
+        }
         $this->ended = true;
         $this->getSelectManager()->notify();
     }
@@ -149,39 +168,6 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Read up to $maxLength bytes from the buffer.
-     *
-     * @param bool $await If true, the read result will always return data or an empty string at eof
-     *
-     * @throws \OutOfBoundsException
-     */
-    public function read(int $maxLength, bool $await=false): string
-    {
-        if ($maxLength < 0) {
-            throw new \OutOfBoundsException("Can't read negative lengths");
-        }
-        try {
-            ++$this->blockedReaders;
-            if ($await && $this->isEmpty()) {
-                $this->await();
-            }
-
-            if ($this->fill($maxLength)) {
-                return $this->readFixed($maxLength);
-            }
-            $result       = \substr($this->buffer, $this->offset);
-            $this->buffer = '';
-            $this->offset = 0;
-            $this->length = 0;
-            $this->totalRead += $maxLength;
-
-            return $result;
-        } finally {
-            --$this->blockedReaders;
-        }
-    }
-
-    /**
      * Read a fixed number of bytes from the buffer, and return null
      * if the amount of data is not available.
      *
@@ -192,27 +178,19 @@ class StringBuffer implements SelectableInterface
         if ($length < 0) {
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
-        try {
-            ++$this->blockedReaders;
-            while (!$this->ended) {
-                if ($this->length >= $this->offset + $length || $this->fill($length)) {
-                    $chunk = \substr($this->buffer, $this->offset, $length);
-                    $this->offset += $length;
-                    $this->totalRead += $length;
 
-                    return $chunk;
-                }
-                if ($await) {
-                    $this->await();
-                } else {
-                    break;
-                }
-            }
-
-            return null;
-        } finally {
-            --$this->blockedReaders;
+        while (!$this->fill($length) && $await && !$this->ended) {
+            $this->await();
         }
+
+        if ($length < $this->length - $this->offset) {
+            return null;
+        }
+
+        $chunk = \substr($this->buffer, $this->offset, $length);
+        $this->offset += $length;
+
+        return $chunk;
     }
 
     /**
@@ -251,8 +229,8 @@ class StringBuffer implements SelectableInterface
      */
     public function unread(string $chunk): void
     {
-        if ($this->ended) {
-            throw new \LogicException("Can't unread to an ended StringBuffer");
+        if ($this->ended && $this->offset === $this->length && $this->queue->isEmpty()) {
+            throw new \LogicException("Can't unread to an ended and empty StringBuffer");
         }
         $chunkLength = \strlen($chunk);
         $this->totalRead -= $chunkLength;
@@ -263,6 +241,7 @@ class StringBuffer implements SelectableInterface
             $this->length += $chunkLength - $this->offset;
             $this->offset = 0;
         }
+        $this->getSelectManager()->notify();
     }
 
     /**
@@ -273,7 +252,7 @@ class StringBuffer implements SelectableInterface
      */
     protected function fill(int $chunkLength): bool
     {
-        // Time to clear the buffer
+        // Time to clear the buffer?
         if ($this->offset > self::BUFFER_WASTE_LIMIT) {
             $this->buffer = \substr($this->buffer, $this->offset);
             $this->length -= $this->offset;
