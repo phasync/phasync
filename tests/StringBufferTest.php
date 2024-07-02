@@ -38,3 +38,22 @@ test('StringBuffer concurrent tests', function () {
         });
     });
 });
+test('StringBuffer performance tests', function () {
+    phasync::run(function () {
+        $t  = \microtime(true);
+        $sb = new StringBuffer();
+        phasync::go(function () use ($sb) {
+            $s = '';
+            while (!$sb->eof()) {
+                $s .= $sb->read(1, true);
+            }
+        });
+        phasync::go(function () use ($sb) {
+            for ($i = 0; $i < 1000; ++$i) {
+                $sb->write('a');
+            }
+            $sb->end();
+        });
+        expect(\microtime(true) - $t)->toBeLessThan(0.01);
+    });
+});

@@ -6,9 +6,10 @@ use phasync\Internal\SelectableTrait;
 use phasync\SelectableInterface;
 
 /**
- * A flexible string buffer which can be used to manage streaming bytes
- * of data, optionally writing the data to a stream resource and/or reading
- * the data from a stream resource.
+ * A high performance string buffer for buffering streaming data that can be
+ * parsed efficiently. Be aware that this string buffer offers no protection
+ * against deadlocks, so you should always end the string buffer to signal
+ * EOF with $sb->end();
  */
 class StringBuffer implements SelectableInterface
 {
@@ -54,6 +55,9 @@ class StringBuffer implements SelectableInterface
      */
     private int $totalWritten   = 0;
 
+    /**
+     * Has the end of data been signalled?
+     */
     private bool $ended = false;
 
     public function __construct()
@@ -90,6 +94,7 @@ class StringBuffer implements SelectableInterface
         $this->totalWritten += \strlen($chunk);
         $this->queue->push($chunk);
         $this->getSelectManager()->notify();
+        \phasync::preempt();
     }
 
     /**
@@ -130,19 +135,21 @@ class StringBuffer implements SelectableInterface
         \stream_set_blocking($resource, false);
 
         return \phasync::go(function () use ($bufferSize, $resource) {
-            while (!\feof($resource) && !$this->ended) {
-                \phasync::readable($resource);
-                $chunk = \fread($resource, 65536);
-                if (false === $chunk) {
-                    throw new \RuntimeException("Can't read from the stream resource");
-                }
-                $this->write($chunk);
+            try {
+                while (!\feof($resource) && !$this->ended) {
+                    $chunk = \fread(\phasync::readable($resource), 65536);
+                    if (false === $chunk) {
+                        throw new \RuntimeException("Can't read from the stream resource");
+                    }
+                    $this->write($chunk);
 
-                while ($this->totalWritten - $this->totalRead > $bufferSize && 'stream' === \get_resource_type($resource)) {
-                    $this->await();
+                    while ($this->totalWritten - $this->totalRead > $bufferSize && 'stream' === \get_resource_type($resource)) {
+                        $this->await();
+                    }
                 }
+            } finally {
+                $this->end();
             }
-            $this->end();
         });
     }
 
@@ -179,6 +186,7 @@ class StringBuffer implements SelectableInterface
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
 
+        // Fill the buffer with enough data to read and optionally await more data if not ended
         while (!$this->fill($length) && $await && !$this->ended) {
             $this->await();
         }
@@ -250,21 +258,29 @@ class StringBuffer implements SelectableInterface
      *
      * @return bool True if able to provide enough data
      */
-    protected function fill(int $chunkLength): bool
+    protected function fill(int $requiredLength): bool
     {
-        // Time to clear the buffer?
+        // Clear buffer if necessary
         if ($this->offset > self::BUFFER_WASTE_LIMIT) {
             $this->buffer = \substr($this->buffer, $this->offset);
             $this->length -= $this->offset;
             $this->offset = 0;
         }
 
-        while ($this->length < $this->offset + $chunkLength && !$this->queue->isEmpty()) {
-            $chunk = $this->queue->shift();
-            $this->buffer .= $chunk;
-            $this->length += \strlen($chunk);
+        while ($this->length < $this->offset + $requiredLength && !$this->queue->isEmpty()) {
+            $chunk       = $this->queue->shift();
+            $chunkLength = \strlen($chunk);
+
+            if ($this->length === $this->offset) {
+                $this->buffer = $chunk;
+                $this->length = $chunkLength;
+                $this->offset = 0;
+            } else {
+                $this->buffer .= $chunk;
+                $this->length += $chunkLength;
+            }
         }
 
-        return $this->length >= $this->offset + $chunkLength;
+        return $this->length >= $this->offset + $requiredLength;
     }
 }
