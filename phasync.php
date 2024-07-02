@@ -1,5 +1,6 @@
 <?php
 
+use phasync\CancelledException;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
 use phasync\Debug;
@@ -187,6 +188,18 @@ final class phasync
             }
 
             $result = self::await($fiber);
+
+            if ($exception = $context->getContextException()) {
+                throw $exception;
+            }
+
+            return $result;
+        } catch (CancelledException $e) {
+            if ($fiber->isTerminated()) {
+                throw $e;
+            }
+            phasync::cancel($fiber);
+            $result = phasync::await($fiber);
 
             if ($exception = $context->getContextException()) {
                 throw $exception;

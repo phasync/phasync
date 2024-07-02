@@ -1,7 +1,7 @@
 <?php
 
 $finder = PhpCsFixer\Finder::create()
-    ->in([__DIR__])
+    ->in([__DIR__ . '/tests', __DIR__ . '/src'])
     ->exclude('vendor')
 ;
 
@@ -15,7 +15,7 @@ return (new PhpCsFixer\Config())
             'location'     => 'after_open',
             'separate'     => 'both',
         ],
-*/
+        */
         '@Symfony'                              => true,
         '@Symfony:risky'                        => false,
         'linebreak_after_opening_tag'           => true,

@@ -30,7 +30,7 @@ test:
 # Check code quality with PHP-CS-Fixer (dry-run)
 .PHONY: lint
 lint:
-	$(PHP_CS_FIXER) fix --config .php-cs-fixer.dist.php --dry-run --diff $(SRC_DIR) $(TESTS_DIR)
+	$(PHP_CS_FIXER) fix --config .php-cs-fixer.dist.php --dry-run --diff
 
 # Automatically fix coding style issues with PHP-CS-Fixer
 .PHONY: fix
