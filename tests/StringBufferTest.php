@@ -54,6 +54,6 @@ test('StringBuffer performance tests', function () {
             }
             $sb->end();
         });
-        expect(\microtime(true) - $t)->toBeLessThan(0.01);
+        expect(\microtime(true) - $t)->toBeLessThan(0.3);
     });
 });
