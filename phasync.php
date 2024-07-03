@@ -12,6 +12,7 @@ use phasync\Internal\ChannelUnbuffered;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberSelector;
 use phasync\Internal\ReadChannel;
+use phasync\Internal\Selector;
 use phasync\Internal\StreamSelector;
 use phasync\Internal\Subscribers;
 use phasync\Internal\WriteChannel;
@@ -393,11 +394,20 @@ final class phasync
     }
 
     /**
-     * Block until one of the selectable objects or fibers terminate
+     * Block until one of the selectable objects, closures, resources or fibers terminate. Note that
+     * this statement can be used as part of a {@see \match} statement:
      *
-     * @param (SelectableInterface|Fiber)[] $selectables
-     * @param resource[]                    $read        Wait for stream resources to become readable
-     * @param resource[]                    $write       Wait for stream resources to become writable
+     * ```php
+     * match(phasync::select([$a, $b, $c])) {
+     *   $a => function() {},
+     *   $b => function() {},
+     *   default => function() {}
+     * }
+     * ```
+     *
+     * @param mixed[] $selectables
+     * @param resource[] $read        Wait for stream resources to become readable
+     * @param resource[] $write       Wait for stream resources to become writable
      *
      * @throws LogicException
      * @throws FiberError
@@ -420,17 +430,18 @@ final class phasync
              * and convert any supported alterative resources into selectors.
              */
             foreach ($selectables as $k => $selectable) {
-                if ($selectable instanceof Fiber) {
-                    if ($selectable->isTerminated()) {
-                        return $selectable;
-                    }
-                    $fiberSelector   = FiberSelector::create($selectable);
-                    $returnables[]   = $fiberSelector;
-                    $selectables[$k] = $fiberSelector;
-                } elseif ($selectable instanceof SelectableInterface) {
+                if ($selectable instanceof SelectableInterface) {
                     if (!$selectable->selectWillBlock()) {
                         return $selectable;
                     }
+                } elseif ($selectable instanceof Fiber && $selectable->isTerminated()) {
+                    return $selectable;
+                } elseif (null !== ($selector = Selector::create($selectable))) {
+                    $returnables[] = $selector;
+                    if (!$selector->selectWillBlock()) {
+                        return $selectable;
+                    }
+                    $selectables[$k] = $selector;
                 } else {
                     throw new InvalidArgumentException('Unexpected ' . \get_debug_type($selectable) . ' in phasync::select()');
                 }

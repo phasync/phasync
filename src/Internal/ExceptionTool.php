@@ -10,11 +10,11 @@ final class ExceptionTool
      * Updates an exception trace so that the exception appears to have been
      * caused by the calling function.
      *
-     * @param string $file If provided, will remove until the file is not in the trace
+     * @param string $filter If provided, will remove until the filter (function, class, or file) is not in the trace
      *
      * @throws \ReflectionException
      */
-    public static function popTrace(\Throwable $exception, ?string $file = null): \Throwable
+    public static function popTrace(\Throwable $exception, ?string $filter = null): \Throwable
     {
         $rc     = new \ReflectionClass(\Exception::class);
 
@@ -27,17 +27,19 @@ final class ExceptionTool
 
         $top = null;
 
-        if (null !== $file) {
+        if (null !== $filter) {
             do {
                 $found = false;
                 foreach ($trace as $t) {
-                    if ($file === ($t['file'] ?? null)) {
+                    if ($filter === ($t['file'] ?? null)
+                        || $filter === ($t['class'] ?? null)
+                        || $filter === ($t['function'] ?? null)) {
                         $found = true;
                         break;
                     }
                 }
                 if ($found) {
-                    $top   = \array_shift($trace);
+                    $top = \array_shift($trace);
                 } elseif (false === $top) {
                     return $exception;
                 }

@@ -60,3 +60,61 @@ test('phasync::select() with channel and fiber', function () {
         expect($read->read())->toBe('Via channel');
     });
 });
+
+test('phasync::select() with a timeout', function () {
+    phasync::run(function () {
+        $oneSec = phasync::go(function () {
+            phasync::sleep(0.5);
+
+            return true;
+        });
+        $twoSec = phasync::go(function () {
+            phasync::sleep(0.7);
+
+            return true;
+        });
+
+        $result = match (phasync::select([$oneSec, $twoSec], timeout: 0.2)) {
+            $oneSec => 'one sec wins',
+            $twoSec => 'two sec wins',
+            default => 'timeout'
+        };
+
+        expect($result)->toBe('timeout');
+    });
+});
+
+test('phasync::select() with closures', function () {
+    phasync::run(function () {
+        $oneSec = phasync::go(function () {
+            phasync::sleep(0.5);
+
+            return true;
+        });
+        $twoSec = phasync::go(function () {
+            phasync::sleep(0.7);
+
+            return true;
+        });
+
+        $oneSecClosure = function () use ($oneSec) {
+            if ($oneSec) {
+            }
+
+            return 'one sec closure wins';
+        };
+        $twoSecClosure = function () use ($twoSec) {
+            if ($twoSec) {
+            }
+
+            return 'two sec closure wins';
+        };
+
+        $result = match (phasync::select([$oneSecClosure, $twoSecClosure])) {
+            $oneSecClosure => $oneSecClosure(),
+            $twoSecClosure => $twoSecClosure()
+        };
+
+        expect($result)->toBe('one sec closure wins');
+    });
+});
