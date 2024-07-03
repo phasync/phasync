@@ -259,3 +259,35 @@ test('writing null via a channel without closing it', function () {
         expect($received)->toBe([null, 'After null', null, null]);
     });
 });
+test('channel capacity handling', function () {
+    phasync::run(function () {
+        phasync::channel($read, $write, 2); // Capacity of 2
+
+        phasync::go(function () use ($write) {
+            $write->write(1);
+            $write->write(2);
+            $write->write(3); // Should block until a read happens
+        });
+
+        expect($read->read())->toBe(1);
+        expect($read->read())->toBe(2);
+        expect($read->read())->toBe(3);
+    });
+});
+test('nested channel operations', function () {
+    phasync::run(function () {
+        phasync::channel($read1, $write1);
+        phasync::channel($read2, $write2);
+
+        phasync::go(function () use ($read1, $write2) {
+            $value = $read1->read();
+            $write2->write($value * 2);
+        });
+
+        phasync::go(function () use ($write1) {
+            $write1->write(3);
+        });
+
+        expect($read2->read())->toBe(6);
+    });
+});

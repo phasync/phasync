@@ -469,6 +469,10 @@ final class phasync
                 }
             }
 
+            if (empty($selectables)) {
+                return null;
+            }
+
             foreach ($selectables as $selectable) {
                 $selectable->getSelectManager()->addFlag($selectFlag);
             }
