@@ -104,7 +104,7 @@ class StringBuffer implements SelectableInterface
      *
      * @throws \OutOfBoundsException
      */
-    public function read(int $maxLength, bool $await=false): string
+    public function read(int $maxLength, bool $await = false): string
     {
         if ($maxLength < 0) {
             throw new \OutOfBoundsException("Can't read negative lengths");
@@ -180,7 +180,7 @@ class StringBuffer implements SelectableInterface
      *
      * @param int<1,max> $length
      */
-    public function readFixed(int $length, bool $await=false): ?string
+    public function readFixed(int $length, bool $await = false): ?string
     {
         if ($length < 0) {
             throw new \OutOfBoundsException("Can't read negative lengths");
@@ -191,7 +191,7 @@ class StringBuffer implements SelectableInterface
             $this->await();
         }
 
-        if ($length < $this->length - $this->offset) {
+        if ($length > $this->length - $this->offset) {
             return null;
         }
 
