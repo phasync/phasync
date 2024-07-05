@@ -142,7 +142,7 @@ final class Record implements ObjectPoolInterface
         $this->content = \pack('nCx5', $role, $flags);
     }
 
-    public function getBeginRequest(int &$role, int &$flags): void
+    public function getBeginRequest(?int &$role, ?int &$flags): void
     {
         $unpacked = \unpack('nrole/Cflags', $this->content);
         $role     = $unpacked['role'];
@@ -161,7 +161,7 @@ final class Record implements ObjectPoolInterface
         $this->content = \pack('NCx3', $appStatus, $protocolStatus);
     }
 
-    public function getEndRequest(int &$appStatus, int &$protocolStatus): void
+    public function getEndRequest(?int &$appStatus, ?int &$protocolStatus): void
     {
         $unpacked       = \unpack('NappStatus/CprotocolStatus', $this->content);
         $appStatus      = $unpacked['appStatus'];
