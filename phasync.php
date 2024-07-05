@@ -147,7 +147,7 @@ final class phasync
      * @throws FiberError
      * @throws Throwable
      */
-    public static function run(Closure $fn, ?array $args=[], ?ContextInterface $context=null): mixed
+    public static function run(Closure $fn, ?array $args = [], ?ContextInterface $context = null): mixed
     {
         $driver = self::getDriver();
         try {
@@ -234,7 +234,7 @@ final class phasync
      *
      * @throws LogicException
      */
-    public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?ContextInterface $context=null, bool $run=false): Fiber
+    public static function go(Closure $fn, array $args = [], int $concurrent = 1, ?ContextInterface $context = null, bool $run = false): Fiber
     {
         if ($concurrent > 1) {
             if (null !== $context && 0 === self::$runDepth) {
@@ -309,7 +309,7 @@ final class phasync
      * @throws TimeoutException if the timeout is reached
      * @throws Throwable
      */
-    public static function await(object $fiberOrPromise, ?float $timeout=null): mixed
+    public static function await(object $fiberOrPromise, ?float $timeout = null): mixed
     {
         $timeout      = $timeout ?? self::getDefaultTimeout();
         $startTime    = \microtime(true);
@@ -415,7 +415,7 @@ final class phasync
      *
      * @return SelectableInterface|resource|Fiber
      */
-    public static function select(array $selectables, ?float $timeout=null, ?array $read=null, ?array $write=null): mixed
+    public static function select(array $selectables, ?float $timeout = null, ?array $read = null, ?array $write = null): mixed
     {
         if (null === self::getDriver()->getCurrentFiber()) {
             throw new LogicException("Can't use phasync::select() outside of phasync. Use `phasync::run()` to launch a context.");
@@ -551,7 +551,7 @@ final class phasync
      *
      * @throws RuntimeException if the fiber is not currently blocked
      */
-    public static function cancel(Fiber $fiber, ?Throwable $exception=null): void
+    public static function cancel(Fiber $fiber, ?Throwable $exception = null): void
     {
         if ($fiber->isTerminated()) {
             throw new InvalidArgumentException('Fiber is already terminated');
@@ -604,7 +604,7 @@ final class phasync
      *
      * @throws RuntimeException
      */
-    public static function sleep(float $seconds=0): void
+    public static function sleep(float $seconds = 0): void
     {
         $driver = self::getDriver();
         $fiber  = $driver->getCurrentFiber();
@@ -645,7 +645,7 @@ final class phasync
      * Suspend the current fiber until the event loop becomes empty or will sleeps while
      * waiting for future events.
      */
-    public static function idle(?float $timeout=null): void
+    public static function idle(?float $timeout = null): void
     {
         $driver = self::getDriver();
         $fiber  = $driver->getCurrentFiber();
@@ -687,7 +687,7 @@ final class phasync
      *
      * @return resource Returns the same resource for convenience
      */
-    public static function readable(mixed $resource, ?float $timeout=null): mixed
+    public static function readable(mixed $resource, ?float $timeout = null): mixed
     {
         self::stream($resource, self::READABLE, $timeout);
 
@@ -705,7 +705,7 @@ final class phasync
      *
      * @return resource Returns the same resource for convenience
      */
-    public static function writable(mixed $resource, ?float $timeout=null): mixed
+    public static function writable(mixed $resource, ?float $timeout = null): mixed
     {
         self::stream($resource, self::WRITABLE, $timeout);
 
@@ -722,7 +722,7 @@ final class phasync
      *
      * @return int A bitmap indicating which events on the resource that was raised
      */
-    public static function stream(mixed $resource, int $mode = self::READABLE | self::WRITABLE, ?float $timeout=null): int
+    public static function stream(mixed $resource, int $mode = self::READABLE | self::WRITABLE, ?float $timeout = null): int
     {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             return 0;
@@ -796,7 +796,7 @@ final class phasync
      * with the ReadChannelInterface or the WriteChannelInterface as the first
      * argument.
      */
-    public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize=0): void
+    public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize = 0): void
     {
         if (0 === $bufferSize) {
             $channel = new ChannelUnbuffered();
@@ -850,7 +850,7 @@ final class phasync
      * @throws TimeoutException if the timeout is reached
      * @throws Throwable
      */
-    public static function awaitFlag(object $signal, ?float $timeout=null): void
+    public static function awaitFlag(object $signal, ?float $timeout = null): void
     {
         $driver = self::getDriver();
         $fiber  = $driver->getCurrentFiber();
@@ -956,7 +956,7 @@ final class phasync
     public static function getPromiseHandler(): Closure
     {
         if (null === self::$promiseHandlerFunction) {
-            self::$promiseHandlerFunction = static function (mixed $promiseLike, ?Closure $onFulfilled=null, ?Closure $onRejected=null): bool {
+            self::$promiseHandlerFunction = static function (mixed $promiseLike, ?Closure $onFulfilled = null, ?Closure $onRejected = null): bool {
                 if (!\is_object($promiseLike) || !\method_exists($promiseLike, 'then')) {
                     return false;
                 }
@@ -1163,7 +1163,7 @@ final class phasync
     /**
      * Integrate with Promise like objects.
      */
-    private static function handlePromise(mixed $promiseLike, ?Closure $onFulfilled=null, ?Closure $onRejected=null): bool
+    private static function handlePromise(mixed $promiseLike, ?Closure $onFulfilled = null, ?Closure $onRejected = null): bool
     {
         return (self::getPromiseHandler())($promiseLike, $onFulfilled, $onRejected);
     }

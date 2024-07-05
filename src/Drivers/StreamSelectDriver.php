@@ -295,6 +295,12 @@ final class StreamSelectDriver implements DriverInterface
                 }
             }
 
+            if (empty($reads) && empty($writes) && empty($excepts)) {
+                var_dump($this->streams, $this->streamFibers, $this->streamModes);
+                sleep(5);
+                die("EMPTY ALL OF THEM\n");
+            }
+
             $result = \stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
 
             if (\is_int($result) && $result > 0) {
@@ -303,7 +309,7 @@ final class StreamSelectDriver implements DriverInterface
                 foreach ($reads as $readableStream) {
                     $id                 = \get_resource_id($readableStream);
                     $streamResults[$id] = DriverInterface::STREAM_READ | ($streamResults[$id] ?? 0);
-                    if (\is_array($this->streamFibers[$id])) {
+                    if (\is_array($this->streamFibers[$id]) && !empty($this->streamFibers[$id]['r'])) {
                         foreach ($this->streamFibers[$id]['r'] as $f) {
                             $fibersToEnqueue[\spl_object_id($f)] = $f;
                         }
@@ -320,7 +326,7 @@ final class StreamSelectDriver implements DriverInterface
                 foreach ($writes as $writableStream) {
                     $id                 = \get_resource_id($writableStream);
                     $streamResults[$id] = DriverInterface::STREAM_WRITE | ($streamResults[$id] ?? 0);
-                    if (\is_array($this->streamFibers[$id])) {
+                    if (\is_array($this->streamFibers[$id]) && !empty($this->streamFibers[$id]['w'])) {
                         foreach ($this->streamFibers[$id]['w'] as $f) {
                             $fibersToEnqueue[\spl_object_id($f)] = $f;
                         }
@@ -337,7 +343,7 @@ final class StreamSelectDriver implements DriverInterface
                 foreach ($excepts as $exceptStream) {
                     $id                 = \get_resource_id($exceptStream);
                     $streamResults[$id] = DriverInterface::STREAM_EXCEPT | ($streamResults[$id] ?? 0);
-                    if (\is_array($this->streamFibers[$id])) {
+                    if (\is_array($this->streamFibers[$id]) && !empty($this->streamFibers[$id]['e'])) {
                         foreach ($this->streamFibers[$id]['e'] as $f) {
                             $fibersToEnqueue[\spl_object_id($f)] = $f;
                         }
@@ -433,7 +439,7 @@ final class StreamSelectDriver implements DriverInterface
         unset($this->parentFibers[$fiber]);
     }
 
-    public function create(\Closure $closure, array $args = [], ?ContextInterface $context=null): \Fiber
+    public function create(\Closure $closure, array $args = [], ?ContextInterface $context = null): \Fiber
     {
         if (null !== $context) {
             $context->activate();
@@ -498,7 +504,7 @@ final class StreamSelectDriver implements DriverInterface
     public function enqueue(\Fiber $fiber): void
     {
         if ($fiber->isTerminated()) {
-            throw new \LogicException("Can't enqueue a terminated fiber");
+            throw new \LogicException("Can't enqueue a terminated fiber (" . Debug::getDebugInfo($fiber) . ")");
         }
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
         $this->queue->enqueue($fiber);
@@ -506,6 +512,9 @@ final class StreamSelectDriver implements DriverInterface
 
     public function enqueueWithException(\Fiber $fiber, \Throwable $exception): void
     {
+        if ($fiber->isTerminated()) {
+            throw new \LogicException("Can't enqueue a terminated fiber (" . Debug::getDebugInfo($fiber) . ")");
+        }
         $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
         $this->enqueue($fiber);
     }
@@ -583,11 +592,7 @@ final class StreamSelectDriver implements DriverInterface
         if (isset($this->streams[$resourceId])) {
             if (!\is_array($this->streamFibers[$resourceId])) {
                 $existingFiber                   = $this->streamFibers[$resourceId];
-                $this->streamFibers[$resourceId] = [
-                    'r' => [],
-                    'w' => [],
-                    'e' => [],
-                ];
+                $this->streamFibers[$resourceId] = [];
                 if ($this->streamModes[$resourceId] & DriverInterface::STREAM_READ) {
                     $this->streamFibers[$resourceId]['r'][] = $existingFiber;
                 }
@@ -651,6 +656,9 @@ final class StreamSelectDriver implements DriverInterface
      */
     public function cancel(\Fiber $fiber, ?\Throwable $exception = null): void
     {
+        if ($fiber->isTerminated()) {
+            throw new \LogicException("Can't cancel a terminated fiber");
+        }
         if (!isset($this->contexts[$fiber])) {
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
@@ -682,6 +690,10 @@ final class StreamSelectDriver implements DriverInterface
         foreach ($this->flaggedFibers as $flag => $fiberStore) {
             if ($fiberStore->contains($fiber)) {
                 $fiberStore->remove($fiber);
+                if ($fiberStore->count() === 0) {
+                    unset($this->flaggedFibers[$flag]);
+                    $fiberStore->returnToPool();
+                }
                 $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
 
                 return;
@@ -771,7 +783,7 @@ final class StreamSelectDriver implements DriverInterface
      *
      * @return void
      */
-    private function handleTerminatedFiber(\Fiber $fiber)
+    public function handleTerminatedFiber(\Fiber $fiber): void
     {
         $context = $this->contexts[$fiber];
         $this->raiseFlag($fiber);

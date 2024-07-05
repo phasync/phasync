@@ -136,7 +136,7 @@ final class Record implements ObjectPoolInterface
     {
     }
 
-    public function setBeginRequest(int $role=self::FCGI_ROLE_RESPONDER, int $flags=0): void
+    public function setBeginRequest(int $role = self::FCGI_ROLE_RESPONDER, int $flags = 0): void
     {
         $this->type    = self::FCGI_BEGIN_REQUEST;
         $this->content = \pack('nCx5', $role, $flags);
@@ -155,7 +155,7 @@ final class Record implements ObjectPoolInterface
         $this->content = '';
     }
 
-    public function setEndRequest(int $appStatus=0, int $protocolStatus=self::FCGI_PROT_STATUS_REQUEST_COMPLETE): void
+    public function setEndRequest(int $appStatus = 0, int $protocolStatus = self::FCGI_PROT_STATUS_REQUEST_COMPLETE): void
     {
         $this->type    = self::FCGI_END_REQUEST;
         $this->content = \pack('NCx3', $appStatus, $protocolStatus);
@@ -253,9 +253,9 @@ final class Record implements ObjectPoolInterface
             $nameLength  = \strlen($name);
             $valueLength = \strlen($value);
             $format .= ($nameLength < 128 ? 'C' : 'N')
-                    . ($valueLength < 128 ? 'C' : 'N')
-                    . 'a*'
-                    . 'a*';
+                . ($valueLength < 128 ? 'C' : 'N')
+                . 'a*'
+                . 'a*';
             $args[] = $nameLength < 128 ? $nameLength : $nameLength | 0x80000000;
             $args[] = $valueLength < 128 ? $valueLength : $valueLength | 0x80000000;
             $args[] = $name;
@@ -316,7 +316,8 @@ final class Record implements ObjectPoolInterface
         $contentLength = \strlen($this->content);
         $paddingLength = (8 - ($contentLength % 8)) % 8;
 
-        return \pack('CCnnCx',
+        return \pack(
+            'CCnnCx',
             $this->version,
             $this->type,
             $this->requestId,

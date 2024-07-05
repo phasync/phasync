@@ -77,9 +77,13 @@ final class Flag implements ObjectPoolInterface
             return;
         }
         foreach (self::$allFibers[$this->id] as $fid => $fiber) {
+            if ($fiber->isTerminated()) {
+                $this->driver->handleTerminatedFiber($fiber);
+            } else {
+                $this->driver->enqueueWithException($fiber, $cancellationException ?? new CancelledException('The operation was cancelled'));
+            }
             unset(self::$allFibers[$this->id][$fid]);
             unset($this->driver->flagGraph[$fiber]);
-            $this->driver->enqueueWithException($fiber, $cancellationException ?? new CancelledException('The operation was cancelled'));
         }
     }
 
