@@ -287,12 +287,6 @@ final class StreamSelectDriver implements DriverInterface
                 }
             }
 
-            if (empty($reads) && empty($writes) && empty($excepts)) {
-                var_dump($this->streams, $this->streamFibers, $this->streamModes);
-                sleep(5);
-                die("EMPTY ALL OF THEM\n");
-            }
-
             $result = \stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
 
             if (\is_int($result) && $result > 0) {
