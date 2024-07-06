@@ -12,6 +12,7 @@ use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
 use phasync\Internal\Scheduler;
 use phasync\TimeoutException;
+use RuntimeException;
 use WeakMap;
 
 final class StreamSelectDriver implements DriverInterface
@@ -193,15 +194,6 @@ final class StreamSelectDriver implements DriverInterface
                 ++$states['terminated'];
             }
         }
-
-        /*
-        foreach ($this->contexts as $fiber => $context) {
-            echo "CONTEXT " . \spl_object_id($context) . "\n";
-            foreach ($context->getFibers() as $fiber => $void) {
-                echo " - " . Debug::getDebugInfo($fiber) . "\n";
-            }
-        }
-        */
 
         foreach ($states as $k => $v) {
             echo "$k=$v ";
@@ -530,7 +522,7 @@ final class StreamSelectDriver implements DriverInterface
     public function whenFlagged(object $flag, float $timeout, \Fiber $fiber): void
     {
         if (isset($this->pending[$fiber])) {
-            throw new \LogicException('Fiber is already pending when enqueueing');
+            throw new \LogicException('Fiber is already pending when enqueueing for flag');
         }
         if ($flag instanceof \Fiber && $this->isBlockedByFlag($flag, $fiber)) {
             // Detect cycles
@@ -662,20 +654,43 @@ final class StreamSelectDriver implements DriverInterface
         if (!isset($this->contexts[$fiber])) {
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
+        /*
         if (!isset($this->pending[$fiber])) {
             // Assume that the fiber was being managed by an external method
             $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
 
             return;
         }
-
+        */
         // Search for fibers waiting for IO
-        $index = \array_search($fiber, $this->streamFibers, true);
-        if (\is_int($index)) {
-            unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);
-            $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
-
-            return;
+        foreach ($this->streamFibers as $index => &$fibers) {
+            $cancelled = false;
+            if ($fibers === $fiber) {
+                unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);
+                $cancelled = true;
+            } elseif (\is_array($fibers)) {
+                foreach (['r', 'w', 'e'] as $key) {
+                    if (!empty($fibers[$key])) {
+                        foreach ($fibers[$key] as $sIndex => $sFiber) {
+                            if ($sFiber === $fiber) {
+                                unset($fibers[$key][$sIndex]);
+                                $cancelled = true;
+                                break;
+                            }
+                        }
+                        if (empty($fibers[$key])) {
+                            unset($fibers[$key]);
+                        }
+                    }
+                }
+                if (empty($fibers)) {
+                    unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);
+                }
+            }
+            if ($cancelled) {
+                $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
+                return;
+            }
         }
 
         // Search for fibers that are delayed
@@ -699,6 +714,8 @@ final class StreamSelectDriver implements DriverInterface
                 return;
             }
         }
+
+        throw new RuntimeException("Unable to cancel fiber " . Debug::getDebugInfo($fiber) . ", not found.");
 
         // If the fiber hasn't been found yet, it must have already been
         // enqueued.
@@ -783,7 +800,7 @@ final class StreamSelectDriver implements DriverInterface
      *
      * @return void
      */
-    public function handleTerminatedFiber(\Fiber $fiber): void
+    private function handleTerminatedFiber(\Fiber $fiber): void
     {
         $context = $this->contexts[$fiber];
         $this->raiseFlag($fiber);

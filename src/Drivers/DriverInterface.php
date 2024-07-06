@@ -118,16 +118,6 @@ interface DriverInterface extends \Countable
     public function cancel(\Fiber $fiber, ?\Throwable $exception = null): void;
 
     /**
-     * Whenever a fiber is terminated, this method must be used. It will ensure that any
-     * deferred closures are immediately run and that garbage collection will occur.
-     * If the Fiber threw an exception, ensure it is thrown in the parent if that is still
-     * running, or
-     *
-     * @return void
-     */
-    public function handleTerminatedFiber(\Fiber $fiber): void;
-
-    /**
      * Returns the unhandled exception thrown by a Fiber.
      */
     public function getException(\Fiber $fiber): ?\Throwable;
