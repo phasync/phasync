@@ -27,7 +27,7 @@ class StringBuffer implements SelectableInterface {
      *
      * @var \SplDoublyLinkedList<string>
      */
-    public \SplDoublyLinkedList $queue;
+    protected \SplDoublyLinkedList $queue;
 
     /**
      * Contains unread bytes, for situations where data was consumed
@@ -61,17 +61,14 @@ class StringBuffer implements SelectableInterface {
      */
     private bool $ended = false;
 
-    private object $readFlag;
-
     public function __construct()
     {
         $this->queue     = new \SplDoublyLinkedList();
-        $this->readFlag = new stdClass;
     }
 
     public function await(): void {
         while (!$this->isReady()) {
-            phasync::awaitFlag($this->readFlag);
+            phasync::awaitFlag($this->queue);
         }
     }
 
@@ -103,7 +100,7 @@ class StringBuffer implements SelectableInterface {
         }
         $this->totalWritten += \strlen($chunk);
         $this->queue->push($chunk);
-        phasync::raiseFlag($this->readFlag);
+        phasync::raiseFlag($this->queue);
         \phasync::preempt();
     }
 
@@ -173,7 +170,7 @@ class StringBuffer implements SelectableInterface {
             throw new \LogicException('StringBuffer already ended');
         }
         $this->ended = true;
-        phasync::raiseFlag($this->readFlag);
+        phasync::raiseFlag($this->queue);
     }
 
     /**
@@ -259,7 +256,7 @@ class StringBuffer implements SelectableInterface {
             $this->length += $chunkLength - $this->offset;
             $this->offset = 0;
         }
-        phasync::raiseFlag($this->readFlag);
+        phasync::raiseFlag($this->queue);
     }
 
     /**

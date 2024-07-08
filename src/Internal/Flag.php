@@ -2,6 +2,7 @@
 
 namespace phasync\Internal;
 
+use Countable;
 use Fiber;
 use phasync\CancelledException;
 use phasync\Debug;
@@ -17,7 +18,7 @@ use WeakMap;
  *
  * @internal
  */
-final class Flag implements ObjectPoolInterface
+final class Flag implements ObjectPoolInterface, Countable
 {
     use ObjectPoolTrait;
 

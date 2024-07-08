@@ -73,7 +73,7 @@ final class Debug
             $result = 'WeakMap' . \spl_object_id($subject);
             $kvs = [ 'count=' . count($subject) ];
             foreach ($subject as $k => $v) {
-                $kvs[] = Debug::getDebugInfo($k);
+                $kvs[] = Debug::getDebugInfo($k) . '=>' . Debug::getDebugInfo($v);
                 if (count($kvs) > 4) break;
             }
             return $result . '(' . implode(" ", $kvs) . ')';
