@@ -46,17 +46,12 @@ final class RateLimiter implements SelectableInterface
 
     public function await(): void
     {
-        $this->readChannel->await();
+        $this->readChannel->read();
     }
 
-    public function getSelectManager(): SelectManager
+    public function isReady(): bool
     {
-        return $this->readChannel->getSelectManager();
-    }
-
-    public function selectWillBlock(): bool
-    {
-        return $this->readChannel->selectWillBlock();
+        return $this->readChannel->isReady();
     }
 
     /**
@@ -66,6 +61,6 @@ final class RateLimiter implements SelectableInterface
      */
     public function wait(): void
     {
-        $this->readChannel->read();
+        $this->await();
     }
 }

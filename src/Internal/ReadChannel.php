@@ -3,6 +3,7 @@
 namespace phasync\Internal;
 
 use phasync\ReadChannelInterface;
+use stdClass;
 
 /**
  * This object is the readable end of a phasync channel. If it is garbage
@@ -15,11 +16,13 @@ final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
     private int $id;
 
     private ChannelBackendInterface $channel;
+    private object $flag;
 
     public function __construct(ChannelBackendInterface $channel)
     {
         $this->id      = \spl_object_id($this);
         $this->channel = $channel;
+        $this->flag = new stdClass;
     }
 
     public function activate(): void
@@ -27,21 +30,14 @@ final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
         $this->channel->activate();
     }
 
+    public function isReady(): bool
+    {
+        return $this->channel->isReadyForRead();
+    }
+
     public function await(): void
     {
-        if ($this->selectWillBlock()) {
-            $this->channel->getSelectManager()->await();
-        }
-    }
-
-    public function getSelectManager(): SelectManager
-    {
-        return $this->channel->getSelectManager();
-    }
-
-    public function selectWillBlock(): bool
-    {
-        return $this->channel->readWillBlock();
+        $this->channel->awaitReadable();
     }
 
     public function __destruct()

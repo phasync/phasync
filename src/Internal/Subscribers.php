@@ -22,11 +22,11 @@ final class Subscribers implements SubscribersInterface
      */
     private static ?\WeakMap $receiverStates = null;
 
-    private ReadChannelInterface $readChannel;
     private ChannelMessage $lastMessage;
     private \stdClass $notifyMessageFlag;
     private int $waiting = 0;
     private ?\Fiber $creatingFiber;
+    private ReadChannelInterface $readChannel;
 
     public function __construct(ReadChannelInterface $readChannel)
     {
@@ -68,11 +68,6 @@ final class Subscribers implements SubscribersInterface
                 \phasync::raiseFlag($notifyMessageFlag);
             }
         });
-    }
-
-    public function getSelectManager(): SelectManager
-    {
-        return $this->readChannel->getSelectManager();
     }
 
     /**

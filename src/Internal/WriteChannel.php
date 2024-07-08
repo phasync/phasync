@@ -24,16 +24,14 @@ final class WriteChannel implements WriteChannelInterface
         $this->channel->activate();
     }
 
-    public function await(): void
+    public function isReady(): bool
     {
-        if ($this->selectWillBlock()) {
-            $this->channel->getSelectManager()->await();
-        }
+        return $this->channel->isReadyForWrite();
     }
 
-    public function getSelectManager(): SelectManager
+    public function await(): void
     {
-        return $this->channel->getSelectManager();
+        $this->channel->awaitWritable();
     }
 
     public function __destruct()
@@ -61,8 +59,4 @@ final class WriteChannel implements WriteChannelInterface
         return $this->channel->isWritable();
     }
 
-    public function selectWillBlock(): bool
-    {
-        return $this->channel->writeWillBlock();
-    }
 }

@@ -5,6 +5,7 @@ namespace phasync\Internal;
 use Fiber;
 use phasync;
 use phasync\ChannelException;
+use stdClass;
 
 /**
  * This is a highly optimized implementation of a bi-directional channel
@@ -20,7 +21,6 @@ use phasync\ChannelException;
  */
 final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggregate
 {
-    use SelectableTrait;
 
     public const READY           = 0;
     public const BLOCKING_READS  = 1;
@@ -46,6 +46,7 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
     private int $firstBuffer = 0;
     private int $lastBuffer  = 0;
     private ?\Fiber $receiver;
+    private object $flag;
 
     public function __construct(int $bufferSize)
     {
@@ -53,6 +54,12 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         $this->bufferSize         = $bufferSize;
         self::$waiting[$this->id] = [];
         $this->creatingFiber      = \phasync::getFiber();
+        $this->flag = new stdClass;
+    }
+
+    public function __destruct()
+    {
+        $this->closed = true;
     }
 
     public function activate(): void
@@ -60,9 +67,51 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         $this->creatingFiber = null;
     }
 
-    public function selectWillBlock(): bool
+    public function isReady(): bool
     {
-        return $this->readWillBlock() || $this->writeWillBlock();
+        return $this->isReadyForRead() && $this->isReadyForWrite();
+    }
+
+    public function await(): void {
+        while (!$this->isReady()) {
+            phasync::awaitFlag($this->flag);
+        }
+    }
+
+    public function isReadyForRead(): bool
+    {
+        if ($this->closed) {
+            return true;
+        }
+        if ($this->firstBuffer < $this->lastBuffer) {
+            return true;
+        }
+
+        return self::BLOCKING_READS !== $this->state;
+    }
+
+    public function awaitReadable(): void {
+        while (!$this->isReadyForRead()) {
+            phasync::awaitFlag($this->flag);
+        }
+    }
+
+    public function isReadyForWrite(): bool
+    {
+        if ($this->closed) {
+            return true;
+        }
+        if ($this->lastBuffer - $this->firstBuffer < $this->bufferSize) {
+            return true;
+        }
+
+        return self::BLOCKING_WRITES !== $this->state;
+    }
+
+    public function awaitWritable(): void {
+        while (!$this->isReadyForWrite()) {
+            phasync::awaitFlag($this->flag);
+        }
     }
 
     private function enqueue(\Fiber $fiber): void
@@ -79,11 +128,6 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         }
 
         return $result;
-    }
-
-    public function __destruct()
-    {
-        $this->closed = true;
     }
 
     public function getIterator(): \Traversable
@@ -107,7 +151,7 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
             \phasync::enqueueWithException($this->dequeue(), new ChannelException('Channel was closed'));
         }
         unset(self::$waiting[$this->id]);
-        $this->selectManager?->notify();
+        phasync::raiseFlag($this->flag);
     }
 
     public function isClosed(): bool
@@ -123,7 +167,7 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
 
         $bufferSize = $this->lastBuffer - $this->firstBuffer;
 
-        $this->selectManager?->notify();
+        phasync::raiseFlag($this->flag);
 
         if ($bufferSize < $this->bufferSize && self::BLOCKING_READS !== $this->state) {
             $this->buffer[$this->lastBuffer++] = $value;
@@ -170,7 +214,7 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
             return null;
         }
 
-        $this->selectManager?->notify();
+        phasync::raiseFlag($this->flag);
 
         if ($this->firstBuffer < $this->lastBuffer && self::BLOCKING_WRITES !== $this->state) {
             $value = $this->buffer[$this->firstBuffer];
@@ -228,27 +272,4 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         return !$this->closed;
     }
 
-    public function readWillBlock(): bool
-    {
-        if ($this->closed) {
-            return false;
-        }
-        if ($this->firstBuffer < $this->lastBuffer) {
-            return false;
-        }
-
-        return self::BLOCKING_READS === $this->state;
-    }
-
-    public function writeWillBlock(): bool
-    {
-        if ($this->closed) {
-            return false;
-        }
-        if ($this->lastBuffer - $this->firstBuffer < $this->bufferSize) {
-            return false;
-        }
-
-        return self::BLOCKING_WRITES === $this->state;
-    }
 }

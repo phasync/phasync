@@ -2,8 +2,11 @@
 
 namespace phasync\Util;
 
+use phasync;
 use phasync\Internal\SelectableTrait;
+use phasync\Internal\SelectManager;
 use phasync\SelectableInterface;
+use stdClass;
 
 /**
  * A high performance string buffer for buffering streaming data that can be
@@ -11,9 +14,7 @@ use phasync\SelectableInterface;
  * against deadlocks, so you should always end the string buffer to signal
  * EOF with $sb->end();
  */
-class StringBuffer implements SelectableInterface
-{
-    use SelectableTrait;
+class StringBuffer implements SelectableInterface {
 
     /**
      * How much unusable string data can the string buffer hold
@@ -60,19 +61,28 @@ class StringBuffer implements SelectableInterface
      */
     private bool $ended = false;
 
+    private object $readFlag;
+
     public function __construct()
     {
         $this->queue     = new \SplDoublyLinkedList();
+        $this->readFlag = new stdClass;
     }
 
-    public function selectWillBlock(): bool
+    public function await(): void {
+        while (!$this->isReady()) {
+            phasync::awaitFlag($this->readFlag);
+        }
+    }
+
+    public function isReady(): bool
     {
         // If the StringBuffer was ended, reading will never block
         if ($this->ended) {
-            return false;
+            return true;
         }
 
-        return $this->isEmpty();
+        return !$this->isEmpty();
     }
 
     /**
@@ -93,7 +103,7 @@ class StringBuffer implements SelectableInterface
         }
         $this->totalWritten += \strlen($chunk);
         $this->queue->push($chunk);
-        $this->getSelectManager()->notify();
+        phasync::raiseFlag($this->readFlag);
         \phasync::preempt();
     }
 
@@ -163,7 +173,7 @@ class StringBuffer implements SelectableInterface
             throw new \LogicException('StringBuffer already ended');
         }
         $this->ended = true;
-        $this->getSelectManager()->notify();
+        phasync::raiseFlag($this->readFlag);
     }
 
     /**
@@ -249,7 +259,7 @@ class StringBuffer implements SelectableInterface
             $this->length += $chunkLength - $this->offset;
             $this->offset = 0;
         }
-        $this->getSelectManager()->notify();
+        phasync::raiseFlag($this->readFlag);
     }
 
     /**

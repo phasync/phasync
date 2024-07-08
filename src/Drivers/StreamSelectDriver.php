@@ -3,6 +3,7 @@
 namespace phasync\Drivers;
 
 use Fiber;
+use LogicException;
 use phasync\CancelledException;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
@@ -94,13 +95,33 @@ final class StreamSelectDriver implements DriverInterface
     private array $streamModes = [];
 
     /**
-     * Maps the stream resource to a Fiber instance for readable,
-     * writable and exception polling.
+     * Maps the stream resource to a Fiber instance for readable polling.
      *
      * @return array<int,\Fiber>
      */
-    private array $streamFibers = [];
+    private array $streamReadFibers = [];
 
+    /**
+     * Maps the stream resource to a Fiber instance for writable polling.
+     *
+     * @return array<int,\Fiber>
+     */
+    private array $streamWriteFibers = [];
+
+    /**
+     * Maps the stream resource to a Fiber instance for except polling.
+     *
+     * @return array<int,\Fiber>
+     */
+    private array $streamExceptFibers = [];
+
+
+    /**
+     * The result of the most recent stream_select for any particular
+     * stream resource.
+     *
+     * @var array
+     */
     private array $streamResults = [];
 
     /**
@@ -153,15 +174,6 @@ final class StreamSelectDriver implements DriverInterface
 
     public function __construct()
     {
-        /*
-        register_shutdown_function(function() {
-            $t = microtime(true);
-            while (microtime(true) - $t < 5 && $this->pending->count() > 0) {
-                $this->tick();
-            }
-            echo "SHUTDOWN FUNCTION " . (microtime(true) - $t) . " " . $this->pending->count() . "\n";
-        });
-        */
         $this->queue                 = new \SplQueue();
         $this->contexts              = new \WeakMap();
         $this->pending               = new \SplObjectStorage();
@@ -269,20 +281,21 @@ final class StreamSelectDriver implements DriverInterface
         /*
          * Activate any Fibers waiting for stream activity
          */
-        if (!empty($this->streamFibers)) {
-            $reads   = [];
-            $writes  = [];
+        if (!empty($this->streamModes)) {
+            $this->streamResults = [];
+            $reads = [];
+            $writes = [];
             $excepts = [];
 
-            foreach ($this->streams as $streamId => $stream) {
-                $streamMode = $this->streamModes[$streamId];
-                if (($streamMode & DriverInterface::STREAM_READ) !== 0) {
+            foreach ($this->streamModes as $streamId => $streamMode) {
+                $stream = $this->streams[$streamId];
+                if ($streamMode & DriverInterface::STREAM_READ) {
                     $reads[] = $stream;
                 }
-                if (($streamMode & DriverInterface::STREAM_WRITE) !== 0) {
+                if ($streamMode & DriverInterface::STREAM_WRITE) {
                     $writes[] = $stream;
                 }
-                if (($streamMode & DriverInterface::STREAM_EXCEPT) !== 0) {
+                if ($streamMode & DriverInterface::STREAM_EXCEPT) {
                     $excepts[] = $stream;
                 }
             }
@@ -290,64 +303,36 @@ final class StreamSelectDriver implements DriverInterface
             $result = \stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
 
             if (\is_int($result) && $result > 0) {
-                $fibersToEnqueue = [];
-                $streamResults   = [];
                 foreach ($reads as $readableStream) {
-                    $id                 = \get_resource_id($readableStream);
-                    $streamResults[$id] = DriverInterface::STREAM_READ | ($streamResults[$id] ?? 0);
-                    if (\is_array($this->streamFibers[$id]) && !empty($this->streamFibers[$id]['r'])) {
-                        foreach ($this->streamFibers[$id]['r'] as $f) {
-                            $fibersToEnqueue[\spl_object_id($f)] = $f;
-                        }
-                        unset($this->streamFibers[$id]['r']);
-                        if (empty($this->streamFibers[$id])) {
-                            unset($this->streamFibers[$id], $this->streams[$id]);
-                        }
-                        $this->streamModes[$id] = $this->streamModes[$id] & (~DriverInterface::STREAM_READ);
-                    } else {
-                        $fibersToEnqueue[\spl_object_id($this->streamFibers[$id])] = $this->streamFibers[$id];
-                        unset($this->streamFibers[$id], $this->streams[$id]);
+                    $streamId = \get_resource_id($readableStream);
+                    $this->enqueue($this->streamReadFibers[$streamId]);
+                    unset($this->streamReadFibers[$streamId]);
+                    if (!($this->streamModes[$streamId] &= ~DriverInterface::STREAM_READ)) {
+                        // Stream mode is 0
+                        unset($this->streamModes[$streamId], $this->streams[$streamId]);
                     }
+                    $this->streamResults[$streamId] = ($this->streamResults[$streamId] ?? 0) | DriverInterface::STREAM_READ;
                 }
                 foreach ($writes as $writableStream) {
-                    $id                 = \get_resource_id($writableStream);
-                    $streamResults[$id] = DriverInterface::STREAM_WRITE | ($streamResults[$id] ?? 0);
-                    if (\is_array($this->streamFibers[$id]) && !empty($this->streamFibers[$id]['w'])) {
-                        foreach ($this->streamFibers[$id]['w'] as $f) {
-                            $fibersToEnqueue[\spl_object_id($f)] = $f;
-                        }
-                        unset($this->streamFibers[$id]['w']);
-                        if (empty($this->streamFibers[$id])) {
-                            unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);
-                        }
-                        $this->streamModes[$id] = $this->streamModes[$id] & (~DriverInterface::STREAM_WRITE);
-                    } else {
-                        $fibersToEnqueue[\spl_object_id($this->streamFibers[$id])] = $this->streamFibers[$id];
-                        unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);
+                    $streamId = \get_resource_id($writableStream);
+                    $this->enqueue($this->streamWriteFibers[$streamId]);
+                    unset($this->streamWriteFibers[$streamId]);
+                    if (!($this->streamModes[$streamId] &= ~DriverInterface::STREAM_WRITE)) {
+                        // Stream mode is 0
+                        unset($this->streamModes[$streamId], $this->streams[$streamId]);
                     }
+                    $this->streamResults[$streamId] = ($this->streamResults[$streamId] ?? 0) | DriverInterface::STREAM_WRITE;
                 }
                 foreach ($excepts as $exceptStream) {
-                    $id                 = \get_resource_id($exceptStream);
-                    $streamResults[$id] = DriverInterface::STREAM_EXCEPT | ($streamResults[$id] ?? 0);
-                    if (\is_array($this->streamFibers[$id]) && !empty($this->streamFibers[$id]['e'])) {
-                        foreach ($this->streamFibers[$id]['e'] as $f) {
-                            $fibersToEnqueue[\spl_object_id($f)] = $f;
-                        }
-                        unset($this->streamFibers[$id]['e']);
-                        if (empty($this->streamFibers[$id])) {
-                            unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);
-                        }
-                        $this->streamModes[$id] = $this->streamModes[$id] & (~DriverInterface::STREAM_EXCEPT);
-                    } else {
-                        $fibersToEnqueue[\spl_object_id($this->streamFibers[$id])] = $this->streamFibers[$id];
-                        unset($this->streamFibers[$id], $this->streams[$id], $this->streamModes[$id]);
+                    $streamId = \get_resource_id($writableStream);
+                    $this->enqueue($this->streamExceptFibers[$streamId]);
+                    unset($this->streamExceptFibers[$streamId]);
+                    if (!($this->streamModes[$streamId] &= ~DriverInterface::STREAM_EXCEPT)) {
+                        // Stream mode is 0
+                        unset($this->streamModes[$streamId], $this->streams[$streamId]);
                     }
+                    $this->streamResults[$streamId] = ($this->streamResults[$streamId] ?? 0) | DriverInterface::STREAM_EXCEPT;
                 }
-                foreach ($fibersToEnqueue as $f) {
-                    $this->enqueue($f);
-                }
-                unset($fibersToEnqueue, $f);
-                $this->streamResults = \array_replace($this->streamResults, $streamResults);
             }
         } elseif ($maxSleepTime > 0) {
             // There are no fibers waiting for afterNext, and the
@@ -575,49 +560,34 @@ final class StreamSelectDriver implements DriverInterface
             throw new \InvalidArgumentException('Expecting a stream resource type');
         }
         $resourceId = \get_resource_id($resource);
-        if (isset($this->streams[$resourceId])) {
-            if (!\is_array($this->streamFibers[$resourceId])) {
-                $existingFiber                   = $this->streamFibers[$resourceId];
-                $this->streamFibers[$resourceId] = [];
-                if ($this->streamModes[$resourceId] & DriverInterface::STREAM_READ) {
-                    $this->streamFibers[$resourceId]['r'][] = $existingFiber;
-                }
-                if ($this->streamModes[$resourceId] & DriverInterface::STREAM_WRITE) {
-                    $this->streamFibers[$resourceId]['w'][] = $existingFiber;
-                }
-                if ($this->streamModes[$resourceId] & DriverInterface::STREAM_EXCEPT) {
-                    $this->streamFibers[$resourceId]['e'][] = $existingFiber;
-                }
-            }
+
+        // Ensure two fibers aren't listening for the same event
+        if (($this->streamModes[$resourceId] ?? 0) & $mode) {
+            throw new RuntimeException("Multiple fibers can't wait for the same stream event");
         }
-        if (isset($this->streams[$resourceId])) {
-            // multi fiber watch mode
-            $this->streamModes[$resourceId] |= $mode;
-            if ($mode & DriverInterface::STREAM_READ) {
-                $this->streamFibers[$resourceId]['r'][] = $fiber;
-            }
-            if ($mode & DriverInterface::STREAM_WRITE) {
-                $this->streamFibers[$resourceId]['w'][] = $fiber;
-            }
-            if ($mode & DriverInterface::STREAM_EXCEPT) {
-                $this->streamFibers[$resourceId]['e'][] = $fiber;
-            }
-        } else {
-            // Single fiber watch mode
-            $this->streams[$resourceId]      = $resource;
-            $this->streamModes[$resourceId]  = $mode;
-            $this->streamFibers[$resourceId] = $fiber;
+
+        $this->streams[$resourceId] = $resource;
+
+        if ($mode & DriverInterface::STREAM_READ) {
+            $this->streamReadFibers[$resourceId] = $fiber;
+            $this->streamModes[$resourceId] = ($this->streamModes[$resourceId] ?? 0) | DriverInterface::STREAM_READ;
         }
+        if ($mode & DriverInterface::STREAM_WRITE) {
+            $this->streamWriteFibers[$resourceId] = $fiber;
+            $this->streamModes[$resourceId] = ($this->streamModes[$resourceId] ?? 0) | DriverInterface::STREAM_WRITE;
+        }
+        if ($mode & DriverInterface::STREAM_EXCEPT) {
+            $this->streamWriteFibers[$resourceId] = $fiber;
+            $this->streamModes[$resourceId] = ($this->streamModes[$resourceId] ?? 0) | DriverInterface::STREAM_EXCEPT;
+        }
+
         $this->pending[$fiber] = \microtime(true) + $timeout;
     }
 
     public function getLastResourceState(mixed $resource): ?int
     {
         $id     = \get_resource_id($resource);
-        $result = $this->streamResults[$id] ?? null;
-        unset($this->streamResults[$id]);
-
-        return $result;
+        return $this->streamResults[$id] ?? null;
     }
 
     public function whenTimeElapsed(float $seconds, \Fiber $fiber): void
@@ -648,72 +618,99 @@ final class StreamSelectDriver implements DriverInterface
         if (!isset($this->contexts[$fiber])) {
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
-        /*
-        if (!isset($this->pending[$fiber])) {
-            // Assume that the fiber was being managed by an external method
-            $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
-
-            return;
+        if (!$this->discard($fiber)) {
+            throw new RuntimeException("Unable to cancel fiber " . Debug::getDebugInfo($fiber) . ", not found.");
         }
-        */
+        $this->enqueueWithException($fiber, $exception ?? new CancelledException("Operation cancelled"));
+    }
+
+    /**
+     * Removes a fiber from the event loop completely, without throwing any exception.
+     *
+     * @param Fiber $fiber
+     * @throws RuntimeException if the fiber is not scheduled or pending
+     */
+    public function discard(Fiber $fiber): bool {
+        if (!isset($this->contexts[$fiber])) {
+            return false;
+        }
         // Search for fibers waiting for IO
-        foreach ($this->streamFibers as $index => &$fibers) {
+        if (!isset($this->pending[$fiber])) {
+            return false;
+        }
+
+        do {
+            // May be waiting for IO
             $cancelled = false;
-            if ($fibers === $fiber) {
-                unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);
+            if (false !== ($resourceId = \array_search($fiber, $this->streamReadFibers, true))) {
+                unset($this->streamReadFibers[$resourceId]);
+                if (!($this->streamModes[$resourceId] &= ~DriverInterface::STREAM_READ)) {
+                    unset($this->streamModes[$resourceId], $this->streams[$resourceId]);
+                }
                 $cancelled = true;
-            } elseif (\is_array($fibers)) {
-                foreach (['r', 'w', 'e'] as $key) {
-                    if (!empty($fibers[$key])) {
-                        foreach ($fibers[$key] as $sIndex => $sFiber) {
-                            if ($sFiber === $fiber) {
-                                unset($fibers[$key][$sIndex]);
-                                $cancelled = true;
-                                break;
-                            }
-                        }
-                        if (empty($fibers[$key])) {
-                            unset($fibers[$key]);
-                        }
-                    }
+            }
+            if (false !== ($resourceId = \array_search($fiber, $this->streamWriteFibers, true))) {
+                unset($this->streamWriteFibers[$resourceId]);
+                if (!($this->streamModes[$resourceId] &= ~DriverInterface::STREAM_WRITE)) {
+                    unset($this->streamModes[$resourceId], $this->streams[$resourceId]);
                 }
-                if (empty($fibers)) {
-                    unset($this->streams[$index], $this->streamModes[$index], $this->streamFibers[$index]);
+                $cancelled = true;
+            }
+            if (false !== ($resourceId = \array_search($fiber, $this->streamExceptFibers, true))) {
+                unset($this->streamExceptFibers[$resourceId]);
+                if (!($this->streamModes[$resourceId] &= ~DriverInterface::STREAM_EXCEPT)) {
+                    unset($this->streamModes[$resourceId], $this->streams[$resourceId]);
                 }
+                $cancelled = true;
             }
             if ($cancelled) {
-                $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
-                return;
+                break;
             }
-        }
 
-        // Search for fibers that are delayed
-        if ($this->scheduler->contains($fiber)) {
-            $this->scheduler->cancel($fiber);
-            $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
+            // Search for fibers that are delayed
+            if ($this->scheduler->contains($fiber)) {
+                $this->scheduler->cancel($fiber);
+                $cancelled = true;
+                break;
+            }
 
-            return;
-        }
+            // Search for fibers that are waiting for a flag
+            foreach ($this->flaggedFibers as $flag => $fiberStore) {
+                if ($fiberStore->contains($fiber)) {
+                    $fiberStore->remove($fiber);
+                    if ($fiberStore->count() === 0) {
+                        unset($this->flaggedFibers[$flag]);
+                        $fiberStore->returnToPool();
+                    }
 
-        // Search for fibers that are waiting for a flag
-        foreach ($this->flaggedFibers as $flag => $fiberStore) {
-            if ($fiberStore->contains($fiber)) {
-                $fiberStore->remove($fiber);
-                if ($fiberStore->count() === 0) {
-                    unset($this->flaggedFibers[$flag]);
-                    $fiberStore->returnToPool();
+                    $cancelled = true;
+                    break 2;
                 }
-                $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
-
-                return;
             }
+
+            // The fiber must be in the pending queue
+            $count = $this->queue->count();
+            for ($i = 0; $i < $count; $i++) {
+                $item = $this->queue->dequeue();
+                if ($item !== $fiber) {
+                    $this->queue->enqueue($item);
+                } else {
+                    $cancelled = true;
+                }
+            }
+        } while (false);
+
+        if ($cancelled) {
+            unset($this->pending[$fiber]);
+            if (isset($this->fiberExceptionHolders[$fiber])) {
+                $this->fiberExceptionHolders[$fiber]->get();
+                $this->fiberExceptionHolders[$fiber]->returnToPool();
+                unset($this->fiberExceptionHolders[$fiber]);
+            }
+            return true;
         }
 
-        throw new RuntimeException("Unable to cancel fiber " . Debug::getDebugInfo($fiber) . ", not found.");
-
-        // If the fiber hasn't been found yet, it must have already been
-        // enqueued.
-        $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception ?? new CancelledException('Operation cancelled'), $fiber);
+        return false;
     }
 
     /**

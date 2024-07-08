@@ -118,6 +118,16 @@ interface DriverInterface extends \Countable
     public function cancel(\Fiber $fiber, ?\Throwable $exception = null): void;
 
     /**
+     * Removes a fiber from the event loop completely, without throwing any exception.
+     * This is for advanced use cases where coroutines can be discarded without
+     * further notice or error handling.
+     *
+     * @param Fiber $fiber
+     * @return bool True if a fiber was discarded.
+     */
+    public function discard(Fiber $fiber): bool;
+
+    /**
      * Returns the unhandled exception thrown by a Fiber.
      */
     public function getException(\Fiber $fiber): ?\Throwable;

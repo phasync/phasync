@@ -18,22 +18,7 @@ final class ClosureSelector implements SelectorInterface, ObjectPoolInterface
     private int $id;
     private ?\Closure $closure;
     private SelectableInterface|SelectorInterface|null $otherSelectable;
-    private bool $returnOtherSelectable = false;
-
-    public function await(): void
-    {
-        $this->otherSelectable->await();
-    }
-
-    public function getSelectManager(): SelectManager
-    {
-        return $this->otherSelectable->getSelectManager();
-    }
-
-    public function getSelected(): \Closure
-    {
-        return $this->closure;
-    }
+    private bool $returnOtherSelectableToPool = false;
 
     public static function create(\Closure $closure): ClosureSelector
     {
@@ -57,16 +42,26 @@ final class ClosureSelector implements SelectorInterface, ObjectPoolInterface
     public function returnToPool(): void
     {
         $this->closure = null;
-        if ($this->returnOtherSelectable) {
+        if ($this->returnOtherSelectableToPool) {
             $this->otherSelectable->returnToPool();
         }
         $this->otherSelectable              = null;
         self::$pool[self::$instanceCount++] = $this;
     }
 
-    public function selectWillBlock(): bool
+    public function isReady(): bool
     {
-        return $this->otherSelectable->selectWillBlock();
+        return $this->otherSelectable->isReady();
+    }
+
+    public function await(): void
+    {
+        $this->otherSelectable->await();
+    }
+
+    public function getSelected(): \Closure
+    {
+        return $this->closure;
     }
 
     private function importValidSelectable(): void
@@ -84,13 +79,13 @@ final class ClosureSelector implements SelectorInterface, ObjectPoolInterface
 
         if ($value instanceof SelectableInterface) {
             $this->otherSelectable       = $value;
-            $this->returnOtherSelectable = false;
+            $this->returnOtherSelectableToPool = false;
 
             return;
         }
         if (null !== ($selector = Selector::create($value))) {
             $this->otherSelectable       = $selector;
-            $this->returnOtherSelectable = true;
+            $this->returnOtherSelectableToPool = true;
 
             return;
         }

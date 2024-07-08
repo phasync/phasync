@@ -5,6 +5,7 @@ namespace phasync\Internal;
 use Fiber;
 use phasync;
 use phasync\ChannelException;
+use stdClass;
 
 /**
  * This is a highly optimized implementation of a bi-directional channel
@@ -18,8 +19,6 @@ use phasync\ChannelException;
  */
 final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggregate
 {
-    use SelectableTrait;
-
     public const READY           = 0;
     public const BLOCKING_READS  = 1;
     public const BLOCKING_WRITES = 2;
@@ -38,6 +37,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
     private bool $closed = false;
     private mixed $value = null;
     private ?\Fiber $creatingFiber;
+    private object $flag;
 
     /**
      * Channels are either blocking reads or writes. When the channel is in
@@ -58,6 +58,13 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
         $this->id                 = \spl_object_id($this);
         self::$waiting[$this->id] = new \SplQueue();
         $this->creatingFiber      = \phasync::getFiber();
+        $this->flag = new stdClass;
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+        unset(self::$waiting[$this->id]);
     }
 
     public function activate(): void
@@ -72,15 +79,39 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
         }
     }
 
-    public function selectWillBlock(): bool
+    public function isReady(): bool
     {
-        return $this->readWillBlock() || $this->writeWillBlock();
+        return !($this->isReadyForRead() || $this->isReadyForWrite());
     }
 
-    public function __destruct()
+    public function await(): void {
+        if (!$this->isReady()) {
+            phasync::awaitFlag($this->flag);
+        }
+    }
+
+    public function awaitReadable(): void {
+        while (!$this->isReadyForRead()) {
+            phasync::awaitFlag($this->flag);
+        }
+    }
+
+    public function isReadyForWrite(): bool
     {
-        $this->close();
-        unset(self::$waiting[$this->id]);
+        if ($this->creatingFiber) {
+            if ($this->creatingFiber === \phasync::getFiber()) {
+                throw new ChannelException("Can't open a channel from the same coroutine that created it");
+            }
+            $this->creatingFiber = null;
+        }
+
+        return $this->state === self::BLOCKING_READS;
+    }
+
+    public function awaitWritable(): void {
+        while (!$this->isReadyForWrite()) {
+            phasync::awaitFlag($this->flag);
+        }
     }
 
     public function close(): void
@@ -98,7 +129,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
                 \phasync::enqueueWithException(self::$waiting[$this->id]->dequeue(), new ChannelException('Channel was closed'));
             }
         }
-        $this->selectManager?->notify();
+        phasync::raiseFlag($this->flag);
     }
 
     public function isClosed(): bool
@@ -112,7 +143,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
             throw new ChannelException('Channel is closed');
         }
 
-        $this->selectManager?->notify();
+        phasync::raiseFlag($this->flag);
 
         $fiber = \phasync::getFiber();
 
@@ -154,7 +185,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
             return null;
         }
 
-        $this->selectManager?->notify();
+        phasync::raiseFlag($this->flag);
 
         $fiber = \phasync::getFiber();
 
@@ -191,15 +222,15 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
 
     public function isReadable(): bool
     {
-        return !$this->closed;
+        return !$this->closed && $this->state !== self::BLOCKING_WRITES;
     }
 
     public function isWritable(): bool
     {
-        return !$this->closed;
+        return !$this->closed && $this->state !== self::BLOCKING_READS;
     }
 
-    public function readWillBlock(): bool
+    public function isReadyForRead(): bool
     {
         if ($this->creatingFiber) {
             if ($this->creatingFiber === \phasync::getFiber()) {
@@ -208,18 +239,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
             $this->creatingFiber = null;
         }
 
-        return self::BLOCKING_READS === $this->state || self::READY === $this->state;
+        return $this->state === self::BLOCKING_WRITES;
     }
 
-    public function writeWillBlock(): bool
-    {
-        if ($this->creatingFiber) {
-            if ($this->creatingFiber === \phasync::getFiber()) {
-                throw new ChannelException("Can't open a channel from the same coroutine that created it");
-            }
-            $this->creatingFiber = null;
-        }
-
-        return self::BLOCKING_WRITES === $this->state || self::READY === $this->state;
-    }
 }

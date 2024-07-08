@@ -43,27 +43,19 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
         }
     }
 
-    /**
-     * Interface for the phasync::select()
-     */
-    public function getSelectManager(): SelectManager
-    {
-        return $this->publisher->getSelectManager();
-    }
-
-    public function selectWillBlock(): bool
+    public function isReady(): bool
     {
         if ($this->closed) {
-            return false;
+            return true;
         }
         if (!$this->publisher) {
-            return false;
+            return true;
         }
         if ($this->currentMessage->next === $this->currentMessage) {
-            return false;
+            return true;
         }
 
-        return true;
+        return false;
     }
 
     public function getIterator(): \Traversable

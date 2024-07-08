@@ -9,6 +9,7 @@ use phasync\Drivers\StreamSelectDriver;
 use phasync\Internal\AsyncStream;
 use phasync\Internal\ChannelBuffered;
 use phasync\Internal\ChannelUnbuffered;
+use phasync\Internal\ClosureSelector;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberSelector;
 use phasync\Internal\ReadChannel;
@@ -405,7 +406,7 @@ final class phasync
      * }
      * ```
      *
-     * @param mixed[] $selectables
+     * @param (Fiber|Closure|SelectableInterface)[] $selectables
      * @param resource[] $read        Wait for stream resources to become readable
      * @param resource[] $write       Wait for stream resources to become writable
      *
@@ -420,86 +421,101 @@ final class phasync
         if (null === self::getDriver()->getCurrentFiber()) {
             throw new LogicException("Can't use phasync::select() outside of phasync. Use `phasync::run()` to launch a context.");
         }
-        $returnables = [];
 
-        $stopTime   = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
-        $selectFlag = new stdClass();
+        /**
+         * Start coroutines for each selectable
+         */
+        $flag = new stdClass;
+        $cos = [];
+        $selected = null;
         try {
-            /*
-             * Validate that all selectables are valid and must be awaited,
-             * and convert any supported alterative resources into selectors.
-             */
-            foreach ($selectables as $k => $selectable) {
-                if ($selectable instanceof SelectableInterface) {
-                    if (!$selectable->selectWillBlock()) {
-                        return $selectable;
-                    }
-                } elseif ($selectable instanceof Fiber && $selectable->isTerminated()) {
-                    return $selectable;
-                } elseif (null !== ($selector = Selector::create($selectable))) {
-                    $returnables[] = $selector;
-                    if (!$selector->selectWillBlock()) {
-                        return $selectable;
-                    }
-                    $selectables[$k] = $selector;
-                } else {
-                    throw new InvalidArgumentException('Unexpected ' . \get_debug_type($selectable) . ' in phasync::select()');
-                }
-            }
-            /*
-             * Convert any stream resources waiting to be readable into
-             * StreamSelectors.
-             */
-            if (null !== $read) {
-                foreach ($read as $r) {
-                    $selector      = StreamSelector::create($r, DriverInterface::STREAM_READ);
-                    $selectables[] = $selector;
-                    $returnables[] = $selector;
-                }
-            }
-            /*
-             * Convert any stream resources waiting to be writable into
-             * StreamSelectors.
-             */
-            if (null !== $write) {
-                foreach ($write as $w) {
-                    $selector      = StreamSelector::create($w, DriverInterface::STREAM_WRITE);
-                    $selectables[] = $selector;
-                    $returnables[] = $selector;
-                }
-            }
+            foreach ($selectables as $selectable) {
+                if ($selectable instanceof Fiber) {
+                    $cos[] = self::go(static function() use ($selectable, $flag, &$selected) {
+                        try {
+                            self::await($selectable);
+                        }
+                        catch (Throwable) {}
+                        finally {
+                            if ($selected === null) {
+                                $selected = $selectable;
+                                self::raiseFlag($flag);
+                            }
+                        }
 
-            if (empty($selectables)) {
+                    });
+                } elseif ($selectable instanceof SelectableInterface) {
+                    $cos[] = self::go(static function() use ($selectable, $flag, &$selected) {
+                        try {
+                            while (!$selectable->isReady()) {
+                                $selectable->await();
+                            }
+                        } catch (Throwable) {
+                        } finally {
+                            if ($selected === null) {
+                                $selected = $selectable;
+                                self::raiseFlag($flag);
+                            }
+                        }
+                    });
+                } elseif (null !== ($selector = Selector::create($selectable))) {
+                    $cos[] = self::go(static function() use ($selector, $flag, &$selected) {
+                        try {
+                            while (!$selector->isReady()) {
+                                $selector->await();
+                            }
+                        }
+                        catch (Throwable $e) {}
+                        finally {
+                            if ($selected === null) {
+                                $selected = $selector->getSelected();
+                                self::raiseFlag($flag);
+                                $selector->returnToPool();
+                            }
+                        }
+                    });
+                } else {
+                    throw new InvalidArgumentException("Unsupported selectable " . \get_debug_type($selectable));
+                }
+            }
+            if ($read !== null) {
+                foreach ($read as $resource) {
+                    $cos[] = self::go(static function() use ($resource, $flag, &$selected) {
+                        self::readable($resource, \PHP_FLOAT_MAX);
+                        if ($selected === null) {
+                            $selected = $resource;
+                            self::raiseFlag($flag);
+                        }
+                    });
+                }
+            }
+            if ($write !== null) {
+                foreach ($write as $resource) {
+                    $cos[] = self::go(static function() use ($resource, $flag, &$selected) {
+                        self::readable($resource, \PHP_FLOAT_MAX);
+                        if ($selected === null) {
+                            $selected = $resource;
+                            self::raiseFlag($flag);
+                        }
+                    });
+                }
+            }
+            if (empty($cos)) {
                 return null;
             }
-
-            foreach ($selectables as $selectable) {
-                $selectable->getSelectManager()->addFlag($selectFlag);
+            if ($selected !== null) {
+                return $selected;
             }
-            while (true) {
-                try {
-                    self::awaitFlag($selectFlag, $stopTime - \microtime(true));
-                    foreach ($selectables as $selectable) {
-                        if (!$selectable->selectWillBlock()) {
-                            if ($selectable instanceof SelectorInterface) {
-                                return $selectable->getSelected();
-                            }
-
-                            return $selectable;
-                        }
-                    }
-                } catch (TimeoutException) {
-                    return null;
-                }
+            try {
+                self::awaitFlag($flag, $timeout);
+            } catch (TimeoutException) {
+                return null;
             }
+            return $selected;
         } finally {
-            foreach ($selectables as $selectable) {
-                if ($selectable instanceof SelectableInterface) {
-                    $selectable->getSelectManager()->removeFlag($selectFlag);
-                }
-            }
-            foreach ($returnables as $returnable) {
-                $returnable->returnToPool();
+            $driver = self::getDriver();
+            foreach ($cos as $coroutine) {
+                $driver->discard($coroutine);
             }
         }
     }
@@ -531,8 +547,7 @@ final class phasync
             self::go(static function () use ($fiber, $queues) {
                 try {
                     self::await($fiber);
-                } catch (Throwable) {
-                }
+                } catch (Throwable) {}
                 while (!empty($queues[$fiber])) {
                     \array_pop($queues[$fiber])();
                 }
@@ -654,11 +669,7 @@ final class phasync
         }
         $timeout = $timeout ?? self::getDefaultTimeout();
         $driver->whenIdle($timeout, $fiber);
-        try {
-            self::suspend();
-        } catch (TimeoutException) {
-            // Timeouts are not errors
-        }
+        self::suspend();
     }
 
     /**

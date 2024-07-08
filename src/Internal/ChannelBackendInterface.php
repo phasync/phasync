@@ -13,7 +13,11 @@ use phasync\WriteChannelInterface;
  */
 interface ChannelBackendInterface extends ReadChannelInterface, WriteChannelInterface
 {
-    public function readWillBlock(): bool;
+    public function isReadyForRead(): bool;
 
-    public function writeWillBlock(): bool;
+    public function awaitReadable(): void;
+
+    public function isReadyForWrite(): bool;
+
+    public function awaitWritable(): void;
 }

@@ -1,5 +1,7 @@
 <?php
 
+use phasync\Util\WaitGroup;
+
 use function PHPUnit\Framework\assertGreaterThan;
 use function PHPUnit\Framework\assertLessThan;
 use function PHPUnit\Framework\assertTrue;
@@ -88,7 +90,7 @@ test('using phasync::channel() outside of phasync fails', function () {
 
 test('using phasync::waitGroup() outside of phasync fails', function () {
     expect(function () {
-        $wg = phasync::waitGroup();
+        $wg = new WaitGroup();
         $wg->add();
         $wg->await();
     })->toThrow(LogicException::class);

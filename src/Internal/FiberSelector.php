@@ -5,6 +5,8 @@ namespace phasync\Internal;
 use Fiber;
 use phasync;
 use phasync\SelectorInterface;
+use stdClass;
+use Throwable;
 
 /**
  * This class can be used with stream resources to become selectable
@@ -16,11 +18,11 @@ use phasync\SelectorInterface;
 final class FiberSelector implements SelectorInterface, ObjectPoolInterface
 {
     use ObjectPoolTrait;
-    use SelectableTrait;
 
     private int $id;
     private ?\Fiber $fiber;
     private ?\Fiber $waitFiber;
+    private object $flag;
 
     public function getSelected(): \Fiber
     {
@@ -40,7 +42,7 @@ final class FiberSelector implements SelectorInterface, ObjectPoolInterface
             } catch (\Throwable $e) {
                 // Ignore errors in the wait fiber
             } finally {
-                $instance->getSelectManager()->notify();
+                phasync::raiseFlag($instance->flag);
                 $instance->waitFiber = null;
             }
         });
@@ -51,6 +53,7 @@ final class FiberSelector implements SelectorInterface, ObjectPoolInterface
     private function __construct()
     {
         $this->id = \spl_object_id($this);
+        $this->flag = new stdClass;
     }
 
     public function returnToPool(): void
@@ -63,8 +66,16 @@ final class FiberSelector implements SelectorInterface, ObjectPoolInterface
         self::$pool[self::$instanceCount++] = $this;
     }
 
-    public function selectWillBlock(): bool
+    public function isReady(): bool
     {
-        return null !== $this->fiber && !$this->fiber->isTerminated();
+        return null === $this->fiber || $this->fiber->isTerminated();
+    }
+
+    public function await(): void {
+        while (!$this->isReady()) {
+            try {
+                phasync::awaitFlag($this->flag);
+            } catch (Throwable $e) {}
+        }
     }
 }

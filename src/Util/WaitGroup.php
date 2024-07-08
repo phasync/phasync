@@ -11,13 +11,12 @@ use phasync\SelectableInterface;
  */
 final class WaitGroup implements SelectableInterface
 {
-    use SelectableTrait;
 
     private int $counter = 0;
 
-    public function selectWillBlock(): bool
+    public function isReady(): bool
     {
-        return $this->counter > 0;
+        return $this->counter === 0;
     }
 
     /**
@@ -41,7 +40,6 @@ final class WaitGroup implements SelectableInterface
         if (0 === --$this->counter) {
             // Activate any waiting coroutines
             \phasync::raiseFlag($this);
-            $this->selectManager?->notify();
         }
     }
 
@@ -53,7 +51,7 @@ final class WaitGroup implements SelectableInterface
      */
     public function await(): void
     {
-        if ($this->counter > 0) {
+        if (!$this->isReady()) {
             \phasync::awaitFlag($this);
         }
     }

@@ -25,6 +25,7 @@ final class Flag implements ObjectPoolInterface
     private int $id;
     private DriverInterface $driver;
 
+
     public static function create(DriverInterface $driver): Flag
     {
         $instance = self::popInstance();
@@ -39,15 +40,26 @@ final class Flag implements ObjectPoolInterface
 
     private function __construct(DriverInterface $driver)
     {
-        $this->id                   = \spl_object_id($this);
-        $this->driver               = $driver;
+        $this->id = \spl_object_id($this);
+        $this->driver = $driver;
         self::$allFibers[$this->id] = [];
+    }
+
+    /**
+     * Ensures any waiting Fiber instances are resumed.
+     *
+     * @return void
+     */
+    public function __destruct()
+    {
+        $this->cancelAll(new CancelledException('The flag no longer exists'));
+        unset(self::$allFibers[$this->id]);
     }
 
     public function listFibers(): void
     {
         foreach (self::$allFibers[$this->id] as $fiber) {
-            echo ' - ' . Debug::getDebugInfo($fiber) . "\n";
+            echo ' - '.Debug::getDebugInfo($fiber)."\n";
         }
     }
 
@@ -60,7 +72,7 @@ final class Flag implements ObjectPoolInterface
             return 0;
         }
         $driver = $this->driver;
-        $count  = 0;
+        $count = 0;
         foreach (self::$allFibers[$this->id] as $k => $fiber) {
             unset(self::$allFibers[$this->id][$k]);
             unset($driver->flagGraph[$fiber]);
@@ -77,9 +89,7 @@ final class Flag implements ObjectPoolInterface
             return;
         }
         foreach (self::$allFibers[$this->id] as $fid => $fiber) {
-            if ($fiber->isTerminated()) {
-                $this->driver->handleTerminatedFiber($fiber);
-            } else {
+            if (!$fiber->isTerminated()) {
                 $this->driver->enqueueWithException($fiber, $cancellationException ?? new CancelledException('The operation was cancelled'));
             }
             unset(self::$allFibers[$this->id][$fid]);
@@ -91,17 +101,6 @@ final class Flag implements ObjectPoolInterface
     {
         $this->cancelAll();
         $this->pushInstance();
-    }
-
-    /**
-     * Ensures any waiting Fiber instances are resumed.
-     *
-     * @return void
-     */
-    public function __destruct()
-    {
-        $this->cancelAll(new CancelledException('The flag no longer exists'));
-        unset(self::$allFibers[$this->id]);
     }
 
     public function count(): int
