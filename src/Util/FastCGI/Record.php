@@ -55,7 +55,7 @@ final class Record implements ObjectPoolInterface
         self::FCGI_STDERR            => 'FCGI_STDERR',
         self::FCGI_DATA              => 'FCGI_DATA',
         self::FCGI_GET_VALUES        => 'FCGI_GET_VALUES',
-        self::FCGI_GET_VALUES_RESULT => 'FCGI_VALUES_RESULT',
+        self::FCGI_GET_VALUES_RESULT => 'FCGI_GET_VALUES_RESULT',
         self::FCGI_UNKNOWN_TYPE      => 'FCGI_UNKNOWN_TYPE',
     ];
 
@@ -153,6 +153,11 @@ final class Record implements ObjectPoolInterface
     {
         $this->type    = self::FCGI_ABORT_REQUEST;
         $this->content = '';
+    }
+
+    public function setUnknownType(int $recordType) {
+        $this->type = self::FCGI_UNKNOWN_TYPE;
+        $this->content = \pack('Cx7', $recordType);
     }
 
     public function setEndRequest(int $appStatus = 0, int $protocolStatus = self::FCGI_PROT_STATUS_REQUEST_COMPLETE): void

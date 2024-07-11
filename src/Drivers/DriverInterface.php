@@ -83,10 +83,10 @@ interface DriverInterface extends \Countable
     public function whenResourceActivity(mixed $resource, int $mode, float $timeout, \Fiber $fiber): void;
 
     /**
-     * Returns the last resource state for resources where the monitoring used a combination
-     * of DriverInterface::STREAM_* constants.
+     * Returns the last resource state result for a fiber that called {@see self::whenResourceActivity()}
+     * The result is a bitmap of DriverInterface::STREAM_* constants.
      */
-    public function getLastResourceState(mixed $resource): ?int;
+    public function getLastResourceState(Fiber $fiber): ?int;
 
     /**
      * Schedule the Fiber instance to run after the specified number of seconds.

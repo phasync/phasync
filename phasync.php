@@ -749,20 +749,27 @@ final class phasync
             \stream_set_blocking($resource, false);
         }
 
-        try {
+        $driver = self::getDriver();
+        if ($fiber = $driver->getCurrentFiber()) {
             // check using the event loop
-            $driver = self::getDriver();
-            if ($fiber = $driver->getCurrentFiber()) {
-                $timeout = $timeout ?? self::getDefaultTimeout();
+            $timeout = $timeout ?? self::getDefaultTimeout();
+            $result = null;
+            try {
                 $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
                 self::suspend();
-
-                return $driver->getLastResourceState($resource);
+                return $result = $driver->getLastResourceState($fiber);
             }
+            finally {
+                if ($result === null) {
+                    $driver->getLastResourceState($fiber);
+                }
+            }
+        } else {
+            // Not inside the event loop, so check directly
 
             // The functionality should work on non-blocking resources even outside of phasync
             $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
-            while (true) {
+            do {
                 $r = $w = $e = [];
                 if ($mode & self::READABLE) {
                     $r[] = $resource;
@@ -788,11 +795,8 @@ final class phasync
 
                     return $result;
                 }
-                if ($stopTime < \microtime(true)) {
-                    throw new TimeoutException('The operation timed out');
-                }
-            }
-        } finally {
+            } while ($stopTime < \microtime(true));
+            throw ExceptionTool::popTrace(new TimeoutException('Timeout'));
         }
     }
 
@@ -1113,6 +1117,8 @@ final class phasync
     {
         try {
             Fiber::suspend();
+        } catch (TimeoutException) {
+            throw ExceptionTool::popTrace(new TimeoutException("Timeout"));
         } catch (RethrowExceptionInterface $e) {
             $e->rebuildStackTrace();
             throw $e;

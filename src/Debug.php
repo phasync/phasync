@@ -44,13 +44,14 @@ final class Debug
      */
     public static function getDebugInfo($subject): string
     {
+        $cwd = getcwd() . \DIRECTORY_SEPARATOR;
         if ($subject instanceof \Fiber) {
             // Gather information about the Fiber
             $rf = new \ReflectionFiber($subject);
 
             $status = match (true) {
                 $subject->isTerminated() => 'terminated',
-                $subject->isSuspended()  => 'suspended at ' . $rf->getExecutingFile() . '(' . $rf->getExecutingLine() . ')',
+                $subject->isSuspended()  => 'suspended at ' . \str_replace($cwd, '', $rf->getExecutingFile()) . '(' . $rf->getExecutingLine() . ')',
                 $subject->isRunning()    => 'running',
                 default                  => 'unknown',
             };
@@ -61,7 +62,7 @@ final class Debug
             $ref       = new \ReflectionFunction($subject);
             $startLine = $ref->getStartLine();
             $endLine   = $ref->getEndLine();
-            $filename  = $ref->getFileName();
+            $filename  = \str_replace($cwd, '', $ref->getFileName());
 
             return \sprintf(
                 'Closure%d(%s(%d))',
@@ -74,7 +75,7 @@ final class Debug
             $kvs = [ 'count=' . count($subject) ];
             foreach ($subject as $k => $v) {
                 $kvs[] = Debug::getDebugInfo($k) . '=>' . Debug::getDebugInfo($v);
-                if (count($kvs) > 4) break;
+                if (count($kvs) > 2) break;
             }
             return $result . '(' . implode(" ", $kvs) . ')';
         } elseif (\is_object($subject)) {

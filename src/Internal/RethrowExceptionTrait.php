@@ -16,6 +16,7 @@ trait RethrowExceptionTrait
      */
     public function rebuildStackTrace(): void
     {
+        return;
         // Get the current stack trace
         $finalTrace = [];
         $file       = null;
