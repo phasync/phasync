@@ -13,6 +13,7 @@ use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\FiberState;
 use phasync\Internal\Flag;
 use phasync\Internal\Scheduler;
+use phasync\IOException;
 use phasync\TimeoutException;
 use WeakMap;
 
@@ -262,7 +263,15 @@ final class StreamSelectDriver implements DriverInterface
             /** @var array<int,\Fiber[]> */
             $resourceFiberMap = [];
 
+            $streamCount = 0;
             foreach ($this->streams as $fiber => [$resource, $mode]) {
+                if (!\is_resource($resource)) {
+                    unset($this->streams[$fiber]);
+                    $this->streamResults[$fiber] = 0;
+                    $this->enqueueWithException($fiber, new IOException('Stream closed'));
+                    continue;
+                }
+                ++$streamCount;
                 $resourceId = \get_resource_id($resource);
                 $resourceFiberMap[$resourceId][] = $fiber;
                 if ($mode & DriverInterface::STREAM_READ) {
@@ -276,21 +285,23 @@ final class StreamSelectDriver implements DriverInterface
                 }
             }
 
-            $result = \stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
+            if ($streamCount > 0) {
+                $result = @\stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
 
-            if ($result !== false && $result > 0) {
-                foreach ([
-                    DriverInterface::STREAM_READ => $reads,
-                    DriverInterface::STREAM_WRITE => $writes,
-                    DriverInterface::STREAM_EXCEPT => $excepts,
-                ] as $mode => $resourceList) {
-                    foreach ($resourceList as $resource) {
-                        $resourceId = \get_resource_id($resource);
-                        foreach ($resourceFiberMap[$resourceId] as $fiber) {
-                            $this->streamResults[$fiber] |= $mode;
-                            if (isset($this->streams[$fiber])) {
-                                $this->enqueue($fiber);
-                                unset($this->streams[$fiber]);
+                if ($result !== false && $result > 0) {
+                    foreach ([
+                        DriverInterface::STREAM_READ => $reads,
+                        DriverInterface::STREAM_WRITE => $writes,
+                        DriverInterface::STREAM_EXCEPT => $excepts,
+                    ] as $mode => $resourceList) {
+                        foreach ($resourceList as $resource) {
+                            $resourceId = \get_resource_id($resource);
+                            foreach ($resourceFiberMap[$resourceId] as $fiber) {
+                                $this->streamResults[$fiber] |= $mode;
+                                if (isset($this->streams[$fiber])) {
+                                    $this->enqueue($fiber);
+                                    unset($this->streams[$fiber]);
+                                }
                             }
                         }
                     }

@@ -9,18 +9,14 @@ use phasync\Drivers\StreamSelectDriver;
 use phasync\Internal\AsyncStream;
 use phasync\Internal\ChannelBuffered;
 use phasync\Internal\ChannelUnbuffered;
-use phasync\Internal\ClosureSelector;
 use phasync\Internal\ExceptionTool;
-use phasync\Internal\FiberSelector;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\Selector;
-use phasync\Internal\StreamSelector;
 use phasync\Internal\Subscribers;
 use phasync\Internal\WriteChannel;
+use phasync\IOException;
 use phasync\ReadChannelInterface;
-use phasync\RethrowExceptionInterface;
 use phasync\SelectableInterface;
-use phasync\SelectorInterface;
 use phasync\SubscribersInterface;
 use phasync\TimeoutException;
 use phasync\Util\WaitGroup;
@@ -56,13 +52,13 @@ final class phasync
 {
     /**
      * Block the coroutine until the stream becomes readable.
-     * {@see phasync::stream()}
+     * {@see phasync::stream()}.
      */
     public const READABLE = DriverInterface::STREAM_READ;
 
     /**
      * Block the coroutine until the stream becomes writable.
-     * {@see phasync::stream()}
+     * {@see phasync::stream()}.
      */
     public const WRITABLE = DriverInterface::STREAM_WRITE;
 
@@ -78,7 +74,7 @@ final class phasync
     /**
      * The default timeout in seconds used throughout the library,
      * unless another timeout is configured via
-     * {@see phasync::setDefaultTimeout()}
+     * {@see phasync::setDefaultTimeout()}.
      */
     public const DEFAULT_TIMEOUT = 30.0;
 
@@ -96,7 +92,7 @@ final class phasync
     public const DEFAULT_PREEMPT_INTERVAL = 50000000;
 
     /**
-     * The recursion depth of run statements that are active
+     * The recursion depth of run statements that are active.
      */
     private static int $runDepth = 0;
 
@@ -135,7 +131,7 @@ final class phasync
     private static int $lastPreemptTime = 0;
 
     private static array $onEnterCallbacks = [];
-    private static array $onExitCallbacks  = [];
+    private static array $onExitCallbacks = [];
 
     /**
      * Register a coroutine/Fiber to run in the event loop and await the result.
@@ -264,7 +260,7 @@ final class phasync
             }, args: [$fn, $args, $concurrent]);
         }
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
+        $fiber = $driver->getCurrentFiber();
         if (!$fiber) {
             if ($run) {
                 $result = phasync::run($fn, $args, $context);
@@ -294,7 +290,7 @@ final class phasync
     public static function service(Closure $coroutine): void
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
+        $fiber = $driver->getCurrentFiber();
         if (null === $fiber || null === $driver->getContext($fiber)) {
             throw new LogicException('Services must be started on-demand inside a coroutine.');
         }
@@ -312,9 +308,9 @@ final class phasync
      */
     public static function await(object $fiberOrPromise, ?float $timeout = null): mixed
     {
-        $timeout      = $timeout ?? self::getDefaultTimeout();
-        $startTime    = \microtime(true);
-        $driver       = self::getDriver();
+        $timeout = $timeout ?? self::getDefaultTimeout();
+        $startTime = \microtime(true);
+        $driver = self::getDriver();
         $currentFiber = $driver->getCurrentFiber();
 
         if ($fiberOrPromise instanceof Fiber) {
@@ -366,7 +362,7 @@ final class phasync
         if ($currentFiber) {
             // We are in a Fiber
             while (!$fiber->isTerminated()) {
-                $elapsed   = \microtime(true) - $startTime;
+                $elapsed = \microtime(true) - $startTime;
                 $remaining = $timeout - $elapsed;
                 if ($remaining < 0) {
                     throw new TimeoutException('The coroutine did not complete in time');
@@ -379,10 +375,10 @@ final class phasync
              * @todo Move this to the phasync::run() method.
              */
             while (!$fiber->isTerminated()) {
-                $elapsed   = \microtime(true) - $startTime;
+                $elapsed = \microtime(true) - $startTime;
                 $remaining = $timeout - $elapsed;
                 if ($remaining < 0) {
-                    throw new TimeoutException('The coroutine (' . Debug::getDebugInfo($fiber) . ') did not complete in time');
+                    throw new TimeoutException('The coroutine ('.Debug::getDebugInfo($fiber).') did not complete in time');
                 }
                 $driver->tick();
             }
@@ -396,7 +392,7 @@ final class phasync
 
     /**
      * Block until one of the selectable objects, closures, resources or fibers terminate. Note that
-     * this statement can be used as part of a {@see \match} statement:
+     * this statement can be used as part of a {@see match} statement:
      *
      * ```php
      * match(phasync::select([$a, $b, $c])) {
@@ -407,14 +403,14 @@ final class phasync
      * ```
      *
      * @param (Fiber|Closure|SelectableInterface)[] $selectables
-     * @param resource[] $read        Wait for stream resources to become readable
-     * @param resource[] $write       Wait for stream resources to become writable
+     * @param resource[]                            $read        Wait for stream resources to become readable
+     * @param resource[]                            $write       Wait for stream resources to become writable
+     *
+     * @return SelectableInterface|resource|Fiber
      *
      * @throws LogicException
      * @throws FiberError
      * @throws Throwable
-     *
-     * @return SelectableInterface|resource|Fiber
      */
     public static function select(array $selectables, ?float $timeout = null, ?array $read = null, ?array $write = null): mixed
     {
@@ -423,29 +419,27 @@ final class phasync
         }
 
         /**
-         * Start coroutines for each selectable
+         * Start coroutines for each selectable.
          */
-        $flag = new stdClass;
+        $flag = new stdClass();
         $cos = [];
         $selected = null;
         try {
             foreach ($selectables as $selectable) {
                 if ($selectable instanceof Fiber) {
-                    $cos[] = self::go(static function() use ($selectable, $flag, &$selected) {
+                    $cos[] = self::go(static function () use ($selectable, $flag, &$selected) {
                         try {
                             self::await($selectable);
-                        }
-                        catch (Throwable) {}
-                        finally {
+                        } catch (Throwable) {
+                        } finally {
                             if ($selected === null) {
                                 $selected = $selectable;
                                 self::raiseFlag($flag);
                             }
                         }
-
                     });
                 } elseif ($selectable instanceof SelectableInterface) {
-                    $cos[] = self::go(static function() use ($selectable, $flag, &$selected) {
+                    $cos[] = self::go(static function () use ($selectable, $flag, &$selected) {
                         try {
                             while (!$selectable->isReady()) {
                                 $selectable->await();
@@ -459,14 +453,13 @@ final class phasync
                         }
                     });
                 } elseif (null !== ($selector = Selector::create($selectable))) {
-                    $cos[] = self::go(static function() use ($selector, $flag, &$selected) {
+                    $cos[] = self::go(static function () use ($selector, $flag, &$selected) {
                         try {
                             while (!$selector->isReady()) {
                                 $selector->await();
                             }
-                        }
-                        catch (Throwable $e) {}
-                        finally {
+                        } catch (Throwable $e) {
+                        } finally {
                             if ($selected === null) {
                                 $selected = $selector->getSelected();
                                 self::raiseFlag($flag);
@@ -475,12 +468,12 @@ final class phasync
                         }
                     });
                 } else {
-                    throw new InvalidArgumentException("Unsupported selectable " . \get_debug_type($selectable));
+                    throw new InvalidArgumentException('Unsupported selectable '.\get_debug_type($selectable));
                 }
             }
             if ($read !== null) {
                 foreach ($read as $resource) {
-                    $cos[] = self::go(static function() use ($resource, $flag, &$selected) {
+                    $cos[] = self::go(static function () use ($resource, $flag, &$selected) {
                         self::readable($resource, \PHP_FLOAT_MAX);
                         if ($selected === null) {
                             $selected = $resource;
@@ -491,7 +484,7 @@ final class phasync
             }
             if ($write !== null) {
                 foreach ($write as $resource) {
-                    $cos[] = self::go(static function() use ($resource, $flag, &$selected) {
+                    $cos[] = self::go(static function () use ($resource, $flag, &$selected) {
                         self::readable($resource, \PHP_FLOAT_MAX);
                         if ($selected === null) {
                             $selected = $resource;
@@ -511,6 +504,7 @@ final class phasync
             } catch (TimeoutException) {
                 return null;
             }
+
             return $selected;
         } finally {
             $driver = self::getDriver();
@@ -547,7 +541,8 @@ final class phasync
             self::go(static function () use ($fiber, $queues) {
                 try {
                     self::await($fiber);
-                } catch (Throwable) {}
+                } catch (Throwable) {
+                }
                 while (!empty($queues[$fiber])) {
                     \array_pop($queues[$fiber])();
                 }
@@ -598,7 +593,7 @@ final class phasync
                     // call, so we'll just set it here and wait for the next call.
                     self::$lastPreemptTime = $now;
                 } else {
-                    $driver                = self::getDriver();
+                    $driver = self::getDriver();
                     self::$lastPreemptTime = $now;
                     $driver->enqueue($driver->getCurrentFiber());
                     self::suspend();
@@ -622,7 +617,7 @@ final class phasync
     public static function sleep(float $seconds = 0): void
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
+        $fiber = $driver->getCurrentFiber();
         if ($seconds <= 0) {
             if (null === $fiber) {
                 return;
@@ -648,7 +643,7 @@ final class phasync
     public static function yield(): void
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
+        $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
             return;
         }
@@ -663,7 +658,7 @@ final class phasync
     public static function idle(?float $timeout = null): void
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
+        $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
             return;
         }
@@ -693,14 +688,18 @@ final class phasync
      *
      * @param resource $resource
      *
+     * @return resource Returns the same resource for convenience
+     *
      * @throws FiberError
      * @throws Throwable
-     *
-     * @return resource Returns the same resource for convenience
      */
     public static function readable(mixed $resource, ?float $timeout = null): mixed
     {
         self::stream($resource, self::READABLE, $timeout);
+
+        if (!\is_resource($resource)) {
+            throw new IOException('Not a valid stream resource');
+        }
 
         return $resource;
     }
@@ -711,14 +710,18 @@ final class phasync
      *
      * @param resource $resource
      *
+     * @return resource Returns the same resource for convenience
+     *
      * @throws FiberError
      * @throws Throwable
-     *
-     * @return resource Returns the same resource for convenience
      */
     public static function writable(mixed $resource, ?float $timeout = null): mixed
     {
         self::stream($resource, self::WRITABLE, $timeout);
+
+        if (!\is_resource($resource)) {
+            throw new IOException('Not a valid stream resource');
+        }
 
         return $resource;
     }
@@ -757,9 +760,9 @@ final class phasync
             try {
                 $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
                 self::suspend();
+
                 return $result = $driver->getLastResourceState($fiber);
-            }
-            finally {
+            } finally {
                 if ($result === null) {
                     $driver->getLastResourceState($fiber);
                 }
@@ -815,12 +818,12 @@ final class phasync
     {
         if (0 === $bufferSize) {
             $channel = new ChannelUnbuffered();
-            $read    = new ReadChannel($channel);
-            $write   = new WriteChannel($channel);
+            $read = new ReadChannel($channel);
+            $write = new WriteChannel($channel);
         } else {
             $channel = new ChannelBuffered($bufferSize);
-            $read    = new ReadChannel($channel);
-            $write   = new WriteChannel($channel);
+            $read = new ReadChannel($channel);
+            $write = new WriteChannel($channel);
         }
     }
 
@@ -868,7 +871,7 @@ final class phasync
     public static function awaitFlag(object $signal, ?float $timeout = null): void
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
+        $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
             throw ExceptionTool::popTrace(new LogicException('Can only await flags from within a coroutine'));
         }
@@ -1085,7 +1088,7 @@ final class phasync
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             throw new InvalidArgumentException('Expecting a valid stream resource');
         }
-        $r     = $w = $e = [$resource];
+        $r = $w = $e = [$resource];
         $count = \stream_select($r, $w, $e, 0, 0);
         if (false === $count) {
             throw new RuntimeException('Unable to poll stream resource');
@@ -1117,11 +1120,13 @@ final class phasync
     {
         try {
             Fiber::suspend();
-        } catch (TimeoutException) {
-            throw ExceptionTool::popTrace(new TimeoutException("Timeout"));
-        } catch (RethrowExceptionInterface $e) {
-            $e->rebuildStackTrace();
-            throw $e;
+        } catch (Throwable $e) {
+            try {
+                $className = \get_class($e);
+                throw new $className($e->getMessage(), $e->getCode(), $e);
+            } catch (Throwable) {
+                throw $e;
+            }
         }
     }
 
@@ -1162,7 +1167,7 @@ final class phasync
      */
     public static function logUnhandledException(Throwable $exception): void
     {
-        \error_log("UNHANDLED EXCEPTION:\n" . $exception->__toString() . "\nLogged from:" . (new Exception())->getTraceAsString(), $exception->getCode());
+        \error_log("UNHANDLED EXCEPTION:\n".$exception->__toString()."\nLogged from:".(new Exception())->getTraceAsString(), $exception->getCode());
     }
 
     /**
