@@ -2,6 +2,7 @@
 
 namespace phasync\Drivers;
 
+use Closure;
 use Fiber;
 use phasync\Context\ContextInterface;
 
@@ -30,6 +31,13 @@ interface DriverInterface extends \Countable
      * returned Fiber, and be thrown when the coroutine is awaited.
      */
     public function create(\Closure $closure, array $args = [], ?ContextInterface $context = null): \Fiber;
+
+    /**
+     * Schedule a callback to be invoked after the current (or next) tick, outside of the fiber.
+     *
+     * @param Closure $closure
+     */
+    public function defer(\Closure $closure): void;
 
     /**
      * Create a coroutine that will run independently of contexts. It will run in the event

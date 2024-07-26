@@ -2,6 +2,7 @@
 
 namespace phasync\Drivers;
 
+use Closure;
 use Fiber;
 use phasync\CancelledException;
 use phasync\Context\ContextInterface;
@@ -10,11 +11,12 @@ use phasync\Context\ServiceContext;
 use phasync\Debug;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;
-use phasync\Internal\FiberState;
 use phasync\Internal\Flag;
 use phasync\Internal\Scheduler;
 use phasync\IOException;
 use phasync\TimeoutException;
+use SplQueue;
+use Throwable;
 use WeakMap;
 
 final class StreamSelectDriver implements DriverInterface
@@ -131,6 +133,13 @@ final class StreamSelectDriver implements DriverInterface
     private bool $shouldGarbageCollect = false;
 
     /**
+     * Callbacks to be invoked between fibers.
+     *
+     * @var SplQueue<Closure>
+     */
+    private SplQueue $callbackQueue;
+
+    /**
      * The time since the last garbage collect cycles invoked.
      */
     private float $lastGarbageCollect = 0;
@@ -159,6 +168,7 @@ final class StreamSelectDriver implements DriverInterface
         $this->serviceContext = new ServiceContext();
         $this->streams = new \WeakMap();
         $this->streamResults = new \WeakMap();
+        $this->callbackQueue = new \SplQueue();
     }
 
     public function getFullState(): array
@@ -377,6 +387,12 @@ final class StreamSelectDriver implements DriverInterface
             $this->lastGarbageCollect = $now;
             $this->shouldGarbageCollect = false;
         }
+
+        while (!$this->callbackQueue->isEmpty()) {
+            $callback = $this->callbackQueue->dequeue();
+            $callback();
+        }
+
     }
 
     public function runService(\Closure $closure): void
@@ -422,6 +438,7 @@ final class StreamSelectDriver implements DriverInterface
 
             return $fiber;
         } catch (\Throwable $e) {
+            //$e = ExceptionTool::popTrace($e, __FILE__);
             $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
 
             return $fiber;
@@ -521,6 +538,10 @@ final class StreamSelectDriver implements DriverInterface
         } while ($current instanceof \Fiber);
 
         return false;
+    }
+
+    public function defer(Closure $callback): void {
+        $this->callbackQueue->enqueue($callback);
     }
 
     public function whenIdle(float $timeout, \Fiber $fiber): void

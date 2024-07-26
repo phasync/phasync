@@ -2,6 +2,9 @@
 
 namespace phasync\Process;
 
+use phasync;
+use RuntimeException;
+
 final class PosixProcessRunner implements ProcessInterface
 {
     /**
@@ -75,25 +78,17 @@ final class PosixProcessRunner implements ProcessInterface
         $this->poll();
     }
 
-    public function __destruct()
-    {
-        $this->stop();
-
-        // We'll assume the process has been terminated now
-        foreach ($this->pipes as $pipe) {
-            if (\is_resource($pipe)) {
-                \fclose($pipe);
-            }
-        }
-    }
-
     public function stop(): bool
     {
         if ($this->isRunning()) {
             $this->sigterm();
             $t = \microtime(true);
             while ($this->isRunning() && \microtime(true) - $t < 1) {
-                \phasync::sleep(0.05);
+                if (phasync::isRunning()) {
+                    \phasync::sleep(0.05);
+                } else {
+                    usleep(50000);
+                }
             }
             if ($this->isRunning()) {
                 $this->sigkill();

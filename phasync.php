@@ -282,6 +282,15 @@ final class phasync
     }
 
     /**
+     * Schedule a callback to be invoked immediately after the current (or next) tick.
+     *
+     * @param Closure $callback
+     */
+    public static function defer(Closure $callback): void {
+        self::getDriver()->defer($callback);
+    }
+
+    /**
      * Launches a service coroutine independently of the context scope.
      * This service will be permitted to continue but MUST stop running
      * when it is no longer providing services to other fibers. Failing
