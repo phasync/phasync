@@ -54,9 +54,9 @@ final class ClosureSelector implements SelectorInterface, ObjectPoolInterface
         return $this->otherSelectable->isReady();
     }
 
-    public function await(): void
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
-        $this->otherSelectable->await();
+        $this->otherSelectable->await($timeout);
     }
 
     public function getSelected(): \Closure
@@ -78,13 +78,13 @@ final class ClosureSelector implements SelectorInterface, ObjectPoolInterface
         }
 
         if ($value instanceof SelectableInterface) {
-            $this->otherSelectable       = $value;
+            $this->otherSelectable             = $value;
             $this->returnOtherSelectableToPool = false;
 
             return;
         }
         if (null !== ($selector = Selector::create($value))) {
-            $this->otherSelectable       = $selector;
+            $this->otherSelectable             = $selector;
             $this->returnOtherSelectableToPool = true;
 
             return;

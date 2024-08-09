@@ -2,7 +2,6 @@
 
 namespace phasync\Drivers;
 
-use Closure;
 use Fiber;
 use phasync\Context\ContextInterface;
 
@@ -24,6 +23,11 @@ interface DriverInterface extends \Countable
     public function tick(): void;
 
     /**
+     * Clear the event loop driver, removing any scheduled fibers etc.
+     */
+    public function clear(): void;
+
+    /**
      * Create a coroutine. If no `$context` is provided, the new Fiber will inherit the
      * context of the current coroutine, or receive a new DefaultContext instance.
      *
@@ -34,8 +38,6 @@ interface DriverInterface extends \Countable
 
     /**
      * Schedule a callback to be invoked after the current (or next) tick, outside of the fiber.
-     *
-     * @param Closure $closure
      */
     public function defer(\Closure $closure): void;
 
@@ -94,7 +96,7 @@ interface DriverInterface extends \Countable
      * Returns the last resource state result for a fiber that called {@see self::whenResourceActivity()}
      * The result is a bitmap of DriverInterface::STREAM_* constants.
      */
-    public function getLastResourceState(Fiber $fiber): ?int;
+    public function getLastResourceState(\Fiber $fiber): ?int;
 
     /**
      * Schedule the Fiber instance to run after the specified number of seconds.
@@ -130,10 +132,9 @@ interface DriverInterface extends \Countable
      * This is for advanced use cases where coroutines can be discarded without
      * further notice or error handling.
      *
-     * @param Fiber $fiber
-     * @return bool True if a fiber was discarded.
+     * @return bool true if a fiber was discarded
      */
-    public function discard(Fiber $fiber): bool;
+    public function discard(\Fiber $fiber): bool;
 
     /**
      * Returns the unhandled exception thrown by a Fiber.

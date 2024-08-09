@@ -3,7 +3,6 @@
 namespace phasync\Util;
 
 use phasync;
-use phasync\Internal\SelectManager;
 use phasync\ReadChannelInterface;
 use phasync\SelectableInterface;
 
@@ -28,7 +27,7 @@ final class RateLimiter implements SelectableInterface
 {
     private ReadChannelInterface $readChannel;
 
-    public function __construct(float $eventsPerSecond, int $burst=0)
+    public function __construct(float $eventsPerSecond, int $burst = 0)
     {
         if ($eventsPerSecond <= 0) {
             throw new \InvalidArgumentException('Events per second must be greater than 0');
@@ -44,7 +43,7 @@ final class RateLimiter implements SelectableInterface
         });
     }
 
-    public function await(): void
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
         $this->readChannel->read();
     }

@@ -10,7 +10,6 @@ use phasync\WriteChannelInterface;
 final class WriteChannel implements WriteChannelInterface
 {
     private int $id;
-
     private ChannelBackendInterface $channel;
 
     public function __construct(ChannelBackendInterface $channel)
@@ -29,9 +28,9 @@ final class WriteChannel implements WriteChannelInterface
         return $this->channel->isReadyForWrite();
     }
 
-    public function await(): void
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
-        $this->channel->awaitWritable();
+        $this->channel->awaitWritable($timeout);
     }
 
     public function __destruct()
@@ -49,14 +48,13 @@ final class WriteChannel implements WriteChannelInterface
         return $this->channel->isClosed();
     }
 
-    public function write(\Serializable|array|string|float|int|bool|null $value): void
+    public function write(\Serializable|array|string|float|int|bool|null $value, float $timeout = \PHP_FLOAT_MAX): void
     {
-        $this->channel->write($value);
+        $this->channel->write($value, $timeout);
     }
 
     public function isWritable(): bool
     {
         return $this->channel->isWritable();
     }
-
 }

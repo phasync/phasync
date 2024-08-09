@@ -38,7 +38,7 @@ interface ReadChannelInterface extends SelectableInterface, Traversable
      *
      * @throws \RuntimeException
      */
-    public function read(): \Serializable|array|string|float|int|bool|null;
+    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null;
 
     /**
      * Returns true if the channel is still readable.

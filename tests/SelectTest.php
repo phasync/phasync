@@ -161,9 +161,9 @@ test('phasync::select() with multiple timeouts and mixed completion times', func
         });
 
         $result = match (phasync::select([$short, $medium, $long], timeout: 0.3)) {
-            $short => 'short',
+            $short  => 'short',
             $medium => 'medium',
-            $long => 'long',
+            $long   => 'long',
             default => 'timeout'
         };
 
@@ -171,14 +171,14 @@ test('phasync::select() with multiple timeouts and mixed completion times', func
 
         $result = match (phasync::select([$medium, $long], timeout: 0.7)) {
             $medium => 'medium',
-            $long => 'long',
+            $long   => 'long',
             default => 'timeout'
         };
 
         expect($result)->toBe('medium');
 
         $result = match (phasync::select([$long], timeout: 1.2)) {
-            $long => 'long',
+            $long   => 'long',
             default => 'timeout'
         };
 
@@ -194,26 +194,27 @@ test('phasync::select() with an empty array', function () {
 test('phasync::select() with high number of fibers', function () {
     phasync::run(function () {
         $fibers = [];
-        for ($i = 0; $i < 1000; $i++) {
+        for ($i = 0; $i < 1000; ++$i) {
             $fibers[] = phasync::go(function () use ($i) {
-                phasync::sleep(rand(1, 100) / 1000);
+                phasync::sleep(\mt_rand(1, 100) / 1000);
+
                 return $i;
             });
         }
 
         $result = phasync::select($fibers);
-        expect(is_int(phasync::await($result)))->toBeTrue();
+        expect(\is_int(phasync::await($result)))->toBeTrue();
     });
 });
 test('phasync::select() with fibers throwing different exceptions', function () {
     phasync::run(function () {
-        $fibers = [];
+        $fibers   = [];
         $fibers[] = phasync::go(function () {
-            throw new \InvalidArgumentException('Invalid argument');
+            throw new InvalidArgumentException('Invalid argument');
         });
         $fibers[] = phasync::go(function () {
             phasync::sleep(0.1);
-            throw new \RuntimeException('Runtime error');
+            throw new RuntimeException('Runtime error');
         });
 
         foreach ($fibers as $fiber) {
@@ -221,9 +222,9 @@ test('phasync::select() with fibers throwing different exceptions', function () 
                 $result = phasync::select([$fiber]);
                 phasync::await($result);
                 $this->fail('Expected an exception to be thrown');
-            } catch (\InvalidArgumentException $e) {
+            } catch (InvalidArgumentException $e) {
                 expect($e->getMessage())->toBe('Invalid argument');
-            } catch (\RuntimeException $e) {
+            } catch (RuntimeException $e) {
                 expect($e->getMessage())->toBe('Runtime error');
             }
         }
@@ -232,16 +233,17 @@ test('phasync::select() with fibers throwing different exceptions', function () 
 test('phasync::select() with maximum number of fibers', function () {
     phasync::run(function () {
         $maxFibers = 5000; // Example boundary condition
-        $fibers = [];
+        $fibers    = [];
 
-        for ($i = 0; $i < $maxFibers; $i++) {
+        for ($i = 0; $i < $maxFibers; ++$i) {
             $fibers[] = phasync::go(function () use ($i) {
-                phasync::sleep(rand(1, 100) / 1000);
+                phasync::sleep(\mt_rand(1, 100) / 1000);
+
                 return $i;
             });
         }
 
         $result = phasync::select($fibers);
-        expect(is_int(phasync::await($result)))->toBeTrue();
+        expect(\is_int(phasync::await($result)))->toBeTrue();
     });
 });

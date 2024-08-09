@@ -48,7 +48,7 @@ final class Subscribers implements SubscribersInterface
                     // Don't start reading until somebody is waiting
                     \phasync::yield();
                 }
-                do {
+                while (true) {
                     $message              = $readChannel->read();
                     if (null === $message && $readChannel->isClosed()) {
                         break;
@@ -60,7 +60,7 @@ final class Subscribers implements SubscribersInterface
                         \phasync::raiseFlag($notifyMessageFlag);
                         \phasync::yield();
                     }
-                } while (!$readChannel->isClosed());
+                }
             } finally {
                 $readChannel->close();
                 // A reference to self means there will be no more messages and the channel is closed
@@ -118,11 +118,11 @@ final class Subscribers implements SubscribersInterface
      * @throws TimeoutException
      * @throws \Throwable
      */
-    public function waitForMessage(): void
+    public function waitForMessage(float $timeout = \PHP_FLOAT_MAX): void
     {
         try {
             ++$this->waiting;
-            \phasync::awaitFlag($this->notifyMessageFlag);
+            \phasync::awaitFlag($this->notifyMessageFlag, $timeout);
         } finally {
             --$this->waiting;
         }

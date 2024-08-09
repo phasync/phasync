@@ -2,7 +2,6 @@
 
 namespace phasync\Internal;
 
-use Countable;
 use Fiber;
 use phasync\CancelledException;
 use phasync\Debug;
@@ -18,14 +17,13 @@ use WeakMap;
  *
  * @internal
  */
-final class Flag implements ObjectPoolInterface, Countable
+final class Flag implements ObjectPoolInterface, \Countable
 {
     use ObjectPoolTrait;
 
     private static array $allFibers = [];
     private int $id;
     private DriverInterface $driver;
-
 
     public static function create(DriverInterface $driver): Flag
     {
@@ -41,8 +39,8 @@ final class Flag implements ObjectPoolInterface, Countable
 
     private function __construct(DriverInterface $driver)
     {
-        $this->id = \spl_object_id($this);
-        $this->driver = $driver;
+        $this->id                   = \spl_object_id($this);
+        $this->driver               = $driver;
         self::$allFibers[$this->id] = [];
     }
 
@@ -60,7 +58,7 @@ final class Flag implements ObjectPoolInterface, Countable
     public function listFibers(): void
     {
         foreach (self::$allFibers[$this->id] as $fiber) {
-            echo ' - '.Debug::getDebugInfo($fiber)."\n";
+            echo ' - ' . Debug::getDebugInfo($fiber) . "\n";
         }
     }
 
@@ -73,7 +71,7 @@ final class Flag implements ObjectPoolInterface, Countable
             return 0;
         }
         $driver = $this->driver;
-        $count = 0;
+        $count  = 0;
         foreach (self::$allFibers[$this->id] as $k => $fiber) {
             unset(self::$allFibers[$this->id][$k]);
             unset($driver->flagGraph[$fiber]);

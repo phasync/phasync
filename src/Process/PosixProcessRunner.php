@@ -2,34 +2,31 @@
 
 namespace phasync\Process;
 
-use phasync;
-use RuntimeException;
-
 final class PosixProcessRunner implements ProcessInterface
 {
     /**
-     * The command and arguments
+     * The command and arguments.
      *
      * @var string[]
      */
     private array $command;
 
     /**
-     * The proc_open resource
+     * The proc_open resource.
      *
      * @var resource
      */
     private mixed $process = null;
 
     /**
-     * The stream resources to communicate with the process
+     * The stream resources to communicate with the process.
      *
      * @var resource[]
      */
     private array $pipes;
 
     /**
-     * The last retrieved status from proc_get_status()
+     * The last retrieved status from proc_get_status().
      *
      * @var array{command: string, pid: int, running: bool, signaled: bool, stopped: bool, exitcode: int, termsig: int, stopsig: int}
      */
@@ -78,16 +75,21 @@ final class PosixProcessRunner implements ProcessInterface
         $this->poll();
     }
 
+    public function getStream(int $fd): mixed
+    {
+        return $this->pipes[$fd] ?? null;
+    }
+
     public function stop(): bool
     {
         if ($this->isRunning()) {
             $this->sigterm();
             $t = \microtime(true);
             while ($this->isRunning() && \microtime(true) - $t < 1) {
-                if (phasync::isRunning()) {
+                if (\phasync::isRunning()) {
                     \phasync::sleep(0.05);
                 } else {
-                    usleep(50000);
+                    \usleep(50000);
                 }
             }
             if ($this->isRunning()) {
@@ -145,7 +147,7 @@ final class PosixProcessRunner implements ProcessInterface
      *
      * @return bool true if the signal was successfully sent, false otherwise
      */
-    public function sendSignal(int $signal=15): bool
+    public function sendSignal(int $signal = 15): bool
     {
         if (!$this->isRunning()) {
             return false;
@@ -253,13 +255,13 @@ final class PosixProcessRunner implements ProcessInterface
     }
 
     /**
-     * Perform a Fiber-blocking read from the given process pipe
+     * Perform a Fiber-blocking read from the given process pipe.
      *
      * @param int $fd The file descriptor number
      *
      * @return string|null
      */
-    public function read(int $fd=ProcessInterface::STDOUT): string|false
+    public function read(int $fd = ProcessInterface::STDOUT): string|false
     {
         \phasync::readable($this->pipes[$fd]);
 
@@ -267,12 +269,12 @@ final class PosixProcessRunner implements ProcessInterface
     }
 
     /**
-     * Perform a Fiber-blocking write to the given process pipe
+     * Perform a Fiber-blocking write to the given process pipe.
      *
      * @throws \FiberError
      * @throws \Throwable
      */
-    public function write(string $data, int $fd=ProcessInterface::STDIN): int|false
+    public function write(string $data, int $fd = ProcessInterface::STDIN): int|false
     {
         if (!$this->isRunning()) {
             return false;

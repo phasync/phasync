@@ -2,11 +2,7 @@
 
 namespace phasync\Util;
 
-use phasync;
-use phasync\Internal\SelectableTrait;
-use phasync\Internal\SelectManager;
 use phasync\SelectableInterface;
-use stdClass;
 
 /**
  * A high performance string buffer for buffering streaming data that can be
@@ -15,7 +11,6 @@ use stdClass;
  * EOF with $sb->end();
  */
 class StringBuffer implements SelectableInterface {
-
     /**
      * How much unusable string data can the string buffer hold
      * before we must perform substr to remove data already returned.
@@ -61,19 +56,18 @@ class StringBuffer implements SelectableInterface {
      */
     private bool $ended = false;
 
-    public function __construct()
-    {
+    public function __construct() {
         $this->queue     = new \SplDoublyLinkedList();
     }
 
-    public function await(): void {
+    public function await(float $timeout = \PHP_FLOAT_MAX): void {
+        $timesOut = \microtime(true) + \PHP_FLOAT_MAX;
         while (!$this->isReady()) {
-            phasync::awaitFlag($this->queue);
+            \phasync::awaitFlag($this->queue, $timesOut - \microtime(true));
         }
     }
 
-    public function isReady(): bool
-    {
+    public function isReady(): bool {
         // If the StringBuffer was ended, reading will never block
         if ($this->ended) {
             return true;
@@ -85,40 +79,36 @@ class StringBuffer implements SelectableInterface {
     /**
      * Returns true if there is no data currently available to read.
      */
-    public function isEmpty(): bool
-    {
+    public function isEmpty(): bool {
         return $this->offset === $this->length && $this->queue->isEmpty();
     }
 
     /**
      * Write data to the buffer
      */
-    public function write(string $chunk): void
-    {
+    public function write(string $chunk): void {
         if ($this->ended) {
             throw new \RuntimeException('Buffer has been ended');
         }
         $this->totalWritten += \strlen($chunk);
         $this->queue->push($chunk);
-        phasync::raiseFlag($this->queue);
+        \phasync::raiseFlag($this->queue);
         \phasync::preempt();
     }
 
     /**
      * Read up to $maxLength bytes from the buffer.
      *
-     * @param bool $await If true, the read result will always return data or an empty string at eof
-     *
      * @throws \OutOfBoundsException
      */
-    public function read(int $maxLength, bool $await = false): string
-    {
+    public function read(int $maxLength, float $timeout = \PHP_FLOAT_MAX): string {
         if ($maxLength < 0) {
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
 
-        while ($await && !$this->ended && !$this->fill(1)) {
-            $this->await();
+        $timesOut = \microtime(true) + $timeout;
+        while (0 != $timeout && !$this->ended && !$this->fill(1)) {
+            $this->await($timesOut - \microtime(true));
         }
         $this->fill($maxLength);
 
@@ -133,8 +123,7 @@ class StringBuffer implements SelectableInterface {
      * Asynchronously read data from the stream resource into the
      * buffer.
      */
-    public function writeFromResource($resource): \Fiber
-    {
+    public function readFromResource($resource): \Fiber {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             throw new \InvalidArgumentException('Expected stream resource');
         }
@@ -150,6 +139,7 @@ class StringBuffer implements SelectableInterface {
                     }
                     $this->write($chunk);
 
+                    // Avoid reading from the resource if the buffer isn't being drained.
                     while ($this->totalWritten - $this->totalRead > $bufferSize && 'stream' === \get_resource_type($resource)) {
                         $this->await();
                     }
@@ -164,38 +154,37 @@ class StringBuffer implements SelectableInterface {
      * Signal the equivalent of an end of file. No further writes
      * will be accepted.
      */
-    public function end(): void
-    {
+    public function end(): void {
         if ($this->ended) {
             throw new \LogicException('StringBuffer already ended');
         }
         $this->ended = true;
-        phasync::raiseFlag($this->queue);
+        \phasync::raiseFlag($this->queue);
     }
 
     /**
      * True if the end of file has been reached.
      */
-    public function eof(): bool
-    {
+    public function eof(): bool {
         return $this->ended && $this->offset === $this->length && $this->queue->isEmpty();
     }
 
     /**
      * Read a fixed number of bytes from the buffer, and return null
-     * if the amount of data is not available.
+     * if the buffer is or becomes ended.
      *
      * @param int<1,max> $length
      */
-    public function readFixed(int $length, bool $await = false): ?string
-    {
+    public function readFixed(int $length, float $timeout = \PHP_FLOAT_MAX): ?string {
         if ($length < 0) {
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
 
+        $timesOut = \microtime(true) + $timeout;
+
         // Fill the buffer with enough data to read and optionally await more data if not ended
-        while (!$this->fill($length) && $await && !$this->ended) {
-            $this->await();
+        while (!$this->fill($length) && 0 !== $timeout && !$this->ended) {
+            $this->await($timesOut - \microtime(true));
         }
 
         if ($length > $this->length - $this->offset) {
@@ -213,8 +202,7 @@ class StringBuffer implements SelectableInterface {
      * stream resource. If reading to multiple resources, there is no way
      * to control which data is routed to which resource.
      */
-    public function readToResource($resource): \Fiber
-    {
+    public function writeToResource($resource): \Fiber {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             throw new \InvalidArgumentException('Expected stream resource');
         }
@@ -222,7 +210,7 @@ class StringBuffer implements SelectableInterface {
         return \phasync::go(function () use ($resource) {
             $totalBytes = 0;
             while (!$this->eof() && \is_resource($resource) && 'stream' === \get_resource_type($resource)) {
-                $chunk       = $this->read(65536, true);
+                $chunk       = $this->read(65536);
                 $chunkLength = \strlen($chunk);
                 \phasync::writable($resource);
                 $written = \fwrite($resource, $chunk);
@@ -242,8 +230,7 @@ class StringBuffer implements SelectableInterface {
     /**
      * Prepend data to the buffer.
      */
-    public function unread(string $chunk): void
-    {
+    public function unread(string $chunk): void {
         if ($this->ended && $this->offset === $this->length && $this->queue->isEmpty()) {
             throw new \LogicException("Can't unread to an ended and empty StringBuffer");
         }
@@ -256,7 +243,7 @@ class StringBuffer implements SelectableInterface {
             $this->length += $chunkLength - $this->offset;
             $this->offset = 0;
         }
-        phasync::raiseFlag($this->queue);
+        \phasync::raiseFlag($this->queue);
     }
 
     /**
@@ -265,8 +252,7 @@ class StringBuffer implements SelectableInterface {
      *
      * @return bool True if able to provide enough data
      */
-    protected function fill(int $requiredLength): bool
-    {
+    protected function fill(int $requiredLength): bool {
         // Clear buffer if necessary
         if ($this->offset > self::BUFFER_WASTE_LIMIT) {
             $this->buffer = \substr($this->buffer, $this->offset);

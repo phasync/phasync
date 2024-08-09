@@ -5,7 +5,6 @@ namespace phasync\Internal;
 use Fiber;
 use phasync;
 use phasync\ChannelException;
-use stdClass;
 
 /**
  * This is a highly optimized implementation of a bi-directional channel
@@ -58,7 +57,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
         $this->id                 = \spl_object_id($this);
         self::$waiting[$this->id] = new \SplQueue();
         $this->creatingFiber      = \phasync::getFiber();
-        $this->flag = new stdClass;
+        $this->flag               = new \stdClass();
     }
 
     public function __destruct()
@@ -84,15 +83,19 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
         return !($this->isReadyForRead() || $this->isReadyForWrite());
     }
 
-    public function await(): void {
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
+    {
+        $timesOut = \microtime(true) + $timeout;
         if (!$this->isReady()) {
-            phasync::awaitFlag($this->flag);
+            \phasync::awaitFlag($this->flag, $timesOut - \microtime(true));
         }
     }
 
-    public function awaitReadable(): void {
+    public function awaitReadable(float $timeout = \PHP_FLOAT_MAX): void
+    {
+        $timesOut = \microtime(true) + $timeout;
         while (!$this->isReadyForRead()) {
-            phasync::awaitFlag($this->flag);
+            \phasync::awaitFlag($this->flag, $timesOut - \microtime(true));
         }
     }
 
@@ -105,12 +108,14 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
             $this->creatingFiber = null;
         }
 
-        return $this->state === self::BLOCKING_READS;
+        return self::BLOCKING_READS === $this->state;
     }
 
-    public function awaitWritable(): void {
+    public function awaitWritable(float $timeout = \PHP_FLOAT_MAX): void
+    {
+        $timesOut = \microtime(true) + $timeout;
         while (!$this->isReadyForWrite()) {
-            phasync::awaitFlag($this->flag);
+            \phasync::awaitFlag($this->flag, $timesOut - \microtime(true));
         }
     }
 
@@ -129,7 +134,7 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
                 \phasync::enqueueWithException(self::$waiting[$this->id]->dequeue(), new ChannelException('Channel was closed'));
             }
         }
-        phasync::raiseFlag($this->flag);
+        \phasync::raiseFlag($this->flag);
     }
 
     public function isClosed(): bool
@@ -137,13 +142,15 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
         return $this->closed;
     }
 
-    public function write(\Serializable|array|string|float|int|bool|null $value): void
+    public function write(\Serializable|array|string|float|int|bool|null $value, float $timeout = \PHP_FLOAT_MAX): void
     {
         if ($this->closed) {
             throw new ChannelException('Channel is closed');
         }
 
-        phasync::raiseFlag($this->flag);
+        $this->awaitWritable($timeout);
+
+        \phasync::raiseFlag($this->flag);
 
         $fiber = \phasync::getFiber();
 
@@ -179,13 +186,15 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
         \Fiber::suspend($reader);
     }
 
-    public function read(): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null
     {
         if ($this->closed) {
             return null;
         }
 
-        phasync::raiseFlag($this->flag);
+        $this->awaitReadable($timeout);
+
+        \phasync::raiseFlag($this->flag);
 
         $fiber = \phasync::getFiber();
 
@@ -222,12 +231,12 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
 
     public function isReadable(): bool
     {
-        return !$this->closed && $this->state !== self::BLOCKING_WRITES;
+        return !$this->closed && self::BLOCKING_WRITES !== $this->state;
     }
 
     public function isWritable(): bool
     {
-        return !$this->closed && $this->state !== self::BLOCKING_READS;
+        return !$this->closed && self::BLOCKING_READS !== $this->state;
     }
 
     public function isReadyForRead(): bool
@@ -239,7 +248,6 @@ final class ChannelUnbuffered implements ChannelBackendInterface, \IteratorAggre
             $this->creatingFiber = null;
         }
 
-        return $this->state === self::BLOCKING_WRITES;
+        return self::BLOCKING_WRITES === $this->state;
     }
-
 }

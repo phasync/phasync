@@ -1,7 +1,6 @@
 <?php
 
 use phasync\Util\WaitGroup;
-
 use function PHPUnit\Framework\assertGreaterThan;
 use function PHPUnit\Framework\assertLessThan;
 use function PHPUnit\Framework\assertTrue;

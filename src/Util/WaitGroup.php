@@ -2,7 +2,6 @@
 
 namespace phasync\Util;
 
-use phasync\Internal\SelectableTrait;
 use phasync\SelectableInterface;
 
 /**
@@ -11,12 +10,11 @@ use phasync\SelectableInterface;
  */
 final class WaitGroup implements SelectableInterface
 {
-
     private int $counter = 0;
 
     public function isReady(): bool
     {
-        return $this->counter === 0;
+        return 0 === $this->counter;
     }
 
     /**
@@ -49,10 +47,11 @@ final class WaitGroup implements SelectableInterface
      *
      * @throws \Throwable
      */
-    public function await(): void
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
+        $timesOut = \microtime(true) + $timeout;
         if (!$this->isReady()) {
-            \phasync::awaitFlag($this);
+            \phasync::awaitFlag($this, $timesOut - \microtime(true));
         }
     }
 

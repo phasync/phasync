@@ -7,7 +7,7 @@ test('StringBuffer basic tests', function () {
     expect($sb->eof())->toBeFalse();
     $sb->write('Hello');
     expect($sb->read(10000))->toBe('Hello');
-    expect($sb->read(100))->toBe('');
+    expect($sb->read(100, 0))->toBe('');
     expect($sb->write('ab'))->toBeNull();
     expect($sb->read(1))->toBe('a');
     expect($sb->read(2))->toBe('b');

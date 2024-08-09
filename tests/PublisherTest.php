@@ -86,10 +86,7 @@ test('sending null via publisher', function () {
         $subscriber = phasync::go(function () use ($s, &$messages) {
             $s = $s->subscribe();
             while (!$s->isClosed()) {
-                $message = $s->read();
-                if (!$s->isClosed()) {
-                    $messages[] = $message;
-                }
+                $messages[] = $s->read();
             }
         });
         phasync::go(function () use ($p) {

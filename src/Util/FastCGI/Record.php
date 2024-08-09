@@ -155,8 +155,9 @@ final class Record implements ObjectPoolInterface
         $this->content = '';
     }
 
-    public function setUnknownType(int $recordType) {
-        $this->type = self::FCGI_UNKNOWN_TYPE;
+    public function setUnknownType(int $recordType)
+    {
+        $this->type    = self::FCGI_UNKNOWN_TYPE;
         $this->content = \pack('Cx7', $recordType);
     }
 

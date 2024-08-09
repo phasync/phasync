@@ -5,7 +5,6 @@ namespace phasync\Internal;
 use Fiber;
 use phasync;
 use phasync\ChannelException;
-use stdClass;
 
 /**
  * This is a highly optimized implementation of a bi-directional channel
@@ -21,7 +20,6 @@ use stdClass;
  */
 final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggregate
 {
-
     public const READY           = 0;
     public const BLOCKING_READS  = 1;
     public const BLOCKING_WRITES = 2;
@@ -35,13 +33,21 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
      */
     private static array $waiting = [];
 
+    /**
+     * The timeout for waiting fibers.
+     *
+     * @var \WeakMap<\Fiber, float>
+     */
+    private \WeakMap $timeouts;
+
     private int $id;
     private bool $closed  = false;
     private array $buffer = [];
     private ?\Fiber $creatingFiber;
-    private int $state      = self::READY;
-    private int $firstQueue = 0;
-    private int $lastQueue  = 0;
+    private int $state       = self::READY;
+    private int $queueFirst  = 0;
+    private int $queueLast   = 0;
+    private int $queueFailed = 0;
     private int $bufferSize;
     private int $firstBuffer = 0;
     private int $lastBuffer  = 0;
@@ -54,7 +60,8 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         $this->bufferSize         = $bufferSize;
         self::$waiting[$this->id] = [];
         $this->creatingFiber      = \phasync::getFiber();
-        $this->flag = new stdClass;
+        $this->flag               = new \stdClass();
+        $this->timeouts           = new \WeakMap();
     }
 
     public function __destruct()
@@ -72,9 +79,11 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         return $this->isReadyForRead() && $this->isReadyForWrite();
     }
 
-    public function await(): void {
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
+    {
+        $timesOut = \microtime(true) + $timeout;
         while (!$this->isReady()) {
-            phasync::awaitFlag($this->flag);
+            \phasync::awaitFlag($this->flag, $timesOut - \microtime(true));
         }
     }
 
@@ -90,9 +99,11 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         return self::BLOCKING_READS !== $this->state;
     }
 
-    public function awaitReadable(): void {
+    public function awaitReadable(float $timeout = \PHP_FLOAT_MAX): void
+    {
+        $timesOut = \microtime(true) + $timeout;
         while (!$this->isReadyForRead()) {
-            phasync::awaitFlag($this->flag);
+            \phasync::awaitFlag($this->flag, $timesOut - \microtime(true));
         }
     }
 
@@ -108,22 +119,25 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         return self::BLOCKING_WRITES !== $this->state;
     }
 
-    public function awaitWritable(): void {
+    public function awaitWritable(float $timeout = \PHP_FLOAT_MAX): void
+    {
+        $timesOut = \microtime(true) + $timeout;
         while (!$this->isReadyForWrite()) {
-            phasync::awaitFlag($this->flag);
+            \phasync::awaitFlag($this->flag, $timesOut - \microtime(true));
         }
     }
 
-    private function enqueue(\Fiber $fiber): void
+    private function enqueue(\Fiber $fiber, float $timesOut): void
     {
-        self::$waiting[$this->id][$this->lastQueue++] = $fiber;
+        self::$waiting[$this->id][$this->queueLast++] = $fiber;
+        $this->timeouts[$fiber]                       = $timesOut;
     }
 
     private function dequeue(): \Fiber
     {
-        $result = self::$waiting[$this->id][$this->firstQueue];
-        unset(self::$waiting[$this->id][$this->firstQueue++]);
-        if ($this->firstQueue === $this->lastQueue) {
+        $result = self::$waiting[$this->id][$this->queueFirst];
+        unset(self::$waiting[$this->id][$this->queueFirst++]);
+        if ($this->queueFirst === $this->queueLast) {
             $this->state = self::READY;
         }
 
@@ -151,7 +165,7 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
             \phasync::enqueueWithException($this->dequeue(), new ChannelException('Channel was closed'));
         }
         unset(self::$waiting[$this->id]);
-        phasync::raiseFlag($this->flag);
+        \phasync::raiseFlag($this->flag);
     }
 
     public function isClosed(): bool
@@ -159,15 +173,19 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         return $this->closed;
     }
 
-    public function write(\Serializable|array|string|float|int|bool|null $value): void
+    public function write(\Serializable|array|string|float|int|bool|null $value, float $timeout = \PHP_FLOAT_MAX): void
     {
         if ($this->closed) {
             throw new ChannelException('Channel is closed');
         }
 
+        $timesOut = \microtime(true) + $timeout;
+
+        $this->awaitWritable($timeout);
+
         $bufferSize = $this->lastBuffer - $this->firstBuffer;
 
-        phasync::raiseFlag($this->flag);
+        \phasync::raiseFlag($this->flag);
 
         if ($bufferSize < $this->bufferSize && self::BLOCKING_READS !== $this->state) {
             $this->buffer[$this->lastBuffer++] = $value;
@@ -189,7 +207,7 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
             /*
              * I am a waiting writer.
              */
-            $this->enqueue($fiber);
+            $this->enqueue($fiber, $timesOut);
             \Fiber::suspend();
             $reader         = $this->receiver;
             $this->receiver = null;
@@ -208,13 +226,17 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         }
     }
 
-    public function read(): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null
     {
         if ($this->closed) {
             return null;
         }
 
-        phasync::raiseFlag($this->flag);
+        $timesOut = \microtime(true) + $timeout;
+
+        $this->awaitReadable($timeout);
+
+        \phasync::raiseFlag($this->flag);
 
         if ($this->firstBuffer < $this->lastBuffer && self::BLOCKING_WRITES !== $this->state) {
             $value = $this->buffer[$this->firstBuffer];
@@ -242,7 +264,7 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
              * I am a waiting reader. I will be resumed with the result, and the
              * writer is responsible for allowing us to continue.
              */
-            $this->enqueue($fiber);
+            $this->enqueue($fiber, $timesOut);
             \Fiber::suspend();
         } else {
             /**
@@ -272,4 +294,24 @@ final class ChannelBuffered implements ChannelBackendInterface, \IteratorAggrega
         return !$this->closed;
     }
 
+    private static function checkTimeouts(): void
+    {
+        if (null === self::$timeouts) {
+            self::$timeouts = new \WeakMap();
+
+            return;
+        }
+        $now = \microtime(true);
+        foreach (self::$timeouts as $fiber => $timeout) {
+            if ($timeout >= $now) {
+                continue;
+            }
+            foreach (self::$waiting as $flagId => $fibers) {
+                foreach ($fibers as $waitingFiber) {
+                    if ($waitingFiber === $fiber) {
+                    }
+                }
+            }
+        }
+    }
 }

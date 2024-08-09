@@ -36,10 +36,10 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
      * @throws TimeoutException
      * @throws \Throwable
      */
-    public function await(): void
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
         if (!$this->isClosed()) {
-            $this->publisher->waitForMessage();
+            $this->publisher->waitForMessage($timeout);
         }
     }
 
@@ -80,13 +80,13 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
         return null === $this->publisher || $this->currentMessage->next === $this->currentMessage;
     }
 
-    public function read(): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null
     {
         if ($this->isClosed()) {
             return null;
         }
-        if (!$this->currentMessage->next) {
-            $this->publisher->waitForMessage();
+        if (null === $this->currentMessage->next) {
+            $this->publisher->waitForMessage($timeout);
         }
         $message              = $this->currentMessage->message;
         $this->currentMessage = $this->currentMessage->next;

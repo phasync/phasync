@@ -16,9 +16,11 @@ interface ProcessInterface
 
     public function getExitCode(): int|false;
 
-    public function sendSignal(int $signal=15): bool;
+    public function sendSignal(int $signal = 15): bool;
 
-    public function read(int $fd=self::STDOUT): string|false;
+    public function read(int $fd = self::STDOUT): string|false;
 
-    public function write(string $data, int $fd=self::STDIN): int|false;
+    public function write(string $data, int $fd = self::STDIN): int|false;
+
+    public function getStream(int $fd): mixed;
 }

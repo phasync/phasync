@@ -15,9 +15,9 @@ interface ChannelBackendInterface extends ReadChannelInterface, WriteChannelInte
 {
     public function isReadyForRead(): bool;
 
-    public function awaitReadable(): void;
+    public function awaitReadable(float $timeout = \PHP_FLOAT_MAX): void;
 
     public function isReadyForWrite(): bool;
 
-    public function awaitWritable(): void;
+    public function awaitWritable(float $timeout = \PHP_FLOAT_MAX): void;
 }

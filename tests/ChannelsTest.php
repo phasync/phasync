@@ -243,7 +243,6 @@ test('writing null via a channel without closing it', function () {
         $received = [];
         phasync::channel($r, $w);
         $reader = phasync::go(function () use ($r, &$received) {
-            $counter = 1;
             while (!$r->isClosed()) {
                 $message    = $r->read();
                 $received[] = $message;
@@ -256,21 +255,26 @@ test('writing null via a channel without closing it', function () {
             $w->close();
         });
         phasync::await($reader);
-        expect($received)->toBe([null, 'After null', null, null]);
+        expect($received)->toBe([null, 'After null', null]);
     });
 });
 test('channel capacity handling', function () {
     phasync::run(function () {
         phasync::channel($read, $write, 2); // Capacity of 2
 
-        phasync::go(function () use ($write) {
+        $step = 0;
+
+        phasync::go(function () use ($write, &$step) {
             $write->write(1);
             $write->write(2);
+            $step = 1;
             $write->write(3); // Should block until a read happens
+            $step = 2;
         });
 
         expect($read->read())->toBe(1);
         expect($read->read())->toBe(2);
+        expect($step)->toBe(1);
         expect($read->read())->toBe(3);
     });
 });
