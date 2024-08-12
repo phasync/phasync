@@ -13,6 +13,7 @@ use phasync\ReadChannelInterface;
 final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
 {
     private int $id;
+    private bool $didActivate = false;
 
     private ChannelBackendInterface $channel;
 
@@ -34,6 +35,9 @@ final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
 
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
+        if (!$this->didActivate && Inspect::getRefCount($this) > 3) {
+            $this->activate();
+        }
         $this->channel->awaitReadable($timeout);
     }
 

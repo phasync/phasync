@@ -3,7 +3,6 @@
 namespace phasync\Internal;
 
 use phasync\ChannelException;
-use phasync\Debug;
 use phasync\TimeoutException;
 
 final class Channel implements ChannelBackendInterface, \IteratorAggregate
@@ -248,16 +247,17 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
     private function ensureNotCreatorFiber(): void
     {
         if ($this->creatorFiber?->isRunning()) {
-            // Avoid a bunch of problems by allowing other coroutines to do some stuff
-            // and we'll check again
-            while (self::$blockedCount > 0) {
-                \phasync::sleep();
-                \phasync::sleep();
+            // Allow at least 100 ms to see if another coroutine prevents deadlock
+            $timeout = \microtime(true) + 0.1;
+            while (\microtime(true) < $timeout) {
+                \phasync::yield();
                 if (!$this->creatorFiber?->isRunning()) {
+                    $this->creatorFiber = null;
+
                     return;
                 }
             }
-            throw new ChannelException('Cannot perform blocking operations on a channel from its creator fiber ' . Debug::getDebugInfo($this));
+            throw new ChannelException("Likely deadlock detected. Can't await a channel that has no known readers/writers.");
         }
         $this->creatorFiber = null;
     }

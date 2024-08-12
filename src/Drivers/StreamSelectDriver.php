@@ -156,8 +156,20 @@ final class StreamSelectDriver implements DriverInterface
 
     public function clear(): void
     {
+        if ($fiber = $this->getCurrentFiber()) {
+            $context = $this->getContext($fiber);
+            $fibers  = $context->getFibers();
+            foreach ($fibers as $cFiber => $v) {
+                if ($cFiber !== $fiber) {
+                    $fibers->offsetUnset($cFiber);
+                }
+            }
+            $this->contexts         = new \WeakMap();
+            $this->contexts[$fiber] = $context;
+        } else {
+            $this->contexts = new \WeakMap();
+        }
         $this->queue                 = new \SplQueue();
-        $this->contexts              = new \WeakMap();
         $this->pending               = new \SplObjectStorage();
         $this->parentFibers          = new \WeakMap();
         $this->fiberExceptionHolders = new \WeakMap();
@@ -171,6 +183,8 @@ final class StreamSelectDriver implements DriverInterface
         $this->streams               = new \WeakMap();
         $this->streamResults         = new \WeakMap();
         $this->callbackQueue         = new \SplQueue();
+        \gc_collect_cycles();
+        $this->shouldGarbageCollect = true;
     }
 
     public function getFullState(): array

@@ -10,6 +10,8 @@ use phasync\WriteChannelInterface;
 final class WriteChannel implements WriteChannelInterface
 {
     private int $id;
+    private bool $didActivate = false;
+
     private ChannelBackendInterface $channel;
 
     public function __construct(ChannelBackendInterface $channel)
@@ -30,6 +32,9 @@ final class WriteChannel implements WriteChannelInterface
 
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
+        if (!$this->didActivate && Inspect::getRefCount($this) > 3) {
+            $this->activate();
+        }
         $this->channel->awaitWritable($timeout);
     }
 

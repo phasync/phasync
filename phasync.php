@@ -49,7 +49,8 @@ use phasync\WriteChannelInterface;
  * that need notification would invoke phasync::awaitFlag($curlHandle) and the manager
  * coroutine would invoke phasync::raiseFlag($curlHandle) when the $curlHandle is done.
  */
-final class phasync {
+final class phasync
+{
     /**
      * Block the coroutine until the stream becomes readable.
      * {@see phasync::stream()}.
@@ -150,7 +151,8 @@ final class phasync {
      * @throws FiberError
      * @throws Throwable
      */
-    public static function fork(Closure $function, mixed ...$args): mixed {
+    public static function fork(Closure $function, mixed ...$args): mixed
+    {
         if (!function_exists('pcntl_fork')) {
             throw new LogicException('This function requires the pcntl extension');
         }
@@ -170,6 +172,7 @@ final class phasync {
         if ($pid === 0) {
             // Remove the event loop driver (if any)
             if (self::$driver !== null) {
+                self::$driver->clear();
                 self::$driver = null;
             }
             // Child process
@@ -182,7 +185,16 @@ final class phasync {
                 $serializedResult = serialize(['exception' => $e]);
             }
 
-            fwrite(self::writable($socketPair[1]), $serializedResult, strlen($serializedResult));
+            $bytesToWrite = \strlen($serializedResult);
+            $offset = 0;
+            while ($offset < $bytesToWrite) {
+                $written = fwrite(self::writable($socketPair[1]), \substr($serializedResult, $offset), $bytesToWrite);
+                if (\is_int($written)) {
+                    $offset += $written;
+                } else {
+                    break;
+                }
+            }
             fclose($socketPair[1]);
             // Terminate the child process
             posix_kill(posix_getpid(), SIGTERM);
@@ -192,7 +204,7 @@ final class phasync {
 
             $task = function () use ($socketPair) {
                 $buffer = '';
-                while ($data = fread(phasync::readable($socketPair[0]), 1024)) {
+                while ($data = fread(phasync::readable($socketPair[0]), 65536)) {
                     $buffer .= $data;
                 }
 
@@ -224,7 +236,8 @@ final class phasync {
      * @throws FiberError
      * @throws Throwable
      */
-    public static function run(Closure $fn, ?array $args = [], ?ContextInterface $context = null): mixed {
+    public static function run(Closure $fn, ?array $args = [], ?ContextInterface $context = null): mixed
+    {
         $driver = self::getDriver();
         try {
             $runDepth = self::$runDepth++;
@@ -310,7 +323,8 @@ final class phasync {
      *
      * @throws LogicException
      */
-    public static function go(Closure $fn, array $args = [], int $concurrent = 1, ?ContextInterface $context = null, bool $run = false): Fiber {
+    public static function go(Closure $fn, array $args = [], int $concurrent = 1, ?ContextInterface $context = null, bool $run = false): Fiber
+    {
         if ($concurrent > 1) {
             if (null !== $context && 0 === self::$runDepth) {
                 throw new LogicException("Can't create concurrent root coroutines sharing a context");
@@ -362,7 +376,8 @@ final class phasync {
     /**
      * Schedule a callback to be invoked immediately after the current (or next) tick.
      */
-    public static function defer(Closure $callback): void {
+    public static function defer(Closure $callback): void
+    {
         self::getDriver()->defer($callback);
     }
 
@@ -372,7 +387,8 @@ final class phasync {
      * when it is no longer providing services to other fibers. Failing
      * to do so will cause the topmost run() context to keep running.
      */
-    public static function service(Closure $coroutine): void {
+    public static function service(Closure $coroutine): void
+    {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (null === $fiber || null === $driver->getContext($fiber)) {
@@ -390,7 +406,8 @@ final class phasync {
      * @throws TimeoutException if the timeout is reached
      * @throws Throwable
      */
-    public static function await(object $fiberOrPromise, float $timeout = PHP_FLOAT_MAX): mixed {
+    public static function await(object $fiberOrPromise, float $timeout = PHP_FLOAT_MAX): mixed
+    {
         $timeout = $timeout ?? self::getDefaultTimeout();
         $startTime = \microtime(true);
         $driver = self::getDriver();
@@ -495,7 +512,8 @@ final class phasync {
      * @throws FiberError
      * @throws Throwable
      */
-    public static function select(array $selectables, float $timeout = PHP_FLOAT_MAX, ?array $read = null, ?array $write = null): mixed {
+    public static function select(array $selectables, float $timeout = PHP_FLOAT_MAX, ?array $read = null, ?array $write = null): mixed
+    {
         if (null === self::getDriver()->getCurrentFiber()) {
             throw new LogicException("Can't use phasync::select() outside of phasync. Use `phasync::run()` to launch a context.");
         }
@@ -602,7 +620,8 @@ final class phasync {
      * up when the coroutine finishes. Note that it may be more efficient to use a
      * try {} finally {} statement.
      */
-    public static function finally(Closure $fn): void {
+    public static function finally(Closure $fn): void
+    {
         static $queues = null;
         if (null === $queues) {
             /**
@@ -642,7 +661,8 @@ final class phasync {
      *
      * @throws RuntimeException if the fiber is not currently blocked
      */
-    public static function cancel(Fiber $fiber, ?Throwable $exception = null): void {
+    public static function cancel(Fiber $fiber, ?Throwable $exception = null): void
+    {
         if ($fiber->isTerminated()) {
             throw new InvalidArgumentException('Fiber is already terminated');
         }
@@ -659,7 +679,8 @@ final class phasync {
      * This function is highly optimized, but it benefits a lot from JIT because it
      * seems to be inlined.
      */
-    public static function preempt(): void {
+    public static function preempt(): void
+    {
         try {
             $elapsed = ($now = \hrtime(true)) - self::$lastPreemptTime;
             if ($elapsed > self::$preemptInterval) {
@@ -693,7 +714,8 @@ final class phasync {
      *
      * @throws RuntimeException
      */
-    public static function sleep(float $seconds = 0): void {
+    public static function sleep(float $seconds = 0): void
+    {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if ($seconds <= 0) {
@@ -718,7 +740,8 @@ final class phasync {
      * to perform work actively, you should use {@see phasync::sleep(0)}
      * instead.
      */
-    public static function yield(): void {
+    public static function yield(): void
+    {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
@@ -733,7 +756,8 @@ final class phasync {
      * waiting for future events. The timeout does not raise an exception and instead
      * resumes the coroutine normally. The default timeout is used.
      */
-    public static function idle(?float $timeout = null): void {
+    public static function idle(?float $timeout = null): void
+    {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
@@ -750,7 +774,8 @@ final class phasync {
      *
      * @return false|resource
      */
-    public static function io($resource) {
+    public static function io($resource)
+    {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             return $resource;
         }
@@ -769,7 +794,8 @@ final class phasync {
      * @throws FiberError
      * @throws Throwable
      */
-    public static function readable(mixed $resource, ?float $timeout = null): mixed {
+    public static function readable(mixed $resource, ?float $timeout = null): mixed
+    {
         self::stream($resource, self::READABLE, $timeout);
 
         if (!\is_resource($resource)) {
@@ -790,7 +816,8 @@ final class phasync {
      * @throws FiberError
      * @throws Throwable
      */
-    public static function writable(mixed $resource, ?float $timeout = null): mixed {
+    public static function writable(mixed $resource, ?float $timeout = null): mixed
+    {
         self::stream($resource, self::WRITABLE, $timeout);
 
         if (!\is_resource($resource)) {
@@ -810,7 +837,8 @@ final class phasync {
      *
      * @return int A bitmap indicating which events on the resource that was raised
      */
-    public static function stream(mixed $resource, int $mode = self::READABLE | self::WRITABLE, ?float $timeout = null): int {
+    public static function stream(mixed $resource, int $mode = self::READABLE | self::WRITABLE, ?float $timeout = null): int
+    {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             return 0;
         }
@@ -890,7 +918,8 @@ final class phasync {
      * with the ReadChannelInterface or the WriteChannelInterface as the first
      * argument.
      */
-    public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize = 0): void {
+    public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize = 0): void
+    {
         $channel = new Channel($bufferSize);
         $read = new ReadChannel($channel);
         $write = new WriteChannel($channel);
@@ -900,7 +929,8 @@ final class phasync {
      * A publisher works like channels, but supports many subscribing coroutines
      * concurrently.
      */
-    public static function publisher(?SubscribersInterface &$subscribers, ?WriteChannelInterface &$publisher): void {
+    public static function publisher(?SubscribersInterface &$subscribers, ?WriteChannelInterface &$publisher): void
+    {
         self::channel($internalReadChannel, $publisher, 0);
         $subscribers = new Subscribers($internalReadChannel);
     }
@@ -912,7 +942,8 @@ final class phasync {
      *
      * @deprecated it's generally better to just construct `new WaitGroup()`
      */
-    public static function waitGroup(): WaitGroup {
+    public static function waitGroup(): WaitGroup
+    {
         return new WaitGroup();
     }
 
@@ -922,7 +953,8 @@ final class phasync {
      *
      * @return int the number of resumed fibers
      */
-    public static function raiseFlag(object $signal): int {
+    public static function raiseFlag(object $signal): int
+    {
         return self::getDriver()->raiseFlag($signal);
     }
 
@@ -934,7 +966,8 @@ final class phasync {
      * @throws TimeoutException if the timeout is reached
      * @throws Throwable
      */
-    public static function awaitFlag(object $signal, float $timeout = PHP_FLOAT_MAX): void {
+    public static function awaitFlag(object $signal, float $timeout = PHP_FLOAT_MAX): void
+    {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
@@ -948,7 +981,8 @@ final class phasync {
     /**
      * Returns true when called from within a coroutine context.
      */
-    public static function isRunning(): bool {
+    public static function isRunning(): bool
+    {
         return self::$runDepth > 0;
     }
 
@@ -958,7 +992,8 @@ final class phasync {
      *
      * @throws LogicException
      */
-    public static function getFiber(): Fiber {
+    public static function getFiber(): Fiber
+    {
         $fiber = self::getDriver()->getCurrentFiber();
         if (!$fiber) {
             throw new LogicException('This function can not be used outside of a coroutine');
@@ -973,7 +1008,8 @@ final class phasync {
      *
      * @throws LogicException
      */
-    public static function getContext(): ContextInterface {
+    public static function getContext(): ContextInterface
+    {
         $context = self::getDriver()->getContext(self::getFiber());
         if (!$context) {
             throw new LogicException('This function can only be used inside a `phasync` coroutine');
@@ -988,7 +1024,8 @@ final class phasync {
      *
      * @see phasync::onExit()
      */
-    public static function onEnter(Closure $enterCallback): void {
+    public static function onEnter(Closure $enterCallback): void
+    {
         self::$onEnterCallbacks[] = $enterCallback;
     }
 
@@ -998,7 +1035,8 @@ final class phasync {
      *
      * @see phasync::onEnter()
      */
-    public static function onExit(Closure $exitCallback): void {
+    public static function onExit(Closure $exitCallback): void
+    {
         self::$onExitCallbacks[] = $exitCallback;
     }
 
@@ -1006,7 +1044,8 @@ final class phasync {
      * Set the interval between every time the {@see phasync::preempt()}
      * function will cause the coroutine to suspend running.
      */
-    public static function setPreemptInterval(int $microseconds): void {
+    public static function setPreemptInterval(int $microseconds): void
+    {
         self::$preemptInterval = \max(0, $microseconds * 1000);
     }
 
@@ -1019,7 +1058,8 @@ final class phasync {
      *
      * @param Closure{mixed, Closure?, Closure?, bool} $promiseHandlerFunction
      */
-    public static function setPromiseHandler(Closure $promiseHandlerFunction): void {
+    public static function setPromiseHandler(Closure $promiseHandlerFunction): void
+    {
         self::$promiseHandlerFunction = $promiseHandlerFunction;
     }
 
@@ -1029,7 +1069,8 @@ final class phasync {
      * other integrations. {@see phasync::setPromiseHandler()} for documentation
      * on the function signature.
      */
-    public static function getPromiseHandler(): Closure {
+    public static function getPromiseHandler(): Closure
+    {
         if (null === self::$promiseHandlerFunction) {
             self::$promiseHandlerFunction = static function (mixed $promiseLike, ?Closure $onFulfilled = null, ?Closure $onRejected = null): bool {
                 if (!\is_object($promiseLike) || !\method_exists($promiseLike, 'then')) {
@@ -1103,7 +1144,8 @@ final class phasync {
      *
      * @throws LogicException
      */
-    public static function setDriver(DriverInterface $driver): void {
+    public static function setDriver(DriverInterface $driver): void
+    {
         if (null !== self::$driver) {
             throw new LogicException('The driver must be set before any async functionality is used');
         }
@@ -1120,7 +1162,8 @@ final class phasync {
      *  - Have unpredictable completion times
      *  - Could potentially block indefinitely due to external factors
      */
-    public static function setDefaultTimeout(float $timeout): void {
+    public static function setDefaultTimeout(float $timeout): void
+    {
         self::$timeout = $timeout;
     }
 
@@ -1128,7 +1171,8 @@ final class phasync {
      * Get the configured default timeout, which is used by all coroutine
      * blocking functions unless a custom timeout is specified.
      */
-    public static function getDefaultTimeout(): float {
+    public static function getDefaultTimeout(): float
+    {
         return self::$timeout;
     }
 
@@ -1141,7 +1185,8 @@ final class phasync {
      * @throws InvalidArgumentException
      * @throws RuntimeException
      */
-    public static function streamPoll($resource): int {
+    public static function streamPoll($resource): int
+    {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             throw new InvalidArgumentException('Expecting a valid stream resource');
         }
@@ -1173,7 +1218,8 @@ final class phasync {
      * @throws FiberError
      * @throws Throwable
      */
-    private static function suspend(): void {
+    private static function suspend(): void
+    {
         try {
             Fiber::suspend();
         } catch (Throwable $e) {
@@ -1195,7 +1241,8 @@ final class phasync {
      *
      * @param Throwable|null $exception
      */
-    public static function enqueueWithException(Fiber $fiber, Throwable $exception): void {
+    public static function enqueueWithException(Fiber $fiber, Throwable $exception): void
+    {
         self::getDriver()->enqueueWithException($fiber, $exception);
     }
 
@@ -1205,7 +1252,8 @@ final class phasync {
      *
      * @internal
      */
-    public static function enqueue(Fiber $fiber): void {
+    public static function enqueue(Fiber $fiber): void
+    {
         self::getDriver()->enqueue($fiber);
     }
 
@@ -1219,14 +1267,16 @@ final class phasync {
      *
      * @internal
      */
-    public static function logUnhandledException(Throwable $exception): void {
+    public static function logUnhandledException(Throwable $exception): void
+    {
         \error_log("UNHANDLED EXCEPTION:\n" . $exception->__toString() . "\nLogged from:" . (new Exception())->getTraceAsString(), $exception->getCode());
     }
 
     /**
      * Returns the driver instance for the application.
      */
-    private static function getDriver(): DriverInterface {
+    private static function getDriver(): DriverInterface
+    {
         if (null === self::$driver) {
             self::$driver = new StreamSelectDriver();
             self::$pid = posix_getpid();
@@ -1238,7 +1288,8 @@ final class phasync {
     /**
      * Integrate with Promise like objects.
      */
-    private static function handlePromise(mixed $promiseLike, ?Closure $onFulfilled = null, ?Closure $onRejected = null): bool {
+    private static function handlePromise(mixed $promiseLike, ?Closure $onFulfilled = null, ?Closure $onRejected = null): bool
+    {
         return (self::getPromiseHandler())($promiseLike, $onFulfilled, $onRejected);
     }
 }

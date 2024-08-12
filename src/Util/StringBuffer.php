@@ -107,7 +107,7 @@ class StringBuffer implements SelectableInterface {
         }
 
         $timesOut = \microtime(true) + $timeout;
-        while (0 != $timeout && !$this->ended && !$this->fill(1)) {
+        while ($timeout > 0 && !$this->ended && !$this->fill(1)) {
             $this->await($timesOut - \microtime(true));
         }
         $this->fill($maxLength);
