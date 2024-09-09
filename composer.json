@@ -18,7 +18,7 @@
         "laravel/serializable-closure": "^1.3 || ^2.0"
     },
     "require-dev": {
-        "pestphp/pest": "^2.34",
+        "pestphp/pest": "^2.34 || ^3.0",
         "friendsofphp/php-cs-fixer": "^3.58"
     },
     "provide": {
