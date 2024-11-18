@@ -51,7 +51,7 @@ jobs:
         run: composer test-with-coverage
 
       - name: 📤 Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
         if: matrix.php == '8.2'
