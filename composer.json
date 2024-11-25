@@ -15,7 +15,7 @@
         "charm/options": "^1.1.5",
         "psr/http-message": "^1.0 || ^2.0",
         "psr/http-factory": "^1.1",
-        "laravel/serializable-closure": "^1.3"
+        "laravel/serializable-closure": "^1.3 || ^2.0"
     },
     "require-dev": {
         "pestphp/pest": "^2.34",
