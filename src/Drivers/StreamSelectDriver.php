@@ -477,7 +477,16 @@ final class StreamSelectDriver implements DriverInterface
             return 0;
         }
 
-        return $this->flaggedFibers[$flag]->raiseFlag();
+        $fiberStore = $this->flaggedFibers[$flag];
+        $count = $fiberStore->raiseFlag();
+
+        // Clean up empty Flag stores to prevent zombie references during GC
+        if (0 === $fiberStore->count()) {
+            unset($this->flaggedFibers[$flag]);
+            $fiberStore->returnToPool();
+        }
+
+        return $count;
     }
 
     public function enqueue(\Fiber $fiber): void
