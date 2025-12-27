@@ -2,15 +2,36 @@
 
 namespace phasync\Util;
 
+use phasync\DeadmanException;
+use phasync\DeadmanSwitchTrait;
 use phasync\SelectableInterface;
 
 /**
  * A high performance string buffer for buffering streaming data that can be
- * parsed efficiently. Be aware that this string buffer offers no protection
- * against deadlocks, so you should always end the string buffer to signal
- * EOF with $sb->end();
+ * parsed efficiently. Designed for protocol parsing in servers (HTTP, FastCGI,
+ * WebSocket) where you need to read fixed-size frames from a byte stream.
+ *
+ * For safe coroutine-to-coroutine communication, use Channels instead.
+ *
+ * To prevent readers from waiting forever if the writer crashes, use the
+ * deadman switch feature:
+ *
+ * ```php
+ * phasync::go(function() use ($sb, $socket) {
+ *     $deadman = $sb->getDeadmanSwitch();
+ *     while ($data = fread($socket, 8192)) {
+ *         $sb->write($data);
+ *     }
+ *     $sb->end(); // Always end properly - deadman is just a safety net
+ * });
+ * ```
+ *
+ * If the writer exits without calling end(), the deadman switch triggers and
+ * any blocking read will throw DeadmanException. Buffered data can still be
+ * read before the exception is thrown.
  */
 class StringBuffer implements SelectableInterface {
+    use DeadmanSwitchTrait;
     /**
      * How much unusable string data can the string buffer hold
      * before we must perform substr to remove data already returned.
@@ -56,20 +77,51 @@ class StringBuffer implements SelectableInterface {
      */
     private bool $ended = false;
 
+    /**
+     * True if the writer terminated unexpectedly (deadman switch triggered).
+     */
+    private bool $failed = false;
+
+    /**
+     * Create a new StringBuffer instance.
+     */
     public function __construct() {
         $this->queue     = new \SplDoublyLinkedList();
     }
 
+    /**
+     * Wait until the buffer has data available to read or has been ended.
+     * Returns when data is available, buffer is ended, or timeout expires.
+     *
+     * @param float $timeout Maximum time to wait in seconds (default: infinity)
+     */
     public function await(float $timeout = \PHP_FLOAT_MAX): void {
-        $timesOut = \microtime(true) + \PHP_FLOAT_MAX;
+        $timesOut = \microtime(true) + $timeout;
         while (!$this->isReady()) {
-            \phasync::awaitFlag($this->queue, $timesOut - \microtime(true));
+            $remaining = $timesOut - \microtime(true);
+            if ($remaining <= 0) {
+                return;
+            }
+            try {
+                \phasync::awaitFlag($this->queue, $remaining);
+            } catch (\phasync\TimeoutException) {
+                return;
+            }
         }
     }
 
+    /**
+     * Check if a read operation would not block.
+     *
+     * Returns true if:
+     * - The buffer has data available to read, OR
+     * - The buffer has been ended (reading returns empty string or data), OR
+     * - The buffer has failed (reading will throw DeadmanException)
+     *
+     * @return bool True if reading would not block
+     */
     public function isReady(): bool {
-        // If the StringBuffer was ended, reading will never block
-        if ($this->ended) {
+        if ($this->ended || $this->failed) {
             return true;
         }
 
@@ -100,6 +152,7 @@ class StringBuffer implements SelectableInterface {
      * Read up to $maxLength bytes from the buffer.
      *
      * @throws \OutOfBoundsException
+     * @throws DeadmanException If would block and the writer terminated unexpectedly
      */
     public function read(int $maxLength, float $timeout = \PHP_FLOAT_MAX): string {
         if ($maxLength < 0) {
@@ -108,6 +161,9 @@ class StringBuffer implements SelectableInterface {
 
         $timesOut = \microtime(true) + $timeout;
         while ($timeout > 0 && !$this->ended && !$this->fill(1)) {
+            if ($this->failed) {
+                throw new DeadmanException('Writer terminated unexpectedly');
+            }
             $this->await($timesOut - \microtime(true));
         }
         $this->fill($maxLength);
@@ -153,12 +209,23 @@ class StringBuffer implements SelectableInterface {
     /**
      * Signal the equivalent of an end of file. No further writes
      * will be accepted.
+     *
+     * @throws \LogicException If the buffer has already been ended
      */
     public function end(): void {
         if ($this->ended) {
             throw new \LogicException('StringBuffer already ended');
         }
         $this->ended = true;
+        \phasync::raiseFlag($this->queue);
+    }
+
+    /**
+     * Called when the deadman switch is triggered.
+     * Marks the buffer as failed and wakes any waiting readers.
+     */
+    protected function deadmanSwitchTriggered(): void {
+        $this->failed = true;
         \phasync::raiseFlag($this->queue);
     }
 
@@ -171,9 +238,10 @@ class StringBuffer implements SelectableInterface {
 
     /**
      * Read a fixed number of bytes from the buffer, and return null
-     * if the buffer is or becomes ended.
+     * if the buffer is or becomes ended, or if timeout expires.
      *
      * @param int<1,max> $length
+     * @throws DeadmanException If the deadman switch was triggered
      */
     public function readFixed(int $length, float $timeout = \PHP_FLOAT_MAX): ?string {
         if ($length < 0) {
@@ -183,8 +251,22 @@ class StringBuffer implements SelectableInterface {
         $timesOut = \microtime(true) + $timeout;
 
         // Fill the buffer with enough data to read and optionally await more data if not ended
-        while (!$this->fill($length) && 0 !== $timeout && !$this->ended) {
-            $this->await($timesOut - \microtime(true));
+        while (!$this->fill($length) && !$this->ended) {
+            if ($this->failed) {
+                throw new DeadmanException('Writer terminated unexpectedly');
+            }
+            $remaining = $timesOut - \microtime(true);
+            if ($remaining <= 0) {
+                break;
+            }
+            // Wait directly on the flag - don't use isReady() which may return true
+            // when there's some data but not enough for our fixed length requirement
+            try {
+                \phasync::awaitFlag($this->queue, $remaining);
+            } catch (\phasync\TimeoutException) {
+                // Timeout expired, exit the loop
+                break;
+            }
         }
 
         if ($length > $this->length - $this->offset) {
