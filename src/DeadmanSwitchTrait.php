@@ -44,11 +44,11 @@ trait DeadmanSwitchTrait
     public function getDeadmanSwitch(): DeadmanSwitch
     {
         $switch = $this->deadmanSwitch?->get();
-        if ($switch !== null) {
+        if (null !== $switch) {
             return $switch;
         }
 
-        $switch = new DeadmanSwitch($this->deadmanSwitchTriggered(...));
+        $switch              = new DeadmanSwitch($this->deadmanSwitchTriggered(...));
         $this->deadmanSwitch = \WeakReference::create($switch);
 
         return $switch;

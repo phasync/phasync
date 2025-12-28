@@ -77,7 +77,7 @@ test('phasync::select() with a timeout', function () {
         $result = match (phasync::select([$oneSec, $twoSec], timeout: 0.2)) {
             $oneSec => 'one sec wins',
             $twoSec => 'two sec wins',
-            default => 'timeout'
+            default => 'timeout',
         };
 
         expect($result)->toBe('timeout');
@@ -112,7 +112,7 @@ test('phasync::select() with closures', function () {
 
         $result = match (phasync::select([$oneSecClosure, $twoSecClosure])) {
             $oneSecClosure => $oneSecClosure(),
-            $twoSecClosure => $twoSecClosure()
+            $twoSecClosure => $twoSecClosure(),
         };
 
         expect($result)->toBe('one sec closure wins');
@@ -164,7 +164,7 @@ test('phasync::select() with multiple timeouts and mixed completion times', func
             $short  => 'short',
             $medium => 'medium',
             $long   => 'long',
-            default => 'timeout'
+            default => 'timeout',
         };
 
         expect($result)->toBe('short');
@@ -172,14 +172,14 @@ test('phasync::select() with multiple timeouts and mixed completion times', func
         $result = match (phasync::select([$medium, $long], timeout: 0.7)) {
             $medium => 'medium',
             $long   => 'long',
-            default => 'timeout'
+            default => 'timeout',
         };
 
         expect($result)->toBe('medium');
 
         $result = match (phasync::select([$long], timeout: 1.2)) {
             $long   => 'long',
-            default => 'timeout'
+            default => 'timeout',
         };
 
         expect($result)->toBe('long');

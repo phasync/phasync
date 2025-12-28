@@ -1,7 +1,6 @@
 <?php
 
 use phasync\Util\StringBuffer;
-use phasync\TimeoutException;
 
 /*
 |--------------------------------------------------------------------------
@@ -34,7 +33,7 @@ test('new StringBuffer is empty and not ended', function () {
 test('StringBuffer implements SelectableInterface', function () {
     $sb = new StringBuffer();
 
-    expect($sb)->toBeInstanceOf(\phasync\SelectableInterface::class);
+    expect($sb)->toBeInstanceOf(phasync\SelectableInterface::class);
 });
 
 // ============================================================================
@@ -74,12 +73,12 @@ test('write() throws RuntimeException after end()', function () {
     $sb = new StringBuffer();
     $sb->end();
 
-    expect(fn() => $sb->write('data'))->toThrow(RuntimeException::class, 'Buffer has been ended');
+    expect(fn () => $sb->write('data'))->toThrow(RuntimeException::class, 'Buffer has been ended');
 });
 
 test('write() handles large data', function () {
-    $sb = new StringBuffer();
-    $largeData = str_repeat('x', 100000);
+    $sb        = new StringBuffer();
+    $largeData = \str_repeat('x', 100000);
 
     $sb->write($largeData);
     $sb->end();
@@ -88,7 +87,7 @@ test('write() handles large data', function () {
 });
 
 test('write() handles binary data', function () {
-    $sb = new StringBuffer();
+    $sb         = new StringBuffer();
     $binaryData = "\x00\x01\x02\xff\xfe\xfd";
 
     $sb->write($binaryData);
@@ -128,7 +127,7 @@ test('read() with zero maxLength returns empty string', function () {
 test('read() throws OutOfBoundsException for negative length', function () {
     $sb = new StringBuffer();
 
-    expect(fn() => $sb->read(-1))->toThrow(OutOfBoundsException::class, "Can't read negative lengths");
+    expect(fn () => $sb->read(-1))->toThrow(OutOfBoundsException::class, "Can't read negative lengths");
 });
 
 test('read() with timeout 0 returns empty if no data', function () {
@@ -206,7 +205,7 @@ test('readFixed() returns null with timeout 0 if not enough data', function () {
 test('readFixed() throws OutOfBoundsException for negative length', function () {
     $sb = new StringBuffer();
 
-    expect(fn() => $sb->readFixed(-1))->toThrow(OutOfBoundsException::class, "Can't read negative lengths");
+    expect(fn () => $sb->readFixed(-1))->toThrow(OutOfBoundsException::class, "Can't read negative lengths");
 });
 
 test('readFixed() with zero length returns empty string', function () {
@@ -268,7 +267,7 @@ test('unread() throws LogicException on ended empty buffer', function () {
     $sb->end();
     $sb->read(2); // Drain it
 
-    expect(fn() => $sb->unread('data'))->toThrow(LogicException::class, "Can't unread to an ended and empty StringBuffer");
+    expect(fn () => $sb->unread('data'))->toThrow(LogicException::class, "Can't unread to an ended and empty StringBuffer");
 });
 
 test('unread() works on ended buffer with remaining data', function () {
@@ -320,7 +319,7 @@ test('end() twice throws LogicException', function () {
     $sb = new StringBuffer();
     $sb->end();
 
-    expect(fn() => $sb->end())->toThrow(LogicException::class, 'StringBuffer already ended');
+    expect(fn () => $sb->end())->toThrow(LogicException::class, 'StringBuffer already ended');
 });
 
 test('eof() is true only when ended and fully drained', function () {
@@ -392,7 +391,7 @@ test('buffer compaction occurs when offset exceeds BUFFER_WASTE_LIMIT', function
     $sb = new StringBuffer();
 
     // Write data larger than BUFFER_WASTE_LIMIT (4096)
-    $largeData = str_repeat('X', 5000);
+    $largeData = \str_repeat('X', 5000);
     $sb->write($largeData);
     $sb->write('END');
     $sb->end();
@@ -403,15 +402,15 @@ test('buffer compaction occurs when offset exceeds BUFFER_WASTE_LIMIT', function
     // Next read should trigger compaction internally
     $result = $sb->read(503);
 
-    expect($result)->toBe(str_repeat('X', 500) . 'END');
+    expect($result)->toBe(\str_repeat('X', 500) . 'END');
 });
 
 test('multiple reads triggering compaction', function () {
     $sb = new StringBuffer();
 
     // Write a lot of data
-    for ($i = 0; $i < 10; $i++) {
-        $sb->write(str_repeat((string)$i, 1000));
+    for ($i = 0; $i < 10; ++$i) {
+        $sb->write(\str_repeat((string) $i, 1000));
     }
     $sb->end();
 
@@ -421,7 +420,7 @@ test('multiple reads triggering compaction', function () {
         $total .= $sb->read(500);
     }
 
-    expect(strlen($total))->toBe(10000);
+    expect(\strlen($total))->toBe(10000);
 });
 
 // ============================================================================
@@ -430,7 +429,7 @@ test('multiple reads triggering compaction', function () {
 
 test('read() blocks until data available', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb     = new StringBuffer();
         $result = null;
 
         phasync::go(function () use ($sb, &$result) {
@@ -452,7 +451,7 @@ test('read() blocks until data available', function () {
 
 test('read() unblocks when buffer is ended', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb     = new StringBuffer();
         $result = null;
 
         phasync::go(function () use ($sb, &$result) {
@@ -469,7 +468,7 @@ test('read() unblocks when buffer is ended', function () {
 
 test('readFixed() blocks until enough data available', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb     = new StringBuffer();
         $result = 'not set';
 
         phasync::go(function () use ($sb, &$result) {
@@ -491,7 +490,7 @@ test('readFixed() blocks until enough data available', function () {
 
 test('readFixed() returns null when ended with insufficient data', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb     = new StringBuffer();
         $result = 'not set';
 
         phasync::go(function () use ($sb, &$result) {
@@ -509,7 +508,7 @@ test('readFixed() returns null when ended with insufficient data', function () {
 
 test('await() blocks until data or end', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb      = new StringBuffer();
         $awaited = false;
 
         phasync::go(function () use ($sb, &$awaited) {
@@ -532,9 +531,9 @@ test('await() returns immediately if already ready', function () {
         $sb = new StringBuffer();
         $sb->write('data');
 
-        $start = microtime(true);
+        $start = \microtime(true);
         $sb->await();
-        $elapsed = microtime(true) - $start;
+        $elapsed = \microtime(true) - $start;
 
         expect($elapsed)->toBeLessThan(0.01);
     });
@@ -545,9 +544,9 @@ test('await() returns immediately if ended', function () {
         $sb = new StringBuffer();
         $sb->end();
 
-        $start = microtime(true);
+        $start = \microtime(true);
         $sb->await();
-        $elapsed = microtime(true) - $start;
+        $elapsed = \microtime(true) - $start;
 
         expect($elapsed)->toBeLessThan(0.01);
     });
@@ -555,7 +554,7 @@ test('await() returns immediately if ended', function () {
 
 test('concurrent readers and writers', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb       = new StringBuffer();
         $received = '';
 
         // Reader coroutine
@@ -567,7 +566,7 @@ test('concurrent readers and writers', function () {
 
         // Writer coroutine
         phasync::go(function () use ($sb) {
-            for ($i = 0; $i < 5; $i++) {
+            for ($i = 0; $i < 5; ++$i) {
                 $sb->write("chunk$i");
                 phasync::sleep(0.01);
             }
@@ -582,8 +581,8 @@ test('concurrent readers and writers', function () {
 
 test('multiple writers single reader', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
-        $received = '';
+        $sb               = new StringBuffer();
+        $received         = '';
         $writersCompleted = 0;
 
         // Reader
@@ -595,18 +594,18 @@ test('multiple writers single reader', function () {
 
         // Writer 1
         phasync::go(function () use ($sb, &$writersCompleted) {
-            for ($i = 0; $i < 3; $i++) {
+            for ($i = 0; $i < 3; ++$i) {
                 $sb->write("A$i");
             }
-            $writersCompleted++;
+            ++$writersCompleted;
         });
 
         // Writer 2
         phasync::go(function () use ($sb, &$writersCompleted) {
-            for ($i = 0; $i < 3; $i++) {
+            for ($i = 0; $i < 3; ++$i) {
                 $sb->write("B$i");
             }
-            $writersCompleted++;
+            ++$writersCompleted;
         });
 
         // Wait for writers then end
@@ -618,7 +617,7 @@ test('multiple writers single reader', function () {
         phasync::await($reader);
 
         // All data should be present (order may vary due to concurrency)
-        expect(strlen($received))->toBe(12);
+        expect(\strlen($received))->toBe(12);
         expect($received)->toContain('A0');
         expect($received)->toContain('B0');
     });
@@ -631,13 +630,13 @@ test('multiple writers single reader', function () {
 test('readFromResource() throws for non-stream', function () {
     $sb = new StringBuffer();
 
-    expect(fn() => $sb->readFromResource('not a resource'))->toThrow(InvalidArgumentException::class);
+    expect(fn () => $sb->readFromResource('not a resource'))->toThrow(InvalidArgumentException::class);
 });
 
 test('writeToResource() throws for non-stream', function () {
     $sb = new StringBuffer();
 
-    expect(fn() => $sb->writeToResource('not a resource'))->toThrow(InvalidArgumentException::class);
+    expect(fn () => $sb->writeToResource('not a resource'))->toThrow(InvalidArgumentException::class);
 });
 
 test('readFromResource() reads stream into buffer', function () {
@@ -645,10 +644,10 @@ test('readFromResource() reads stream into buffer', function () {
         $sb = new StringBuffer();
 
         // Create a temp file with data
-        $tmpFile = tempnam(sys_get_temp_dir(), 'phasync_test');
-        file_put_contents($tmpFile, 'Hello from file');
+        $tmpFile = \tempnam(\sys_get_temp_dir(), 'phasync_test');
+        \file_put_contents($tmpFile, 'Hello from file');
 
-        $fp = fopen($tmpFile, 'r');
+        $fp = \fopen($tmpFile, 'r');
 
         $reader = $sb->readFromResource($fp);
 
@@ -659,8 +658,8 @@ test('readFromResource() reads stream into buffer', function () {
         }
 
         phasync::await($reader);
-        fclose($fp);
-        unlink($tmpFile);
+        \fclose($fp);
+        \unlink($tmpFile);
 
         expect($result)->toBe('Hello from file');
     });
@@ -671,8 +670,8 @@ test('writeToResource() writes buffer to stream', function () {
         $sb = new StringBuffer();
 
         // Create temp file for writing
-        $tmpFile = tempnam(sys_get_temp_dir(), 'phasync_test');
-        $fp = fopen($tmpFile, 'w');
+        $tmpFile = \tempnam(\sys_get_temp_dir(), 'phasync_test');
+        $fp      = \fopen($tmpFile, 'w');
 
         $writer = $sb->writeToResource($fp);
 
@@ -680,10 +679,10 @@ test('writeToResource() writes buffer to stream', function () {
         $sb->end();
 
         phasync::await($writer);
-        fclose($fp);
+        \fclose($fp);
 
-        expect(file_get_contents($tmpFile))->toBe('Hello to file');
-        unlink($tmpFile);
+        expect(\file_get_contents($tmpFile))->toBe('Hello to file');
+        \unlink($tmpFile);
     });
 });
 
@@ -692,11 +691,11 @@ test('readFromResource() handles large file', function () {
         $sb = new StringBuffer();
 
         // Create a larger temp file
-        $tmpFile = tempnam(sys_get_temp_dir(), 'phasync_test');
-        $data = str_repeat('X', 100000);
-        file_put_contents($tmpFile, $data);
+        $tmpFile = \tempnam(\sys_get_temp_dir(), 'phasync_test');
+        $data    = \str_repeat('X', 100000);
+        \file_put_contents($tmpFile, $data);
 
-        $fp = fopen($tmpFile, 'r');
+        $fp     = \fopen($tmpFile, 'r');
         $reader = $sb->readFromResource($fp);
 
         $result = '';
@@ -705,10 +704,10 @@ test('readFromResource() handles large file', function () {
         }
 
         phasync::await($reader);
-        fclose($fp);
-        unlink($tmpFile);
+        \fclose($fp);
+        \unlink($tmpFile);
 
-        expect(strlen($result))->toBe(100000);
+        expect(\strlen($result))->toBe(100000);
     });
 });
 
@@ -813,20 +812,20 @@ test('StringBuffer can be used with phasync::select', function () {
 
 test('StringBuffer handles high-frequency writes', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb    = new StringBuffer();
         $count = 0;
 
         $reader = phasync::go(function () use ($sb, &$count) {
             while (!$sb->eof()) {
                 $data = $sb->read(1);
-                if ($data !== '') {
-                    $count++;
+                if ('' !== $data) {
+                    ++$count;
                 }
             }
         });
 
         phasync::go(function () use ($sb) {
-            for ($i = 0; $i < 1000; $i++) {
+            for ($i = 0; $i < 1000; ++$i) {
                 $sb->write('x');
             }
             $sb->end();
@@ -839,19 +838,19 @@ test('StringBuffer handles high-frequency writes', function () {
 
 test('StringBuffer performance with larger chunks', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb            = new StringBuffer();
         $totalReceived = 0;
 
         $reader = phasync::go(function () use ($sb, &$totalReceived) {
             while (!$sb->eof()) {
                 $data = $sb->read(8192);
-                $totalReceived += strlen($data);
+                $totalReceived += \strlen($data);
             }
         });
 
         phasync::go(function () use ($sb) {
-            $chunk = str_repeat('x', 1024);
-            for ($i = 0; $i < 100; $i++) {
+            $chunk = \str_repeat('x', 1024);
+            for ($i = 0; $i < 100; ++$i) {
                 $sb->write($chunk);
             }
             $sb->end();
@@ -866,8 +865,8 @@ test('StringBuffer memory efficiency with large data', function () {
     $sb = new StringBuffer();
 
     // Write 1MB of data
-    $chunk = str_repeat('x', 65536);
-    for ($i = 0; $i < 16; $i++) {
+    $chunk = \str_repeat('x', 65536);
+    for ($i = 0; $i < 16; ++$i) {
         $sb->write($chunk);
     }
     $sb->end();
@@ -875,7 +874,7 @@ test('StringBuffer memory efficiency with large data', function () {
     // Read it all back
     $total = 0;
     while (!$sb->eof()) {
-        $total += strlen($sb->read(65536));
+        $total += \strlen($sb->read(65536));
     }
 
     expect($total)->toBe(1048576);
@@ -947,14 +946,14 @@ test('StringBuffer performance tests (original)', function () {
 // ============================================================================
 
 test('getDeadmanSwitch() returns DeadmanSwitch instance', function () {
-    $sb = new StringBuffer();
+    $sb      = new StringBuffer();
     $deadman = $sb->getDeadmanSwitch();
 
-    expect($deadman)->toBeInstanceOf(\phasync\DeadmanSwitch::class);
+    expect($deadman)->toBeInstanceOf(phasync\DeadmanSwitch::class);
 });
 
 test('getDeadmanSwitch() returns same instance while alive', function () {
-    $sb = new StringBuffer();
+    $sb       = new StringBuffer();
     $deadman1 = $sb->getDeadmanSwitch();
     $deadman2 = $sb->getDeadmanSwitch();
 
@@ -972,26 +971,26 @@ test('deadman switch triggers on garbage collection', function () {
             // $deadman goes out of scope here, writer didn't call end()
         };
         $func();
-        gc_collect_cycles();
+        \gc_collect_cycles();
 
         // Existing data can still be read
         expect($sb->read(5, 0))->toBe('hello');
 
         // But trying to read more (which would block) throws
-        expect(fn() => $sb->read(10))
-            ->toThrow(\phasync\DeadmanException::class);
+        expect(fn () => $sb->read(10))
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
 test('deadman switch can be disarmed', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb      = new StringBuffer();
         $deadman = $sb->getDeadmanSwitch();
         $sb->write('data');
 
         $deadman->disarm();
         unset($deadman);
-        gc_collect_cycles();
+        \gc_collect_cycles();
 
         // Buffer is not failed, but also not ended - read with timeout returns what's available
         expect($sb->read(4, 0))->toBe('data');
@@ -1009,15 +1008,15 @@ test('read() can get existing data after deadman triggered', function () {
             $sb->write('existing data');
         };
         $func();
-        gc_collect_cycles();
+        \gc_collect_cycles();
 
         // Can read existing data
         expect($sb->read(8, 0))->toBe('existing');
         expect($sb->read(5, 0))->toBe(' data');
 
         // But blocking read for more throws
-        expect(fn() => $sb->read(10))
-            ->toThrow(\phasync\DeadmanException::class);
+        expect(fn () => $sb->read(10))
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
@@ -1030,11 +1029,11 @@ test('readFixed() throws when would block after deadman triggered', function () 
             $sb->write('short'); // Only 5 bytes
         };
         $func();
-        gc_collect_cycles();
+        \gc_collect_cycles();
 
         // Asking for more than available, would need to block
-        expect(fn() => $sb->readFixed(10))
-            ->toThrow(\phasync\DeadmanException::class);
+        expect(fn () => $sb->readFixed(10))
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
@@ -1050,37 +1049,37 @@ test('deadman switch allows reading buffered data before throwing', function () 
         });
 
         phasync::await($writer);
-        gc_collect_cycles();
+        \gc_collect_cycles();
 
         // Can read all buffered data
         expect($sb->read(10, 0))->toBe('helloworld');
 
         // Blocking read throws
-        expect(fn() => $sb->read(10))
-            ->toThrow(\phasync\DeadmanException::class);
+        expect(fn () => $sb->read(10))
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
 test('deadman switch is harmless when writer calls end()', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb             = new StringBuffer();
         $framesReceived = 0;
 
         $reader = phasync::go(function () use ($sb, &$framesReceived) {
             while (true) {
                 $frame = $sb->readFixed(10, 0.1);
-                if ($frame === null) {
+                if (null === $frame) {
                     break;
                 }
-                $framesReceived++;
+                ++$framesReceived;
             }
         });
 
         phasync::go(function () use ($sb) {
             $deadman = $sb->getDeadmanSwitch();
-            $sb->write(str_repeat('A', 10));
-            $sb->write(str_repeat('B', 10));
-            $sb->write(str_repeat('C', 10));
+            $sb->write(\str_repeat('A', 10));
+            $sb->write(\str_repeat('B', 10));
+            $sb->write(\str_repeat('C', 10));
             $sb->end(); // Proper termination
         });
 
@@ -1091,7 +1090,7 @@ test('deadman switch is harmless when writer calls end()', function () {
 
 test('DeadmanSwitch can be manually triggered', function () {
     phasync::run(function () {
-        $sb = new StringBuffer();
+        $sb      = new StringBuffer();
         $deadman = $sb->getDeadmanSwitch();
         $sb->write('data');
 
@@ -1101,16 +1100,16 @@ test('DeadmanSwitch can be manually triggered', function () {
         expect($sb->read(4, 0))->toBe('data');
 
         // Blocking read throws
-        expect(fn() => $sb->read(10))
-            ->toThrow(\phasync\DeadmanException::class);
+        expect(fn () => $sb->read(10))
+            ->toThrow(phasync\DeadmanException::class);
         expect($deadman->isTriggered())->toBeTrue();
     });
 });
 
 test('DeadmanSwitch trigger is idempotent', function () {
     $callCount = 0;
-    $deadman = new \phasync\DeadmanSwitch(function () use (&$callCount) {
-        $callCount++;
+    $deadman   = new phasync\DeadmanSwitch(function () use (&$callCount) {
+        ++$callCount;
     });
 
     $deadman->trigger();

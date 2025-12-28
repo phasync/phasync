@@ -30,7 +30,8 @@ use phasync\SelectableInterface;
  * any blocking read will throw DeadmanException. Buffered data can still be
  * read before the exception is thrown.
  */
-class StringBuffer implements SelectableInterface {
+class StringBuffer implements SelectableInterface
+{
     use DeadmanSwitchTrait;
     /**
      * How much unusable string data can the string buffer hold
@@ -85,7 +86,8 @@ class StringBuffer implements SelectableInterface {
     /**
      * Create a new StringBuffer instance.
      */
-    public function __construct() {
+    public function __construct()
+    {
         $this->queue     = new \SplDoublyLinkedList();
     }
 
@@ -95,7 +97,8 @@ class StringBuffer implements SelectableInterface {
      *
      * @param float $timeout Maximum time to wait in seconds (default: infinity)
      */
-    public function await(float $timeout = \PHP_FLOAT_MAX): void {
+    public function await(float $timeout = \PHP_FLOAT_MAX): void
+    {
         $timesOut = \microtime(true) + $timeout;
         while (!$this->isReady()) {
             $remaining = $timesOut - \microtime(true);
@@ -120,7 +123,8 @@ class StringBuffer implements SelectableInterface {
      *
      * @return bool True if reading would not block
      */
-    public function isReady(): bool {
+    public function isReady(): bool
+    {
         if ($this->ended || $this->failed) {
             return true;
         }
@@ -131,14 +135,16 @@ class StringBuffer implements SelectableInterface {
     /**
      * Returns true if there is no data currently available to read.
      */
-    public function isEmpty(): bool {
+    public function isEmpty(): bool
+    {
         return $this->offset === $this->length && $this->queue->isEmpty();
     }
 
     /**
      * Write data to the buffer
      */
-    public function write(string $chunk): void {
+    public function write(string $chunk): void
+    {
         if ($this->ended) {
             throw new \RuntimeException('Buffer has been ended');
         }
@@ -152,9 +158,10 @@ class StringBuffer implements SelectableInterface {
      * Read up to $maxLength bytes from the buffer.
      *
      * @throws \OutOfBoundsException
-     * @throws DeadmanException If would block and the writer terminated unexpectedly
+     * @throws DeadmanException      If would block and the writer terminated unexpectedly
      */
-    public function read(int $maxLength, float $timeout = \PHP_FLOAT_MAX): string {
+    public function read(int $maxLength, float $timeout = \PHP_FLOAT_MAX): string
+    {
         if ($maxLength < 0) {
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
@@ -179,7 +186,8 @@ class StringBuffer implements SelectableInterface {
      * Asynchronously read data from the stream resource into the
      * buffer.
      */
-    public function readFromResource($resource): \Fiber {
+    public function readFromResource($resource): \Fiber
+    {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             throw new \InvalidArgumentException('Expected stream resource');
         }
@@ -212,7 +220,8 @@ class StringBuffer implements SelectableInterface {
      *
      * @throws \LogicException If the buffer has already been ended
      */
-    public function end(): void {
+    public function end(): void
+    {
         if ($this->ended) {
             throw new \LogicException('StringBuffer already ended');
         }
@@ -224,7 +233,8 @@ class StringBuffer implements SelectableInterface {
      * Called when the deadman switch is triggered.
      * Marks the buffer as failed and wakes any waiting readers.
      */
-    protected function deadmanSwitchTriggered(): void {
+    protected function deadmanSwitchTriggered(): void
+    {
         $this->failed = true;
         \phasync::raiseFlag($this->queue);
     }
@@ -232,7 +242,8 @@ class StringBuffer implements SelectableInterface {
     /**
      * True if the end of file has been reached.
      */
-    public function eof(): bool {
+    public function eof(): bool
+    {
         return $this->ended && $this->offset === $this->length && $this->queue->isEmpty();
     }
 
@@ -241,9 +252,11 @@ class StringBuffer implements SelectableInterface {
      * if the buffer is or becomes ended, or if timeout expires.
      *
      * @param int<1,max> $length
+     *
      * @throws DeadmanException If the deadman switch was triggered
      */
-    public function readFixed(int $length, float $timeout = \PHP_FLOAT_MAX): ?string {
+    public function readFixed(int $length, float $timeout = \PHP_FLOAT_MAX): ?string
+    {
         if ($length < 0) {
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
@@ -284,7 +297,8 @@ class StringBuffer implements SelectableInterface {
      * stream resource. If reading to multiple resources, there is no way
      * to control which data is routed to which resource.
      */
-    public function writeToResource($resource): \Fiber {
+    public function writeToResource($resource): \Fiber
+    {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             throw new \InvalidArgumentException('Expected stream resource');
         }
@@ -312,7 +326,8 @@ class StringBuffer implements SelectableInterface {
     /**
      * Prepend data to the buffer.
      */
-    public function unread(string $chunk): void {
+    public function unread(string $chunk): void
+    {
         if ($this->ended && $this->offset === $this->length && $this->queue->isEmpty()) {
             throw new \LogicException("Can't unread to an ended and empty StringBuffer");
         }
@@ -334,7 +349,8 @@ class StringBuffer implements SelectableInterface {
      *
      * @return bool True if able to provide enough data
      */
-    protected function fill(int $requiredLength): bool {
+    protected function fill(int $requiredLength): bool
+    {
         // Clear buffer if necessary
         if ($this->offset > self::BUFFER_WASTE_LIMIT) {
             $this->buffer = \substr($this->buffer, $this->offset);

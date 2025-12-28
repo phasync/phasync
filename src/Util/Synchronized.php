@@ -13,7 +13,7 @@ namespace phasync\Util;
  */
 final class Synchronized
 {
-    private static array $locks = [];
+    private static array $locks   = [];
     private static array $holders = [];
 
     /**
@@ -21,7 +21,7 @@ final class Synchronized
      * coroutines at the same time.
      *
      * @throws \LogicException if attempting reentrant lock from same context
-     * @throws \Throwable if the closure throws
+     * @throws \Throwable      if the closure throws
      */
     public static function run(object|string $token, \Closure $closure): mixed
     {
@@ -38,7 +38,7 @@ final class Synchronized
             \phasync::awaitFlag(self::$locks[$token]);
         }
         try {
-            self::$locks[$token] = new \stdClass();
+            self::$locks[$token]   = new \stdClass();
             self::$holders[$token] = $currentContext;
 
             return $closure();

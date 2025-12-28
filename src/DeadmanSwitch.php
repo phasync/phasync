@@ -41,7 +41,7 @@ final class DeadmanSwitch
      */
     public function __destruct()
     {
-        if (!$this->triggered && $this->callback !== null) {
+        if (!$this->triggered && null !== $this->callback) {
             $this->trigger();
         }
     }
@@ -56,7 +56,7 @@ final class DeadmanSwitch
             return;
         }
         $this->triggered = true;
-        if ($this->callback !== null) {
+        if (null !== $this->callback) {
             ($this->callback)();
             $this->callback = null;
         }
@@ -69,7 +69,7 @@ final class DeadmanSwitch
     public function disarm(): void
     {
         $this->triggered = true;
-        $this->callback = null;
+        $this->callback  = null;
     }
 
     /**

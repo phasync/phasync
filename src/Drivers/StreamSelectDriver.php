@@ -149,6 +149,9 @@ final class StreamSelectDriver implements DriverInterface
     private ?\Fiber $currentFiber             = null;
     private ?ContextInterface $currentContext = null;
 
+    /**
+     * Create a new StreamSelectDriver instance.
+     */
     public function __construct()
     {
         $this->clear();
@@ -187,6 +190,11 @@ final class StreamSelectDriver implements DriverInterface
         $this->shouldGarbageCollect = true;
     }
 
+    /**
+     * Returns the full internal state of the driver for debugging purposes.
+     *
+     * @return array<string, int> Counts of various internal data structures
+     */
     public function getFullState(): array
     {
         $result = [
@@ -478,7 +486,7 @@ final class StreamSelectDriver implements DriverInterface
         }
 
         $fiberStore = $this->flaggedFibers[$flag];
-        $count = $fiberStore->raiseFlag();
+        $count      = $fiberStore->raiseFlag();
 
         // Clean up empty Flag stores to prevent zombie references during GC
         if (0 === $fiberStore->count()) {
@@ -619,9 +627,6 @@ final class StreamSelectDriver implements DriverInterface
     }
 
     /**
-     * Cancel a blocked fiber by throwing an exception in the fiber. If
-     * an exception is not provided, a CancelledException is thrown.
-     *
      * @throws \RuntimeException
      * @throws \LogicException
      */
@@ -747,16 +752,25 @@ final class StreamSelectDriver implements DriverInterface
         return null;
     }
 
+    /**
+     * Returns the fiber that is currently being executed by the driver.
+     */
     public function getCurrentFiber(): ?\Fiber
     {
         return $this->currentFiber;
     }
 
+    /**
+     * Returns the context of the currently executing fiber.
+     */
     public function getCurrentContext(): ?ContextInterface
     {
         return $this->currentContext;
     }
 
+    /**
+     * Scans pending fibers and cancels any that have exceeded their timeout.
+     */
     private function checkTimeouts(): void
     {
         $now = \microtime(true);
