@@ -262,20 +262,36 @@ test('channel capacity handling', function () {
     phasync::run(function () {
         phasync::channel($read, $write, 2); // Capacity of 2
 
-        $step = 0;
+        $writesStarted  = 0;
+        $writeCompleted = false;
 
-        phasync::go(function () use ($write, &$step) {
+        phasync::go(function () use ($write, &$writesStarted, &$writeCompleted) {
             $write->write(1);
+            ++$writesStarted;
             $write->write(2);
-            $step = 1;
+            ++$writesStarted;
             $write->write(3); // Should block until a read happens
-            $step = 2;
+            ++$writesStarted;
+            $writeCompleted = true;
         });
 
+        // Let writer run until it blocks
+        while ($writesStarted < 2) {
+            phasync::sleep();
+        }
+
+        // Writer has completed 2 writes but should be blocked on the 3rd
+        expect($writesStarted)->toBe(2);
+        expect($writeCompleted)->toBeFalse();
+
+        // Reading should unblock the writer
         expect($read->read())->toBe(1);
         expect($read->read())->toBe(2);
-        expect($step)->toBe(1);
         expect($read->read())->toBe(3);
+
+        // Now writer should have completed
+        expect($writeCompleted)->toBeTrue();
+        expect($writesStarted)->toBe(3);
     });
 });
 test('nested channel operations', function () {
