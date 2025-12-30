@@ -11,7 +11,7 @@ use Psr\Http\Message\StreamInterface;
  * This implementation integrates with phasync for read and write
  * operations
  */
-final class ResourceStream implements StreamInterface
+class ResourceStream implements StreamInterface
 {
     /**
      * True if the stream resource has been closed.
