@@ -7,8 +7,6 @@ examples/               export-ignore
 phpunit.xml             export-ignore
 test.php                export-ignore
 tests/                  export-ignore
-/LICENSE                export-ignore
 CONTRIBUTING.md         export-ignore
-README.md               export-ignore
 docker/                 export-ignore
 docker-compose.yml      export-ignore
