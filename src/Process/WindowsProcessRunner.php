@@ -347,4 +347,9 @@ final class WindowsProcessRunner implements ProcessInterface
 
         return \fwrite($this->pipes[$fd], $data);
     }
+
+    public function getStream(int $fd): mixed
+    {
+        return $this->pipes[$fd] ?? null;
+    }
 }
