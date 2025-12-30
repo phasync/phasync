@@ -338,7 +338,7 @@ final class WindowsProcessRunner implements ProcessInterface
      * @throws \FiberError
      * @throws \Throwable
      */
-    public function write(int $fd, string $data): int|false
+    public function write(string $data, int $fd = ProcessInterface::STDIN): int|false
     {
         if (!$this->isRunning()) {
             return false;
