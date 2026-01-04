@@ -22,7 +22,6 @@ jobs:
 
       - name: Check commit messages
         uses: webiny/action-conventional-commits@v1.3.0
-        if: github.event_name == 'pull_request'
 
       - name: 🧰 Setup PHP
         uses: shivammathur/setup-php@v2
