@@ -21,7 +21,6 @@ final class ExceptionTool
         $rTrace = $rc->getProperty('trace');
         $rFile  = $rc->getProperty('file');
         $rLine  = $rc->getProperty('line');
-        $rTrace->setAccessible(true);
 
         $trace = $rTrace->getValue($exception);
 

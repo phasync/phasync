@@ -16,7 +16,6 @@ trait RethrowExceptionTrait
      */
     public function rebuildStackTrace(): void
     {
-        return;
         // Get the current stack trace
         $finalTrace = [];
         $file       = null;
@@ -44,16 +43,13 @@ trait RethrowExceptionTrait
 
         // Update the stack trace
         $traceProperty = $reflection->getProperty('trace');
-        $traceProperty->setAccessible(true);
         $traceProperty->setValue($this, $finalTrace);
 
         // Update the file and line where the exception was rethrown
         $fileProperty = $reflection->getProperty('file');
-        $fileProperty->setAccessible(true);
         $fileProperty->setValue($this, $file);
 
         $lineProperty = $reflection->getProperty('line');
-        $lineProperty->setAccessible(true);
         $lineProperty->setValue($this, $line);
     }
 }

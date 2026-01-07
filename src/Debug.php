@@ -137,7 +137,6 @@ final class Debug
                 $rc         = new \ReflectionClass($instance);
                 $properties = $rc->getProperties(~\ReflectionProperty::IS_STATIC);
                 foreach ($properties as $rp) {
-                    $rp->setAccessible(true);
                     $name              = $prefix . '->' . $rp->getName();
                     $candidates[$name] = $rp->getValue($instance);
                 }

@@ -26,10 +26,10 @@ class Scheduler extends \SplMinHeap
 
     public function schedule(float $timestamp, \Fiber $fiber)
     {
-        if ($this->times->contains($fiber)) {
+        if ($this->times->offsetExists($fiber)) {
             throw new \LogicException('The Fiber is already scheduled');
         }
-        $this->times->attach($fiber, $timestamp);
+        $this->times[$fiber] = $timestamp;
         parent::insert($fiber);
     }
 
@@ -53,14 +53,14 @@ class Scheduler extends \SplMinHeap
             return null;
         }
         $fiber = parent::extract();
-        $this->times->detach($fiber);
+        unset($this->times[$fiber]);
 
         return $fiber;
     }
 
     public function contains(\Fiber $fiber): bool
     {
-        return $this->times->contains($fiber);
+        return $this->times->offsetExists($fiber);
     }
 
     public function cancel(\Fiber $fiber): void
@@ -70,7 +70,7 @@ class Scheduler extends \SplMinHeap
             while (!$this->isEmpty()) {
                 $existing = parent::extract();
                 if ($existing === $fiber) {
-                    $this->times->detach($existing);
+                    unset($this->times[$existing]);
                     break;
                 }
                 $buffer[] = $existing;
