@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Check commit messages
-        uses: webiny/action-conventional-commits@v1.3.0
+        uses: webiny/action-conventional-commits@v1.3.1
 
       - name: 🧰 Setup PHP
         uses: shivammathur/setup-php@v2
