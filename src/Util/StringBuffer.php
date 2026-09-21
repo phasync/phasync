@@ -5,6 +5,7 @@ namespace phasync\Util;
 use phasync\DeadmanException;
 use phasync\DeadmanSwitchTrait;
 use phasync\SelectableInterface;
+use phasync\TimeoutException;
 
 /**
  * A high performance string buffer for buffering streaming data that can be
@@ -107,7 +108,7 @@ class StringBuffer implements SelectableInterface
             }
             try {
                 \phasync::awaitFlag($this->queue, $remaining);
-            } catch (\phasync\TimeoutException) {
+            } catch (TimeoutException) {
                 return;
             }
         }
@@ -159,6 +160,8 @@ class StringBuffer implements SelectableInterface
      *
      * @throws \OutOfBoundsException
      * @throws DeadmanException      If would block and the writer terminated unexpectedly
+     * @throws TimeoutException      If no data arrived before $timeout expired (a $timeout of 0
+     *                               never blocks and returns whatever is buffered)
      */
     public function read(int $maxLength, float $timeout = \PHP_FLOAT_MAX): string
     {
@@ -171,7 +174,11 @@ class StringBuffer implements SelectableInterface
             if ($this->failed) {
                 throw new DeadmanException('Writer terminated unexpectedly');
             }
-            $this->await($timesOut - \microtime(true));
+            $remaining = $timesOut - \microtime(true);
+            if ($remaining <= 0) {
+                throw new TimeoutException('StringBuffer read timed out');
+            }
+            $this->await($remaining);
         }
         $this->fill($maxLength);
 
@@ -276,7 +283,7 @@ class StringBuffer implements SelectableInterface
             // when there's some data but not enough for our fixed length requirement
             try {
                 \phasync::awaitFlag($this->queue, $remaining);
-            } catch (\phasync\TimeoutException) {
+            } catch (TimeoutException) {
                 // Timeout expired, exit the loop
                 break;
             }
