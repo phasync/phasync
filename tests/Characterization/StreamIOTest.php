@@ -75,8 +75,11 @@ function iochar_with_file(string $content, Closure $test): void
     try {
         $test($path);
     } finally {
-        @\unlink($path);
-        @\unlink($path . '.out');
+        foreach ([$path, $path . '.out'] as $file) {
+            if (\is_file($file)) {
+                \unlink($file);
+            }
+        }
     }
 }
 
@@ -361,7 +364,7 @@ test('IO-1: io::fgets() returns whatever is available, which may be a partial li
     // A line that arrives in two pieces is returned in two pieces, not waited for until "\n".
     phasync::run(function () {
         [$a, $b] = iochar_pair();
-        phasync::go(function () use ($b) {
+        $writer  = phasync::go(function () use ($b) {
             phasync::sleep(0.03);
             \fwrite($b, "first\nsec");
             phasync::sleep(0.03);
@@ -369,6 +372,8 @@ test('IO-1: io::fgets() returns whatever is available, which may be a partial li
         });
         expect(io::fgets($a))->toBe("first\n");
         expect(io::fgets($a))->toBe('sec');
+        // Keep $a open until the writer is done, or its second write hits a closed pipe.
+        phasync::await($writer);
     });
 })->group('surprise');
 
@@ -386,7 +391,20 @@ test('IO-1: io::file_get_contents() and io::file_put_contents() read and write f
     iochar_with_file("line1\nline2\nline3", function (string $path) {
         phasync::run(function () use ($path) {
             expect(io::file_get_contents($path))->toBe("line1\nline2\nline3");
-            expect(fn () => @io::file_get_contents('/nonexistent/file'))->toThrow(Exception::class, 'Unable to open file');
+            // The failing fopen() also emits a PHP warning, on top of the exception.
+            $warnings = [];
+            \set_error_handler(function (int $no, string $str) use (&$warnings) {
+                $warnings[] = $str;
+
+                return true;
+            });
+            try {
+                expect(fn () => io::file_get_contents('/nonexistent/file'))->toThrow(Exception::class, 'Unable to open file');
+            } finally {
+                \restore_error_handler();
+            }
+            expect($warnings)->toHaveCount(1);
+            expect($warnings[0])->toContain('Failed to open stream');
 
             $out = $path . '.out';
             expect(io::file_put_contents($out, 'written'))->toBe(7);

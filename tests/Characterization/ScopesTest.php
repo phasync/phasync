@@ -424,7 +424,7 @@ test('SCO-7: the context stores values by key; children of the scope see them, a
 
 test('SCO-7: reading a missing key returns null but raises a PHP notice about returning by reference [SURPRISE]', function () {
     $notices = [];
-    $handler = \set_error_handler(function (int $no, string $str) use (&$notices) {
+    \set_error_handler(function (int $no, string $str) use (&$notices) {
         $notices[] = $str;
 
         return true;
@@ -432,7 +432,7 @@ test('SCO-7: reading a missing key returns null but raises a PHP notice about re
     try {
         $value = phasync::run(fn () => phasync::getContext()['missing']);
     } finally {
-        \set_error_handler($handler);
+        \restore_error_handler();
     }
     expect($value)->toBeNull();
     expect($notices)->toHaveCount(1);
