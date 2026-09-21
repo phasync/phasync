@@ -5,6 +5,13 @@ namespace phasync\Process;
 use phasync\Legacy\Loop;
 use phasync\Server\TcpServer;
 
+/**
+ * @deprecated This class does not work and Process::run() no longer uses it. It calls classes
+ *             that do not exist (phasync\Legacy\Loop, and phasync\Server\TcpServer which lives
+ *             in another package) and looks for bin\ProcessRunner.exe, but the bundled files
+ *             are named ProcessWrapper.exe. It will be replaced by a new Windows
+ *             implementation (issue #45).
+ */
 final class WindowsProcessRunner implements ProcessInterface
 {
     public const SECURITY_TOKEN_SIZE = 16;

@@ -15,11 +15,13 @@ final class Process
      * @param array       $arguments An array of arguments (will be escaped with {@see escapeshellarg()})
      * @param string|null $cwd       The current working directory for the child process
      * @param array|null  $env       The environment variables for the child process (if null, the current env is inherited)
+     *
+     * @throws \LogicException on Windows, which has no working implementation yet
      */
     public static function run(string $command, array $arguments=[], ?string $cwd=null, ?array $env=null): ProcessInterface
     {
         if (\PHP_OS_FAMILY === 'Windows') {
-            return new WindowsProcessRunner([$command, ...$arguments], $cwd, $env);
+            throw new \LogicException('phasync\Process\Process::run() is not supported on Windows yet');
         }
 
         return new PosixProcessRunner([$command, ...$arguments], $cwd, $env);
