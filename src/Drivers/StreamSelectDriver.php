@@ -779,11 +779,17 @@ final class StreamSelectDriver implements DriverInterface
     private function checkTimeouts(): void
     {
         $now = \microtime(true);
+        // Collect first. Cancelling a fiber removes it from $this->pending, and removing an
+        // entry from an SplObjectStorage while iterating over it makes the loop skip entries.
+        $expired = [];
         foreach ($this->pending as $fiber) {
             if ($this->pending[$fiber] <= $now) {
-                // FiberState::for($fiber)->log("timeout");
-                $this->cancel($fiber, new TimeoutException('Operation timed out for ' . Debug::getDebugInfo($fiber)));
+                $expired[] = $fiber;
             }
+        }
+        foreach ($expired as $fiber) {
+            // FiberState::for($fiber)->log("timeout");
+            $this->cancel($fiber, new TimeoutException('Operation timed out for ' . Debug::getDebugInfo($fiber)));
         }
         $this->lastTimeoutCheck = $now;
     }
