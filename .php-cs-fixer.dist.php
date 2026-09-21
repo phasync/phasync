@@ -46,5 +46,8 @@ return (new PhpCsFixer\Config())
         'random_api_migration'             => true,
         'phpdoc_summary'                   => false,
         'blank_line_between_import_groups' => false,
+        // phasync relies on reference counting, so a closure may capture a variable only to keep
+        // the object alive for as long as the closure lives. That is not an unused import.
+        'lambda_not_used_import' => false,
     ])
     ->setFinder($finder);
