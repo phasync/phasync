@@ -8,8 +8,6 @@ use phasync\Drivers\DriverInterface;
 use phasync\Drivers\StreamSelectDriver;
 use phasync\Internal\AsyncStream;
 use phasync\Internal\Channel;
-use phasync\Internal\ChannelBuffered;
-use phasync\Internal\ChannelUnbuffered;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\Selector;

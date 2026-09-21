@@ -33,8 +33,6 @@ if (!\function_exists('phasyncResetProcessState')) {
         phasync::setDefaultTimeout(phasync::DEFAULT_TIMEOUT);
 
         $set('phasync\Internal\Channel', 'blockedCount', 0);
-        $set('phasync\Internal\ChannelUnbuffered', 'waiting', []);
-        $set('phasync\Internal\ChannelBuffered', 'waiting', []);
 
         // The selector pools keep objects with stale fields between uses (see the SEL-6 test
         // about a pooled ClosureSelector), so which instance a select() gets changes its result.
