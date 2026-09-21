@@ -14,10 +14,10 @@ Asynchronous programming should not be difficult. This is a new microframework f
 
 ## Installation
 
-The only requirement for phasync is PHP >= 8.1. It runs well inside php-fpm and on the command line. Install it using composer, or download it from github.
+The only requirement for phasync is PHP >= 8.2. It runs well inside php-fpm and on the command line. Install it using composer, or download it from github.
 
 ```bash
-composer install phasync/phasync
+composer require phasync/phasync
 ```
 
 ## Documentation
@@ -247,25 +247,17 @@ phasync::run(function() {
 
 ## Work in progress
 
-While the library seems to be stable, it has not been battle tested. We want enthusiasts to contribute in building tests, documentation and discussion around the architecture.
+phasync is being narrowed down to what it does best: single process concurrency with coroutines, channels, wait groups, publishers and non-blocking stream IO. [docs/SEMANTICS.md](docs/SEMANTICS.md) describes the intended behaviour of each part, and the tests in `tests/Characterization` pin how it behaves today.
 
-Please contribute; we want asynchronous tools to work with:
+Servers and clients built on phasync live in separate packages, for example [phasync/server](https://github.com/phasync/server) for TCP and UDP servers.
 
- * A `Process` class, for running background processes using `proc_open()`. With a `Process` class, we could use a child `php` process to run functions that can't be made non-blocking, such as directory scans, dns lookups and so on. It can also be used to scale the application to utilize multiple CPU cores. Another use for such a class, is to run the `sqlite3` command as a separate process, allowing asynchronous queries to an sqlite3 database.
+Contributions are welcome, especially:
 
- * An asynchronous `MySQL` driver built on top of `mysqli` which supports everything needed for asynchronous database access.
+ * Windows support for `phasync\Process\Process`. PHP cannot poll a child process's pipes on Windows, so it needs a small helper program that connects the pipes to sockets. `Process::run()` throws a `LogicException` on Windows until that exists.
 
- * A `TcpServer` class, for developing fast and concurrent TCP servers using  `stream_socket_server`.
+ * More tests for the behaviour described in [docs/SEMANTICS.md](docs/SEMANTICS.md).
 
-   A `TcpServer` class should make developing TCP servers a breeze. See `phasync\TcpServer` for the work in progress. Combined with Channels, WaitGroups and Publishers, a lot of powerful services can be designed.
-
-   This class will be the foundation for various methods for serving phasync applications as standalone and concurrent applications; `HttpServer` or `FastCGIServer`.
-
- * A `TcpClient` class which would simplify developing clients for important systems like `redis` or `memcached` that are also asynchronous.
-
- * A `HttpClient` using `TcpClient` for asynchronous and concurrent requests using `curl_multi_init`.
-
- * A `http://` and `https://` and `file://` stream wrapper for making these asynchronous.
+ * A `http://`, `https://` and `file://` stream wrapper that makes them non-blocking.
 
 
 ### Example: Asynchronous File Processing in a Web Controller
