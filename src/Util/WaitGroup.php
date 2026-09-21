@@ -18,11 +18,22 @@ final class WaitGroup implements SelectableInterface
     }
 
     /**
-     * Add work to the WaitGroup.
+     * Add work to the WaitGroup, like Go's WaitGroup.Add(delta). A negative delta marks
+     * work as done. If the counter reaches zero, waiting coroutines are resumed.
+     *
+     * @throws \LogicException if the counter would become negative
      */
-    public function add(): void
+    public function add(int $delta = 1): void
     {
-        ++$this->counter;
+        $counter = $this->counter + $delta;
+        if ($counter < 0) {
+            throw new \LogicException('The WaitGroup counter would become negative');
+        }
+        $this->counter = $counter;
+        if (0 === $counter) {
+            // Activate any waiting coroutines
+            \phasync::raiseFlag($this);
+        }
     }
 
     /**
