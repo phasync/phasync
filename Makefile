@@ -17,12 +17,12 @@ all: install test lint
 install:
 	$(COMPOSER) install
 
-# Run tests
+# Run all tests
 .PHONY: test-all
-test:
+test-all:
 	$(PEST)
 
-#Run test until defect
+# Run tests until the first defect
 .PHONY: test
 test:
 	$(PEST) --stop-on-defect
