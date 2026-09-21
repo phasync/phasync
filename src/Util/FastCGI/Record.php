@@ -6,6 +6,10 @@ use phasync\Internal\ObjectPoolInterface;
 use phasync\Internal\ObjectPoolTrait;
 use phasync\Util\StringBuffer;
 
+/**
+ * @deprecated The FastCGI protocol code is moving to phasync/swerve and will be removed from
+ *             phasync in 2.0.
+ */
 final class Record implements ObjectPoolInterface
 {
     use ObjectPoolTrait;
