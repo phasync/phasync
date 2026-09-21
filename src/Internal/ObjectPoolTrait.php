@@ -13,7 +13,12 @@ trait ObjectPoolTrait
             return null;
         }
 
-        return self::$pool[--self::$instanceCount];
+        $instance = self::$pool[--self::$instanceCount];
+        // The pool must not keep referencing an instance that is in use. Otherwise its
+        // destructor does not run when the last real reference is dropped.
+        unset(self::$pool[self::$instanceCount]);
+
+        return $instance;
     }
 
     protected function pushInstance(): void

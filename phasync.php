@@ -975,6 +975,9 @@ final class phasync
         }
 
         $driver->whenFlagged($signal, $timeout, $fiber);
+        // A waiting coroutine must not keep its flag alive. If the owner of the flag lets go
+        // of it, the Flag destructor wakes this coroutine with a CancelledException.
+        unset($signal);
         self::suspend();
     }
 

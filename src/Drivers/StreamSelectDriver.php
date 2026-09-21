@@ -541,7 +541,12 @@ final class StreamSelectDriver implements DriverInterface
         }
 
         // FiberState::for($fiber)->log("whenFlagged for " . Debug::getDebugInfo($flag));
-        $this->flagGraph[$fiber] = $flag;
+        if ($flag instanceof \Fiber) {
+            // The graph is only used to detect await cycles, which only follow fibers. It
+            // must not hold ordinary flags, or a flag could never be garbage collected while
+            // a coroutine waits for it.
+            $this->flagGraph[$fiber] = $flag;
+        }
         $this->flaggedFibers[$flag]->add($fiber);
         $this->pending[$fiber] = \microtime(true) + $timeout;
     }
