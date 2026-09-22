@@ -45,6 +45,11 @@ final class PosixProcessRunner implements ProcessInterface
     {
         $this->command = $command;
 
+        if ([] === $command) {
+            throw new \RuntimeException('Process could not be started: no command given');
+        }
+        self::assertExecutable($command[0], $cwd, $env);
+
         \set_error_handler(static function (int $code, string $message): never {
             throw new \RuntimeException("Process could not be started: Errno: {$code}; {$message}");
         });
@@ -73,6 +78,73 @@ final class PosixProcessRunner implements ProcessInterface
         }
 
         $this->poll();
+
+        // A best effort, non-blocking check for the one class of failure that assertExecutable()
+        // cannot see: the target resolved and was executable, proc_open() forked successfully,
+        // but exec() still failed inside the child -- for example a `#!` interpreter line that
+        // points at an interpreter which does not exist, or the file being removed between the
+        // check above and the fork. Whether the child has already failed by this point is a
+        // race, so this only catches what already happened; assertExecutable() is the reliable
+        // guard, this is a bonus.
+        if (!$this->status['running'] && \in_array($this->status['exitcode'], [126, 127], true)) {
+            throw new \RuntimeException("Process could not be started: '{$command[0]}' exited immediately with code {$this->status['exitcode']}");
+        }
+    }
+
+    /**
+     * Resolve $command the way exec() would -- a literal path if it contains a slash, otherwise a
+     * search through PATH -- and throw if nothing executable is found.
+     *
+     * proc_open() performs this same resolution itself, but whether it *reports* a missing
+     * executable synchronously depends on the platform's glibc version and how PHP was built
+     * against it (see the posix_spawn() pipe-based error reporting added in glibc 2.24): on some
+     * platforms proc_open() fails outright, on others it silently returns a resource whose child
+     * has already failed. This check does not depend on that and is reliable everywhere.
+     *
+     * @throws \RuntimeException
+     */
+    private static function assertExecutable(string $command, ?string $cwd, ?array $env): void
+    {
+        if ('' === $command) {
+            throw new \RuntimeException('Process could not be started: no command given');
+        }
+
+        if (\str_contains($command, '/')) {
+            $path = (\str_starts_with($command, '/') || null === $cwd) ? $command : \rtrim($cwd, '/') . '/' . $command;
+            if (!\is_file($path) || !\is_executable($path)) {
+                throw new \RuntimeException("Process could not be started: '{$command}' is not an executable file");
+            }
+
+            return;
+        }
+
+        // proc_open() replaces the child's entire environment when $env is given, so PATH must
+        // come from there, not from this (the parent) process. If $env was given without a PATH
+        // entry, the platform's own fallback search path applies and is not something this
+        // check can predict, so it is intentionally not enforced here; proc_open() and the
+        // status check above remain the guard for that rare combination.
+        $pathEnv = null !== $env ? ($env['PATH'] ?? null) : \getenv('PATH');
+        if ('' === $pathEnv) {
+            throw new \RuntimeException("Process could not be started: '{$command}' was not found (PATH is empty)");
+        }
+        if (null === $pathEnv) {
+            return;
+        }
+
+        foreach (\explode(\PATH_SEPARATOR, $pathEnv) as $dir) {
+            // An empty PATH entry traditionally means "the current directory" (a well known
+            // POSIX footgun: PATH=:/usr/bin searches . before anything else). This check does
+            // not follow that convention.
+            if ('' === $dir) {
+                continue;
+            }
+            $candidate = \rtrim($dir, '/') . '/' . $command;
+            if (\is_file($candidate) && \is_executable($candidate)) {
+                return;
+            }
+        }
+
+        throw new \RuntimeException("Process could not be started: '{$command}' was not found in PATH");
     }
 
     public function getStream(int $fd): mixed

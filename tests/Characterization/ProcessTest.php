@@ -33,10 +33,66 @@ test('PRC-1: Process::run() returns a PosixProcessRunner on POSIX systems', func
     $process->stop();
 });
 
-test('PRC-1: a command that does not exist makes Process::run() throw RuntimeException', function () {
+// PRC-1: Process::run() resolves the executable itself (the way exec() would: a literal path if
+// it contains a slash, otherwise a PATH search) and throws before calling proc_open() at all if
+// nothing executable is found. This is what makes the failure deterministic: proc_open() performs
+// the same resolution, but whether it *reports* a missing executable synchronously depends on the
+// platform's glibc version and how PHP was built, which this check does not depend on (see
+// src/Process/PosixProcessRunner.php::assertExecutable).
+
+test('PRC-1: an absolute path that does not exist throws RuntimeException', function () {
     expect(fn () => Process::run('/nonexistent/binary_xyz'))
-        ->toThrow(RuntimeException::class, 'Process could not be started');
+        ->toThrow(RuntimeException::class, "'/nonexistent/binary_xyz' is not an executable file");
 });
+
+test('PRC-1: a relative path resolved against $cwd that does not exist throws RuntimeException', function () {
+    expect(fn () => Process::run('./nope', [], \sys_get_temp_dir()))
+        ->toThrow(RuntimeException::class, "'./nope' is not an executable file");
+});
+
+test('PRC-1: a bare command name not found in PATH throws RuntimeException', function () {
+    expect(fn () => Process::run('nonexistent_bare_command_xyz_123'))
+        ->toThrow(RuntimeException::class, "'nonexistent_bare_command_xyz_123' was not found in PATH");
+});
+
+test('PRC-1: a bare command name found in PATH still runs', function () {
+    $process = Process::run('true');
+    expect($process)->toBeInstanceOf(PosixProcessRunner::class);
+    $process->stop();
+});
+
+test('PRC-1: an existing file without the executable bit throws RuntimeException', function () {
+    $path = \tempnam(\sys_get_temp_dir(), 'prc-noexec');
+    \file_put_contents($path, "#!/bin/sh\necho hi\n");
+    \chmod($path, 0644);
+    try {
+        expect(fn () => Process::run($path))->toThrow(RuntimeException::class, "'{$path}' is not an executable file");
+    } finally {
+        \unlink($path);
+    }
+});
+
+test('PRC-1: an empty PATH makes every bare command throw RuntimeException', function () {
+    expect(fn () => Process::run('true', [], null, ['PATH' => '']))
+        ->toThrow(RuntimeException::class, "'true' was not found (PATH is empty)");
+});
+
+test('PRC-1: a custom PATH is searched instead of the inherited one', function () {
+    expect(fn () => Process::run('true', [], null, ['PATH' => \sys_get_temp_dir()]))
+        ->toThrow(RuntimeException::class, "'true' was not found in PATH");
+    $process = Process::run('true', [], null, ['PATH' => '/usr/bin:/bin']);
+    $process->stop();
+});
+
+test('PRC-1: a custom environment without a PATH entry is not checked in advance [SURPRISE]', function () {
+    // assertExecutable() cannot know the platform's fallback search path for this case, so it
+    // deliberately does not throw a possibly wrong "not found". Whatever proc_open() and the
+    // platform actually do is what happens; here that still succeeds, because /bin/true also
+    // happens to be reachable via the C library's compiled-in default path.
+    $process = Process::run('true', [], null, ['FOO' => 'bar']);
+    expect($process)->toBeInstanceOf(PosixProcessRunner::class);
+    $process->stop();
+})->group('surprise');
 
 /* ------------------------------------------------------------------ PRC-2 */
 
