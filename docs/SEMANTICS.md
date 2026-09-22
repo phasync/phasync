@@ -441,8 +441,9 @@ APIOutsideOfRunTest
 
 `phasync\Process\Process::run()` launches a background process and returns a
 `ProcessInterface` for interacting with its STDIN, STDOUT and STDERR. On POSIX it returns a
-`PosixProcessRunner`; on Windows it throws (section 0, `WindowsProcessRunner` is deprecated,
-tracked as issue #45). These rules describe `PosixProcessRunner`.
+`PosixProcessRunner`; on Windows it throws. Windows support is dropped for 1.1.0 and will
+return, rebuilt, in 2.0.0 (section 0, `docs/roadmap-2.0.md`, issue #45). These rules describe
+`PosixProcessRunner`.
 
 **PRC-1. A command that cannot be launched is detected before spawning, the same way on every
 platform.** `Process::run()` resolves the command itself, the way `exec()` would: a literal

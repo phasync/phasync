@@ -253,7 +253,7 @@ Servers and clients built on phasync live in separate packages, for example [pha
 
 Contributions are welcome, especially:
 
- * Windows support for `phasync\Process\Process`. PHP cannot poll a child process's pipes on Windows, so it needs a small helper program that connects the pipes to sockets. `Process::run()` throws a `LogicException` on Windows until that exists.
+ * Windows support for `phasync\Process\Process`. PHP cannot poll a child process's pipes on Windows, so it needs a small helper program that connects the pipes to sockets. `Process::run()` throws a `LogicException` on Windows until that exists. Planned for 2.0.0; see [docs/roadmap-2.0.md](docs/roadmap-2.0.md).
 
  * More tests for the behaviour described in [docs/SEMANTICS.md](docs/SEMANTICS.md).
 
