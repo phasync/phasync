@@ -316,7 +316,7 @@ class ServerRequest extends Request implements ServerRequestInterface
     protected static function isValidUploadedFilesArray(array $uploadedFiles): bool
     {
         foreach ($uploadedFiles as $uploadedFile) {
-            if (!($uploadedFile instanceof UploadedFileInterface)) {
+            if (!$uploadedFile instanceof UploadedFileInterface) {
                 return false;
             }
         }
