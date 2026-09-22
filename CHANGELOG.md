@@ -2,10 +2,26 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## Unreleased
+## 1.1.0 (2026-09-22)
 
 ### Fixed
 
+- `ReadChannelInterface::read()` (and `Channel`, `ReadChannel`, `Subscriber`) takes a new
+  `?bool &$eof = null` out-parameter. `write(null)` has always been accepted, so a legitimately
+  written `null` and "channel closed" used to be indistinguishable from `read()`'s return value
+  alone, and `foreach` silently stopped at the first written `null`, leaving the rest unread.
+  `$eof` is `true` only when the channel is closed with nothing left; `getIterator()` uses it,
+  so `foreach` now gets everything. Implementing this for `Subscriber` (pub/sub) surfaced two
+  further, related bugs, both fixed: its message chain ends in a self-referencing sentinel node
+  whose placeholder `null` used to be returned as if it were a real published value; and
+  `Subscribers`' internal draining loop used the same "null and closed" heuristic `read()` used
+  to have, which could misread a published `null` racing with `close()` as end-of-stream and
+  silently drop it before it ever reached a subscriber.
+- `StringBuffer::readFixed()` throws `TimeoutException` when a real, positive timeout expires,
+  matching `read()`. Before, a real timeout and the buffer genuinely ending with too little data
+  were indistinguishable: both returned `null`. A timeout of exactly `0` still never throws
+  (a non-blocking poll, also matching `read()`), and the genuine end-of-stream case still
+  returns `null`.
 - A failed `stream_select()` is reported loudly instead of silently stalling. On a stock POSIX
   build, `stream_select()` fails for the whole batch (not "nothing ready", the call errors)
   once any watched resource's real file descriptor number reaches `FD_SETSIZE` (1024). This was

@@ -238,7 +238,21 @@ exactly one reader. ⚠️
 
 **CHN-5. After close, reads drain, then report end-of-stream.** Buffered values are still
 delivered after close. Once empty, `read()` reports end-of-stream instead of blocking.
-✅ ChannelsTest "reader starts after writer is closed". Signalling shape: D1.
+✅ ChannelsTest "reader starts after writer is closed". `read(float $timeout = PHP_FLOAT_MAX,
+?bool &$eof = null)` (D1, done) is the signalling shape: `$eof` is `true` only when the
+channel is closed with nothing left, `false` otherwise, including when the returned value
+happens to be `null` (a legitimately written value). `getIterator()` uses the same parameter,
+so `foreach` no longer stops early at a written `null`. ✅ ChannelsTest "foreach ... now gets a
+written null too". `Subscriber` (the per-listener pub/sub reader) got the same treatment,
+since it implements the same `ReadChannelInterface` contract, and that surfaced two further
+bugs in the same family, both fixed: its message chain ends in a self-referencing sentinel
+node whose `->message` is an uninitialized default (`null`), which used to be returned as if
+it were a real value on the call where the chain transitions to it (✅ ChannelsTest "not
+confused with the sentinel end-of-stream node"); and `Subscribers`' internal draining loop
+used the same `null === $message && $readChannel->isClosed()` heuristic `read()` itself used
+to have, which could misread a published `null` racing with `close()` as end-of-stream and
+drop it before it ever reached a subscriber -- now uses `$eof` from the underlying channel's
+`read()` instead.
 
 **CHN-6. Writing to a closed channel throws `ChannelException`.** This includes writers
 blocked at the moment of close, which wake up and throw. ⚠️ for the blocked writers.
@@ -517,7 +531,7 @@ fail on purpose and is reported before it is accepted.
 | DLK-1 | Creator-fiber heuristic (100 ms) and an extra `sleep()` in `Channel::read()` and `write()` | Removed |
 | DLK-3 | A global stall is not detected | `DeadlockException` |
 | CHN-1 | An unbuffered `write()` returns before any reader has read, and its timeout is ignored; `isReadyForWrite()` looks inverted | Rendezvous |
-| CHN-5 / D1 | `foreach` over a `ReadChannel` stops at a written `null` and leaves the rest unread | `null` is a valid value |
+| CHN-5 / D1 | `foreach` over a `ReadChannel` stops at a written `null` and leaves the rest unread | **Fixed:** `read()` takes `?bool &$eof = null`; `getIterator()` uses it. Also fixed in `Subscriber`/`Subscribers` (two further bugs found in the same family, see CHN-5) |
 | CHN-9 | `stdClass`, `Closure`, `DateTime` and resources throw `TypeError` | Any value |
 | WG-1 | `add()` takes no argument, so `add(3)` silently counts as 1 (PHP ignores extra arguments). Not a bug, a difference from Go | **Fixed** (D15): `add(int $delta = 1)` |
 | RL-1 | `RateLimiter::await($timeout)` ignores the timeout; dropping a limiter with an untaken token makes `run()` throw `ChannelException` | Timeout honoured; no throw |
@@ -544,7 +558,7 @@ through the public API.
 
 | # | Question | Options | My recommendation |
 |---|----------|---------|-------------------|
-| D1 | `ReadChannelInterface::read()` / `Channel::read()`: `write(null)` is accepted today (the value union includes `null`), so a legitimately-written `null` and "channel closed" are indistinguishable, and `ReadChannel::getIterator()`'s `while (null !== $this->read())` truncates `foreach` at the first written `null` (pinned, `CHN-5`) | keep as is; throw on close; `read(float $timeout = PHP_FLOAT_MAX, ?bool &$eof = null): mixed` | **Decided (maintainer), pending implementation:** add the `&$eof` out-parameter (inspired by C#'s `out` pattern; `feof()`-style naming). Existing callers are unaffected; `getIterator()` uses the same parameter internally, fixing `CHN-5` for free with no second method |
+| D1 | `ReadChannelInterface::read()` / `Channel::read()`: `write(null)` is accepted today (the value union includes `null`), so a legitimately-written `null` and "channel closed" are indistinguishable, and `ReadChannel::getIterator()`'s `while (null !== $this->read())` truncates `foreach` at the first written `null` (pinned, `CHN-5`) | keep as is; throw on close; `read(float $timeout = PHP_FLOAT_MAX, ?bool &$eof = null): mixed` | **Decided (maintainer) and done:** the `&$eof` out-parameter (inspired by C#'s `out` pattern; `feof()`-style naming). `getIterator()` uses it, fixing `CHN-5` for free with no second method. `Subscriber`/`Subscribers` got the same fix and two further bugs it surfaced in that class specifically (see CHN-5) |
 | D2 | Which values can a channel carry? Currently `\Serializable\|array\|string\|float\|int\|bool\|null` | keep the union; any `mixed` | **Deferred (maintainer):** not decided. The restriction exists because whether channels will ever need to cross a process boundary is still genuinely open -- multi-process channel support has not been designed, and PHP ZTS builds may also bear on it. Revisit once that larger question is settled, not before |
 | D3 | Shape of multiple failures in one scope | first only (Go's `errgroup`); `AggregateException` holding all | `AggregateException`, with the first failure as the primary |
 | D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer):** `ContextInterface` and its storage go. A context is any object, optional on `run()`/`go()`. Callers keep their own `WeakMap<context, service>`, so `getContext()` is the only lookup needed |
@@ -555,7 +569,7 @@ through the public API.
 | D9 | `StringBuffer` readers | one reader, enforced; several allowed | One reader, enforced by a cheap check |
 | D10 | GC handling in `run()` | leave GC on; keep manual control but restore state | **Decided (maintainer):** keep manual control, it is deliberate design. Still open: restore the user's previous GC state on exit, and whether a long-lived coroutine that never ends needs a collection trigger |
 | D13 | Should there be a guard helper for coroutines that own helpers? | none; a small `phasync::guard(Fiber ...$fibers)` object | **Decided (maintainer): no.** A guard would be a symptom of channels and other primitives not guarding their dependants. Teardown comes from channel ends closing (CHN-8) |
-| D17 | `readFixed($n, $timeout)` returns `null` on timeout, and also `null` at end-of-stream with too little data. `read()` now throws `TimeoutException` | keep `null`; throw `TimeoutException` like `read()`; distinguish the two cases | **Decided (maintainer), pending implementation:** throw `TimeoutException` on a real timeout, matching `read()`. Only the genuine "buffer ended with too little data" case (`$this->ended`, no timeout involved) still returns `null`. Two original tests assert the old behaviour and need updating |
+| D17 | `readFixed($n, $timeout)` returns `null` on timeout, and also `null` at end-of-stream with too little data. `read()` now throws `TimeoutException` | keep `null`; throw `TimeoutException` like `read()`; distinguish the two cases | **Decided (maintainer) and done:** throws `TimeoutException` on a real timeout, matching `read()`. Matches `read()`'s other rule too: `$timeout` of exactly `0` is a non-blocking poll and never throws, only a real positive timeout that expires does. Only the genuine "buffer ended with too little data" case (`$this->ended`, no timeout involved) still returns `null` |
 | D16 | Should `StringBuffer` get an optional maximum length? | none; opt-in `?int $maxLength = null` that makes `write()` throw when the unread bytes would exceed it | **Deferred to 2.0.0 (maintainer).** Opt-in, throwing, default unbounded remains the shape if it happens |
 | D15 | Should `WaitGroup::add()` take a delta like Go's `Add(delta int)`? | keep `add()` with no argument; `add(int $delta = 1)` | **Decided (maintainer) and done:** `add(int $delta = 1)`. A `go(Closure)` method like Go's `WaitGroup.Go` may come later |
 | D14 | `cancelContext($context)` | implement; defer | **Deferred (maintainer).** Broadcasting a cancellation would hide the fact that the deadlock protection does not tear things down correctly. If it is ever added, it should skip the calling coroutine |
