@@ -1,10 +1,8 @@
 <?php
 
 /*
- * Characterization tests for phasync\Process\Process and the POSIX runner.
- *
- * docs/SEMANTICS.md mentions Process pipes only in its scope section (section 0) and has no
- * rule IDs for them yet, so these tests use the prefix PRC-.
+ * Characterization tests for phasync\Process\Process and the POSIX runner
+ * (docs/SEMANTICS.md section 14, PRC-1 .. PRC-6).
  *
  * These pin how the code behaves TODAY. A failing test means "stop and tell the
  * maintainer" (see tests/Characterization/README.md).

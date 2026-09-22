@@ -423,6 +423,59 @@ APIOutsideOfRunTest
    before it is accepted. See `tests/Characterization/README.md`.
 
 
+## 14. Process
+
+`phasync\Process\Process::run()` launches a background process and returns a
+`ProcessInterface` for interacting with its STDIN, STDOUT and STDERR. On POSIX it returns a
+`PosixProcessRunner`; on Windows it throws (section 0, `WindowsProcessRunner` is deprecated,
+tracked as issue #45). These rules describe `PosixProcessRunner`.
+
+**PRC-1. A command that cannot be launched is detected before spawning, the same way on every
+platform.** `Process::run()` resolves the command itself, the way `exec()` would: a literal
+path if it contains a slash (resolved against `$cwd` if one is given), otherwise a search
+through `PATH` (`$env['PATH']` if `$env` is given, otherwise the inherited one), and throws
+`RuntimeException` if nothing executable is found, before `proc_open()` is called at all. ✅
+Fixed. This replaced relying on `proc_open()`'s own error reporting, which is not portable:
+whether it *reports* a missing executable synchronously depends on the platform's glibc
+version and how PHP was built against it (glibc ≥2.24 added synchronous exec-failure
+reporting to `posix_spawn()`, over a pipe). Verified failing two different ways on two
+machines before the fix (ProcessTest `PRC-1`). A `$env` given without a `PATH` entry is not
+pre-checked, since the platform's own fallback search path cannot be predicted from here;
+whatever `proc_open()` and the platform actually do is what happens (`surprise`). A second,
+best-effort layer checks the child's status once, non-blockingly, right after a successful
+`proc_open()`, to catch what neither the resolution check nor `proc_open()` itself can: the
+target existed and was executable, but `exec()` still failed inside the child, for example a
+`#!` interpreter line pointing at an interpreter that does not exist.
+
+**PRC-2. No shell is involved at any point.** Arguments reach the child exactly as given, with
+no metacharacter expansion and nothing to escape, and a bare command name is found the way
+`execvp` finds it, not the way a shell would. ✅ Verified: a spawned process's immediate parent
+is `php` itself, never a shell, and an argument containing `$HOME && echo x` arrives at the
+child unexpanded, character for character. STDOUT and STDERR are separate streams
+(`read(ProcessInterface::STDOUT)` / `read(ProcessInterface::STDERR)`), and `read()` behaves
+the same inside and outside a coroutine: inside, it suspends and lets other coroutines run;
+outside, it blocks.
+
+**PRC-3. The exit code is available once the process has stopped running, not before.**
+`getExitCode()` returns `false` while the process runs and the real exit code once it has
+exited on its own; after `stop()` or a delivered signal ended it, it returns `-1` (PRC-5). ✅
+
+**PRC-4. `write()` feeds STDIN; `getStream($fd)` exposes the STDIN, STDOUT and STDERR pipes
+directly**, as non-blocking stream resources, for the three standard descriptors, and `null`
+for anything else. ✅
+
+**PRC-5. `stop()` sends SIGTERM and returns once the process is gone, is idempotent, and
+works both inside and outside a coroutine.** Once a process has stopped or been signalled
+away, `write()` and `sendSignal()` become no-ops returning `false`, and a later `stop()`
+returns `true` immediately. ✅
+
+**PRC-6. Once an exit has been observed, the pipes are closed, so output that was never read
+is lost and a later `read()` throws `IOException`.** ❌ `isRunning()` and `getExitCode()` poll
+and close the pipes as soon as the process is seen to have terminated, whether or not
+anything had read from them yet. A caller that checks `isRunning()` before draining output can
+lose it silently.
+
+
 ## Findings from the characterization tests
 
 The tests in `tests/Characterization/` pinned today's behaviour. Where they disagree with a
@@ -462,7 +515,8 @@ fail on purpose and is reported before it is accepted.
 | IO-4 *new* | `readable()` or `writable()` on `php://memory` makes `run()` throw `ValueError: No stream arrays were passed` | Documented or handled |
 | IO-5 *new* | Outside a coroutine, `stream()` on a non-blocking stream ignores its timeout and throws `TimeoutException` after about 1 s (inverted loop condition); a timeout under 1 s loops until data arrives | Honours the timeout |
 | IO-6 *new* | `io::fgets` can return partial lines, and `io::fgetc` never waits | Same result as the PHP function, without blocking the loop |
-| PRC-1 *new* | Once `isRunning()` or `getExitCode()` has seen the process exit, the pipes are closed and unread output is lost | Output remains readable |
+| PRC-1 | A command that could not be launched used to be reported inconsistently across platforms, because it relied on `proc_open()`'s own (glibc-version-dependent) error reporting | **Fixed:** resolved and checked before `proc_open()` is called, the same way on every platform |
+| PRC-6 | Once `isRunning()` or `getExitCode()` has seen the process exit, the pipes are closed and unread output is lost | Output remains readable |
 | RT-1 | `gc_enable()` is called unconditionally at exit even if the user had disabled GC; a channel end in a reference cycle is not released by `unset()` until the loop next collects (deliberate, P3) | Previous state restored |
 | RT-5 *new* | `logUnhandledException()` passes `$exception->getCode()` to `error_log()` as the message *type*, so a code of 1 would send email | Fixed message type |
 | RT-6 *new* | `go(run: true)` outside a coroutine returns a Fiber that never started (`getReturn()` throws `FiberError`, `await()` throws `LogicException`) | Returns a usable result |
