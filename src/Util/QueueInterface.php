@@ -1,6 +1,6 @@
 <?php
 
-namespace phasync;
+namespace phasync\Util;
 
 /**
  * @template TType

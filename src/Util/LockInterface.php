@@ -1,8 +1,9 @@
 <?php
 
-namespace phasync;
+namespace phasync\Util;
 
 use Closure;
+use phasync\TimeoutException;
 
 interface LockInterface
 {

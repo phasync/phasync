@@ -2,8 +2,6 @@
 
 namespace phasync\Util;
 
-use phasync\LockTrait;
-use phasync\QueueInterface;
 use phasync\TimeoutException;
 
 /**
