@@ -283,6 +283,80 @@ test('IO-2: outside phasync::run() a non-blocking resource without data times ou
     expect(\microtime(true) - $start)->toBeGreaterThan(0.9)->toBeLessThan(2.0);
 })->group('surprise');
 
+/* ------------------------------------------------------------------ IO-7 */
+
+// IO-7: on a stock POSIX build, stream_select() fails outright (and used to fail *silently*, see
+// docs/SEMANTICS.md) once any watched resource's real file descriptor number reaches FD_SETSIZE
+// (1024). These tests open comfortably more than 1024 real streams rather than trying to detect
+// the exact boundary: (int) casting a stream resource gives PHP's own resource-id counter, not
+// the kernel fd, and the two are not guaranteed to stay in lockstep (verified: they can already
+// differ by dozens once phasync's own autoloader has opened a few files first), so a wide margin
+// is the only reliable way to reach the real threshold without depending on FFI.
+if (!\function_exists('iochar_push_past_fd_setsize')) {
+    /** @return resource[] every socket end created, kept referenced so the fds stay open */
+    function iochar_push_past_fd_setsize(): array
+    {
+        $kept = [];
+        for ($i = 0; $i < 1300; ++$i) {
+            $kept[] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+        }
+
+        return $kept;
+    }
+}
+
+test('IO-7: a stream past FD_SETSIZE makes readable() throw IOException naming the real cause, instead of hanging', function () {
+    $kept   = iochar_push_past_fd_setsize();
+    $high   = \end($kept)[0];
+    $result = phasync::run(function () use ($high) {
+        $start = \microtime(true);
+        try {
+            phasync::readable($high, 3.0);
+
+            return ['returned normally', 0.0];
+        } catch (Throwable $e) {
+            return [$e::class, \microtime(true) - $start];
+        }
+    });
+
+    expect($result[0])->toBe(IOException::class);
+    // Loud and fast: nowhere near the 3 s timeout it used to silently wait out.
+    expect($result[1])->toBeLessThan(1.0);
+})->group('divergence');
+
+test('IO-7: the failure is delivered to every fiber waiting that tick, not only the one with the bad descriptor', function () {
+    $kept    = iochar_push_past_fd_setsize();
+    $high    = \end($kept)[0];
+    [$a, $b] = iochar_pair(); // an ordinary, otherwise healthy pair in the very same batch
+
+    $result = phasync::run(function () use ($high, $a) {
+        $log     = [];
+        $victims = [
+            'high'     => phasync::go(function () use ($high, &$log) {
+                try {
+                    phasync::readable($high, 3.0);
+                } catch (Throwable $e) {
+                    $log['high'] = $e::class;
+                }
+            }),
+            'innocent' => phasync::go(function () use ($a, &$log) {
+                try {
+                    phasync::readable($a, 3.0);
+                } catch (Throwable $e) {
+                    $log['innocent'] = $e::class;
+                }
+            }),
+        ];
+        foreach ($victims as $victim) {
+            phasync::await($victim);
+        }
+
+        return $log;
+    });
+
+    expect($result)->toBe(['high' => IOException::class, 'innocent' => IOException::class]);
+})->group('divergence');
+
 /* ------------------------------------------------------------------ io() wrapper */
 
 test('IO-1: io() returns anything that is not a stream unchanged, and never wraps twice', function () {

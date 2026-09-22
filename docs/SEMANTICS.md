@@ -356,6 +356,20 @@ coroutine. ⚠️
 
 **IO-3. `preempt()` never changes results,** only when other coroutines get to run. ⚠️
 
+**IO-7. A `stream_select()` failure that isn't a timeout is reported, loudly, to every fiber
+that was waiting that tick.** `stream_select()` fails outright (not "nothing is ready yet",
+the whole call errors) on a stock POSIX build once any watched resource's real file
+descriptor number reaches `FD_SETSIZE` (1024), and this is unrelated to how many resources
+phasync itself is watching -- a process's fd numbers climb over its lifetime regardless. Every
+fiber that was waiting on stream IO that tick gets `IOException` with PHP's own warning text
+verbatim (for example naming `FD_SETSIZE`), not just the one fiber whose resource happened to
+be the culprit, since the whole batch failed together. ✅ Fixed (StreamIOTest `IO-7`). Before,
+`@\stream_select(...)` suppressed the warning and a `false` result was silently treated the
+same as "nothing ready" (`if (false !== $result && $result > 0)`), so every stream-waiting
+coroutine in the process hung forever with no trace of why, for as long as any watched
+resource kept that high fd number. This does not raise the `FD_SETSIZE` ceiling itself --
+see the roadmap in `docs/roadmap-2.0.md` for that.
+
 
 ## 11. `StringBuffer`
 

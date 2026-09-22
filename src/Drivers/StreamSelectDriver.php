@@ -320,9 +320,36 @@ final class StreamSelectDriver implements DriverInterface
             }
 
             if ($streamCount > 0) {
-                $result = @\stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
+                $selectWarning = null;
+                \set_error_handler(static function (int $code, string $message) use (&$selectWarning): bool {
+                    $selectWarning = $message;
 
-                if (false !== $result && $result > 0) {
+                    return true;
+                });
+                try {
+                    $result = \stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
+                } finally {
+                    \restore_error_handler();
+                }
+
+                if (false === $result) {
+                    // stream_select() failed for the whole batch, not just one resource -- for
+                    // example every watched stream has a file descriptor number >= FD_SETSIZE
+                    // (1024 on a typical POSIX build). Every fiber that was waiting this tick
+                    // must be told, loudly, or it would wait forever with no trace of why.
+                    $exception = new IOException(
+                        'stream_select() failed for ' . $streamCount . ' watched stream(s): '
+                        . ($selectWarning ?? 'no error was reported')
+                    );
+                    foreach ($resourceFiberMap as $fibers) {
+                        foreach ($fibers as $fiber) {
+                            if (isset($this->streams[$fiber])) {
+                                unset($this->streams[$fiber]);
+                                $this->enqueueWithException($fiber, $exception);
+                            }
+                        }
+                    }
+                } elseif ($result > 0) {
                     foreach ([
                         DriverInterface::STREAM_READ   => $reads,
                         DriverInterface::STREAM_WRITE  => $writes,
