@@ -49,8 +49,11 @@ final class Subscribers implements SubscribersInterface
                     \phasync::yield();
                 }
                 while (true) {
-                    $message              = $readChannel->read();
-                    if (null === $message && $readChannel->isClosed()) {
+                    // eof, not "null and isClosed()": a published null racing with close() could
+                    // otherwise be misread as end-of-stream and silently dropped, never reaching
+                    // any subscriber (the same null-vs-closed ambiguity D1 fixed for read() itself).
+                    $message = $readChannel->read(eof: $isEof);
+                    if ($isEof) {
                         break;
                     }
                     $lastMessage->message = $message;

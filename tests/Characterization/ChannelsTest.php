@@ -331,8 +331,12 @@ test('CHN-5: a written null is read as null and does not close the channel', fun
     expect($out)->toBe([null, false, 'x']);
 });
 
-test('CHN-5: foreach over a ReadChannel stops at a written null and leaves the rest unread', function () {
-    // null is both a legal value and the end-of-stream marker (see D1 in SEMANTICS.md).
+// The next two tests replaced a test that pinned foreach stopping at a written null and
+// leaving the rest unread (D1 in SEMANTICS.md). Approved by the maintainer: read() now takes
+// an optional &$eof out-parameter (true only when the channel is closed with nothing left,
+// false otherwise, including when the returned value happens to be null), and getIterator()
+// uses it, so a written null no longer terminates foreach early.
+test('CHN-5: foreach over a ReadChannel now gets a written null too, not just the values before it', function () {
     $out = phasync::run(function () {
         phasync::channel($r, $w, 3);
         $c = phasync::go(function () use ($r, $w) {
@@ -345,14 +349,36 @@ test('CHN-5: foreach over a ReadChannel stops at a written null and leaves the r
                 $seen[] = $v;
             }
 
-            return [$seen, $r->read()];
+            return $seen;
         });
 
         return phasync::await($c);
     });
 
-    expect($out)->toBe([[1], 2]);
-})->group('surprise');
+    expect($out)->toBe([1, null, 2]);
+});
+
+test('CHN-5: read($timeout, $eof) distinguishes a written null from end-of-stream', function () {
+    $out = phasync::run(function () {
+        phasync::channel($r, $w, 3);
+        $w->write(1);
+        $w->write(null);
+        $w->close();
+
+        $log   = [];
+        $log[] = [$r->read(eof: $eof), $eof];
+        $log[] = [$r->read(eof: $eof), $eof];
+        $log[] = [$r->read(eof: $eof), $eof];
+
+        return $log;
+    });
+
+    expect($out)->toBe([
+        [1, false],
+        [null, false],
+        [null, true],
+    ]);
+});
 
 // ---------------------------------------------------------------------------
 // CHN-6  Write after close
@@ -718,6 +744,61 @@ test('CHN-10: channels cannot be created outside a coroutine', function () {
 // ---------------------------------------------------------------------------
 // PUB-1  Publisher / subscribers
 // ---------------------------------------------------------------------------
+
+// Found while implementing D1 for Subscriber: the message chain ends in a self-referencing
+// sentinel node whose ->message is an uninitialized default (null), not a published value.
+// The old code read that sentinel's message as if it were real on the call where the chain
+// transitions to it, only recognizing end-of-stream on the *next* call -- indistinguishable
+// from a genuinely published null (compounding D1's own ambiguity). Fixed: the transition to
+// the sentinel is now recognized immediately, without ever returning its placeholder message.
+test('PUB-1: a written null is a real message, not confused with the sentinel end-of-stream node', function () {
+    $out = phasync::run(function () {
+        phasync::publisher($subs, $pub);
+        $c = phasync::go(function () use ($subs) {
+            $sub  = $subs->subscribe();
+            $seen = [];
+            foreach ($sub as $v) {
+                $seen[] = $v;
+            }
+
+            return $seen;
+        });
+        $pub->write(1);
+        $pub->write(null);
+        $pub->write(2);
+        $pub->close();
+
+        return phasync::await($c);
+    });
+
+    expect($out)->toBe([1, null, 2]);
+});
+
+test('PUB-1: read($timeout, $eof) on a subscriber distinguishes a written null from end-of-stream', function () {
+    $out = phasync::run(function () {
+        phasync::publisher($subs, $pub);
+        $c = phasync::go(function () use ($subs) {
+            $sub   = $subs->subscribe();
+            $log   = [];
+            $log[] = [$sub->read(eof: $eof), $eof];
+            $log[] = [$sub->read(eof: $eof), $eof];
+            $log[] = [$sub->read(eof: $eof), $eof];
+
+            return $log;
+        });
+        $pub->write(1);
+        $pub->write(null);
+        $pub->close();
+
+        return phasync::await($c);
+    });
+
+    expect($out)->toBe([
+        [1, false],
+        [null, false],
+        [null, true],
+    ]);
+});
 
 test('PUB-1: every subscriber receives every message in order, then end-of-stream', function () {
     $got = phasync::run(function () {

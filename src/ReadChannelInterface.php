@@ -36,9 +36,15 @@ interface ReadChannelInterface extends SelectableInterface, Traversable
      * will suspend the coroutine and allow other coroutines
      * to work.
      *
+     * `null` is both a legal value (if it was written) and what is returned when the channel
+     * is closed with nothing left to read, so the two are not distinguishable from the return
+     * value alone. Pass `$eof` by reference to tell them apart: it is set to `true` only when
+     * the channel is closed and there was nothing left, `false` otherwise (including when the
+     * returned value happens to be `null`).
+     *
      * @throws \RuntimeException
      */
-    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null;
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null;
 
     /**
      * Returns true if the channel is still readable.

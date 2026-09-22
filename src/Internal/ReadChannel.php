@@ -48,14 +48,18 @@ final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
 
     public function getIterator(): \Traversable
     {
-        while (null !== ($message = $this->read())) {
+        while (true) {
+            $message = $this->read(eof: $eof);
+            if ($eof) {
+                return;
+            }
             yield $message;
         }
     }
 
-    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null
     {
-        return $this->channel->read($timeout);
+        return $this->channel->read($timeout, $eof);
     }
 
     public function isReadable(): bool

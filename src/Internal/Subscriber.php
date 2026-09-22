@@ -60,7 +60,11 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
 
     public function getIterator(): \Traversable
     {
-        while (null !== ($message = $this->read())) {
+        while (true) {
+            $message = $this->read(eof: $eof);
+            if ($eof) {
+                return;
+            }
             yield $message;
         }
     }
@@ -80,19 +84,29 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
         return null === $this->publisher || $this->currentMessage->next === $this->currentMessage;
     }
 
-    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null
     {
+        $eof = false;
         if ($this->isClosed()) {
+            $eof = true;
+
             return null;
         }
         if (null === $this->currentMessage->next) {
             $this->publisher->waitForMessage($timeout);
         }
-        $message              = $this->currentMessage->message;
-        $this->currentMessage = $this->currentMessage->next;
+        // The wait above may resolve because the chain grew a real next message, or because
+        // the publisher closed with nothing more to send -- in which case currentMessage has
+        // become the terminal (self-referencing) sentinel node. Its ->message is a meaningless
+        // default (null), not a published value, so it must never be returned as one.
         if ($this->currentMessage->next === $this->currentMessage) {
             $this->close();
+            $eof = true;
+
+            return null;
         }
+        $message              = $this->currentMessage->message;
+        $this->currentMessage = $this->currentMessage->next;
 
         return $message;
     }

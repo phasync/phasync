@@ -106,8 +106,9 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         } while (!$this->closed || $this->hasReadableValue());
     }
 
-    public function read(float $timeout = \PHP_FLOAT_MAX): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null
     {
+        $eof      = false;
         $timesOut = \microtime(true) + $timeout;
 
         // This sleep prevents some deadlocks that may be unexpected by developers
@@ -130,6 +131,8 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
                 return $this->buffer->dequeue();
             } elseif ($this->closed) {
                 // Channel is closed and there is no data.
+                $eof = true;
+
                 return null;
             }
 
