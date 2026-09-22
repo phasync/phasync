@@ -24,7 +24,7 @@ Treat ⚠️ as "write the test and find out".
 phasync is an async IO and concurrency library for one PHP process.
 
 In scope: the scheduler and driver, coroutines and scopes, cancellation, timeouts,
-`select`, channels, `WaitGroup`, `RateLimiter`, flags, non-blocking stream IO, `Process`
+channels, `WaitGroup`, `RateLimiter`, flags, non-blocking stream IO, `Process`
 pipes, and `StringBuffer`.
 
 Out of scope, and expected to live in other packages: worker pools and cross-process
@@ -70,7 +70,7 @@ timers. See section 9.
 
 **SCH-1. Cooperative.** A coroutine runs until it suspends. Suspension points are:
 `await`, `sleep`, `yield`, `idle`, `awaitFlag`, `readable`/`writable`/`stream`, channel
-and `select` operations, and `preempt()` (which suspends only after the configured
+operations, and `preempt()` (which suspends only after the configured
 interval). Code that never suspends blocks every other coroutine. ⚠️
 
 **SCH-2. `go()` runs the child immediately.** The child runs synchronously up to its
@@ -277,41 +277,40 @@ later concern (the clustering primitive, `docs/roadmap-2.0.md`).
 calls or time-based "likely deadlock" checks. ❌ See DLK-1.
 
 
-## 8. `select`
+## 8. `select` -- removed in 2.0.0
 
-*Go reference: `select`. Go performs the chosen operation itself. phasync returns which
-selectable is ready, so the contract below is what makes that safe.*
+`phasync::select()` and the `SelectorInterface`/`Selector`/`ClosureSelector`/`FiberSelector`
+machinery behind it are removed, not fixed. An audit surfaced real bugs (SEL-2: a TOCTOU
+race between "readiness detected" and the caller acting on it, inherent to the API shape
+of returning identity rather than performing the operation; SEL-5: the `$write` branch
+called `readable()` instead of `writable()`; SEL-6: losing helper coroutines were
+`discard()`ed, not `cancel()`ed, so their cleanup -- including a `FiberSelector`'s own
+nested background coroutine -- never ran, an unbounded leak for raw `\Fiber` candidates).
+A full redesign was worked through (closures as wait-functions, `cancel()`-not-`discard()`
+for losers, reflection-validated closure shapes) and would have fixed all three. It was
+not built.
 
-**SEL-1. Returns one selectable, or `null` on timeout.** `null` after the timeout means
-none was ready; a timeout of `0` is Go's `default:` case. ✅ SelectTest "with a timeout"
+The reason: phasync's actual goal is letting developers write coroutines as if they were
+not async at all -- see section 0. `select()` is the one primitive that breaks that
+promise by construction; using it correctly requires thinking explicitly about racing,
+per-candidate timeouts and cancelling losers, which is exactly the kind of async-aware
+reasoning phasync exists to make unnecessary. Checked against real usage, not just
+argued from principle: `README.md` never mentioned it (unlike `Channel`/`WaitGroup`/
+`Publisher`, which each get a section), `swerve` never used it, and the one real
+consumer (`phasync/server`'s `TcpServer`/`UdpServer` accept loops) only ever needed the
+narrow "wait across several raw stream resources" case -- which is itself the same
+anti-pattern this section describes: one coroutine racing N listening sockets, instead of
+N coroutines each owning one socket's own simple accept loop. The idiomatic phasync
+replacement for "wait for whichever of these happens first" is almost always "spawn a
+coroutine per thing and let the scheduler interleave them," the same as the rest of this
+document's model for concurrency (`SCH-2`, `SCH-4`).
 
-**SEL-2. Ready at the moment of return.** The returned selectable is ready when
-`select()` returns. By SCH-5, an immediate non-suspending operation on it (a channel
-read, `StringBuffer::read`, `await` on a finished fiber) cannot block, even if other
-coroutines were also interested in it. ❌ Currently a helper coroutine reports readiness
-and the selector resumes later, so another coroutine can consume the value in between.
-The fix is to re-check `isReady()` on resume and keep waiting if it no longer holds.
-
-**SEL-3. First ready in argument order wins.** *Differs from Go, which chooses randomly.*
-Deterministic order makes behaviour testable. Documented risk: an always-ready first
-argument starves the others. (D7)
-
-**SEL-4. A failing selectable is selected, not thrown.** If a selected fiber threw, the
-exception is observed by the following `await`, not by `select()`. ⚠️ SelectTest "with a
-fiber that throws an exception"
-
-**SEL-5. `$read` and `$write` resources select on readability and writability
-respectively.** ❌ The `$write` branch calls `readable()` (`phasync.php`, in the `$write`
-loop). Reproduced: selecting an already-writable socket returned `null` after the full
-timeout.
-
-**SEL-6. No helper outlives the call.** After `select()` returns, throws, or is cancelled,
-no coroutine, flag, pooled selector or stream watcher created by it remains. ⚠️ Pooled
-selectors are currently returned only for the winner.
-
-**SEL-7. Cancelling the selecting coroutine is safe** and follows CAN-6. ⚠️
-
-**SEL-8. Empty input returns `null` immediately.** ✅ SelectTest "with an empty array"
+`SelectableInterface` itself is unaffected and stays exactly as useful as before --
+`isReady()`/`await()` are real, independently used contracts for `Channel`/`StringBuffer`/
+`WaitGroup`/`RateLimiter`'s own direct callers, never coupled to `select()` in the first
+place. `phasync::await()` also gained a `SelectableInterface` branch in this same pass
+(closing an unrelated, real gap: it previously only accepted a `\Fiber` or a promise-like
+object, so `phasync::await($aChannel, $timeout)` used to throw).
 
 
 ## 9. Deadlocks
@@ -416,7 +415,7 @@ behaviour is `DeadmanException` from a blocking read, after buffered data has be
 inlined flag logic) as long as BUF-1 to BUF-4 and the tests hold. Performance
 regressions are tested by benchmark (see section 13).
 
-**BUF-6. `StringBuffer` is a `SelectableInterface`** and follows SEL-2: `isReady()` is
+**BUF-6. `StringBuffer` is a `SelectableInterface`.** `isReady()` is
 true when a read would not block, when the buffer has ended, or when it has failed. ✅
 
 
@@ -435,19 +434,19 @@ objects grew memory by 119 MB inside `run()`.
 **RT-3. `run()` may be called at any nesting depth,** inside or outside a coroutine, and
 top-level `run()` is the only thing that drives the loop. ✅ RunTest
 
-**RT-4. Unsupported use fails loudly.** `go()`, `await()` and `select()` outside `run()`
+**RT-4. Unsupported use fails loudly.** `go()` and `await()` outside `run()`
 throw `LogicException` with a message that names `phasync::run()`. ✅ AwaitTest,
 APIOutsideOfRunTest
 
 
 ## 13. Testing rules
 
-1. Every rule above gets at least one test whose name starts with its ID (`SEL-2: ...`).
+1. Every rule above gets at least one test whose name starts with its ID (`CHN-2: ...`).
 2. Tests use the injectable clock (TMO-5), `stream_socket_pair()` and in-memory
    resources. No network, no real `sleep` beyond a few milliseconds.
 3. Timing assertions compare against the injected clock, never wall-clock ratios.
    (`CurlMultiTest` currently fails this way and is network dependent.)
-4. `select`, cancellation and channel close get stress tests with randomised interleavings
+4. Cancellation and channel close get stress tests with randomised interleavings
    (seeded, so failures reproduce).
 5. `StringBuffer` keeps a benchmark that CI compares against a stored baseline.
 6. Every ❌ in this document becomes a failing test first, then a fix.
@@ -544,10 +543,7 @@ fail on purpose and is reported before it is accepted.
 | WG-1 | `add()` takes no argument, so `add(3)` silently counts as 1 (PHP ignores extra arguments). Not a bug, a difference from Go | **Fixed** (D15): `add(int $delta = 1)` |
 | RL-1 | `RateLimiter::await($timeout)` ignores the timeout; dropping a limiter with an untaken token makes `run()` throw `ChannelException` | Timeout honoured; no throw |
 | FLG-1 | A flag freed while waited on does not wake its waiters: `awaitFlag()`'s parameter, the `flagGraph` value and `ObjectPoolTrait::popInstance()` keep it alive or keep its store undestroyed | Waiters woken with `CancelledException` when the flag is freed **Fixed**, see FlagsTest |
-| SEL-2 | Two selectors on one channel both get it back ready; the second `read()` then times out | Ready at the moment of return |
-| SEL-5 | `$write` on a writable-but-not-readable socket returns `null` after the full timeout; on a readable one it returns at once | Selects on writability |
-| SEL-6 | Helpers of a finished or timed-out `select()` stay in the driver until `gc_collect_cycles()`; only the winner's `ClosureSelector` goes back to the pool | No helper outlives the call |
-| SEL-1 | `select(..., 0)` is not prompt (0 to about 0.5 s). A closure over an already-terminated fiber throws while the bare fiber works | Prompt; consistent |
+| SEL-2, SEL-5, SEL-6 | `select()`'s TOCTOU race, the `$write` branch calling `readable()` instead of `writable()`, and `discard()`-not-`cancel()`-ed losers leaking a `FiberSelector`'s own background coroutine | **Removed, not fixed** (2.0.0): `select()` and the `Selector`/`ClosureSelector`/`FiberSelector` machinery are gone; see section 8 |
 | BUF-2 *new* | `StringBuffer::read($n, $timeout > 0)` on an empty buffer **hangs the whole process** once the timeout expires: `await()` returns at once and `read()` loops without suspending | **Fixed:** `read()` throws `TimeoutException` at the deadline. An infinite wait with no writer still blocks, and an unread buffer still grows without limit, by design (maintainer) |
 | BUF-1 *new* | `readFromResource()`'s own backpressure loop (`while (totalWritten - totalRead > $bufferSize) { $this->await(); }`) never actually blocks: `$totalRead` was only ever decremented (by `unread()`), never incremented by `read()`/`readFixed()` consuming data, so the gap never closes; and `await()`/`isReady()` return at once whenever *any* data is buffered, which is already true here. Past 1 MB net, this is an unyielding busy loop, not backpressure -- found while building `$maxSize` (2.0.0), unexercised by any existing test (largest prior test: 100 KB) | **Fixed:** `read()`/`readFixed()` now increment `$totalRead` and raise the flag on every consumption; the loop waits directly on the flag instead of through `await()`, matching the pattern `readFixed()` already used for its own "not just any data, *enough* data" wait |
 | IO-4 *new* | `readable()` or `writable()` on `php://memory` makes `run()` throw `ValueError: No stream arrays were passed` | Documented or handled |
@@ -573,7 +569,7 @@ through the public API.
 | D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer):** `ContextInterface` and its storage go. A context is any object, optional on `run()`/`go()`. Callers keep their own `WeakMap<context, service>`, so `getContext()` is the only lookup needed |
 | D5 | Cancellation delivery | once per request (edge); every suspension while cancelled (level, as in Trio) | **Decided (maintainer):** cancellation is one exception thrown into the coroutine. Cleanup is done by catching it. No shielding |
 | D6 | Default timeout for IO operations | infinite everywhere; keep a finite default for IO | Infinite, stated in one place. A finite default is a hidden timer |
-| D7 | Choice order when several selectables are ready | argument order; random like Go | Argument order, for testability |
+| D7 | Choice order when several selectables are ready | argument order; random like Go | **Moot (2.0.0):** `select()` was removed, not fixed; see section 8 |
 | D8 | `RateLimiter` semantics | token bucket; leaky bucket; something else | Write down what it does today, then test it |
 | D9 | `StringBuffer` readers | one reader, enforced; several allowed | One reader, enforced by a cheap check |
 | D10 | GC handling in `run()` | leave GC on; keep manual control but restore state | **Decided (maintainer):** keep manual control, it is deliberate design. Still open: restore the user's previous GC state on exit, and whether a long-lived coroutine that never ends needs a collection trigger |

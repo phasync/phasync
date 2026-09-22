@@ -43,8 +43,8 @@ namespace phasync {
         public static function service(Closure $coroutine): void;
 
         /**
-         * Wait for a coroutine or promise to complete and return the result.
-         * If exceptions are thrown in the coroutine, they will be thrown here.
+         * Wait for a coroutine, a promise, or a SelectableInterface to complete and return
+         * the result. If exceptions are thrown in the coroutine, they will be thrown here.
          *
          * @param float $timeout the number of seconds to wait at most
          *
@@ -52,21 +52,6 @@ namespace phasync {
          * @throws Throwable
          */
         public static function await(object $fiberOrPromise, ?float $timeout=null): mixed;
-
-        /**
-         * Block until one of the selectable objects or fibers terminate
-         *
-         * @param (SelectableInterface|Fiber)[] $selectables
-         * @param resource[]                    $read        Wait for stream resources to become readable
-         * @param resource[]                    $write       Wait for stream resources to become writable
-         *
-         * @throws LogicException
-         * @throws FiberError
-         * @throws Throwable
-         *
-         * @return SelectableInterface|resource|Fiber
-         */
-        public static function select(array $selectables, ?float $timeout=null, ?array $read=null, ?array $write=null): mixed;
 
         /**
          * Schedule a closure to run when the current coroutine completes. This function
@@ -462,8 +447,8 @@ namespace phasync {
         public function subscribe(): SubscriberInterface;
     }
     /**
-     * Selectable objects can be used together with {@see phasync::select()} to wait for
-     * multiple events simultaneously.
+     * Selectable objects support a non-blocking readiness check (isReady()) and a
+     * blocking wait (await()) for use by their own direct callers.
      */
     interface SelectableInterface
     {

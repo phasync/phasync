@@ -576,18 +576,19 @@ test('BUF-6: await() returns when data arrives, when the buffer ends, or when th
     });
 });
 
-test('BUF-6: phasync::select() returns a StringBuffer once it has data, and an ended empty one at once', function () {
+test('BUF-6: await() returns once a StringBuffer has data, and an ended empty one is isReady() at once', function () {
     phasync::run(function () {
         $buffer = new StringBuffer();
         phasync::go(function () use ($buffer) {
             phasync::sleep(0.03);
             $buffer->write('x');
         });
-        expect(phasync::select([$buffer]))->toBe($buffer);
+        $buffer->await();
+        expect($buffer->isReady())->toBeTrue();
 
         $ended = new StringBuffer();
         $ended->end();
-        expect(phasync::select([$ended], 0))->toBe($ended);
+        expect($ended->isReady())->toBeTrue();
     });
 });
 

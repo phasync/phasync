@@ -246,7 +246,7 @@ test('WG-1: wait() is an alias of await() and phasync::waitGroup() returns a Wai
     expect($out)->toBe([true, WaitGroup::class]);
 });
 
-test('WG-1: a WaitGroup is a SelectableInterface that phasync::select() reports once it is ready', function () {
+test('WG-1: a WaitGroup is a SelectableInterface, and await() returns once it is ready', function () {
     $out = phasync::run(function () {
         $wg = new WaitGroup();
         $wg->add();
@@ -255,7 +255,9 @@ test('WG-1: a WaitGroup is a SelectableInterface that phasync::select() reports 
             $wg->done();
         });
 
-        return [$wg instanceof SelectableInterface, phasync::select([$wg], 3.0) === $wg];
+        $wg->await(3.0);
+
+        return [$wg instanceof SelectableInterface, $wg->isReady()];
     });
 
     expect($out)->toBe([true, true]);

@@ -509,7 +509,7 @@ test('ERR-6: CancelledException and TimeoutException are RuntimeExceptions; Canc
     expect(\is_subclass_of(CancelledException::class, RethrowExceptionInterface::class))->toBeTrue();
 });
 
-test('ERR-6: ordinary coordination (sleep, yield, go, await, flags, select) throws nothing and logs nothing', function () {
+test('ERR-6: ordinary coordination (sleep, yield, go, await, flags) throws nothing and logs nothing', function () {
     $outcome = errOutcome(function () {
         $flag  = new stdClass();
         $child = phasync::go(function () use ($flag) {
@@ -520,10 +520,9 @@ test('ERR-6: ordinary coordination (sleep, yield, go, await, flags, select) thro
         phasync::sleep(0.005);
         phasync::yield();
         phasync::raiseFlag($flag);
-        $selected = phasync::select([$child]);
 
-        return [phasync::await($child), $selected === $child];
+        return phasync::await($child);
     });
-    expect($outcome)->toBe("ok:array (\n  0 => 'child',\n  1 => true,\n)");
+    expect($outcome)->toBe("ok:'child'");
     expect(errLogged($this))->toBe('');
 });

@@ -37,6 +37,30 @@ Earlier releases are listed on the GitHub releases page.
   backpressure. Found while building `$maxSize` (no existing test exercised past 1 MB); fixed
   by having `read()`/`readFixed()` track consumption correctly and raise the flag on it, and
   waiting on that flag directly instead of through `await()`.
+- `phasync::await()` accepts a `SelectableInterface` (`Channel`, `StringBuffer`, `WaitGroup`,
+  `RateLimiter`, ...) in addition to a `\Fiber` or a promise-like object. Previously
+  `phasync::await($aChannel, $timeout)` threw, since a `SelectableInterface` doesn't look
+  like a promise to the pluggable promise handler.
+
+### Removed
+
+- `phasync::select()`, and the `SelectorInterface`/`Selector`/`ClosureSelector`/
+  `FiberSelector` machinery behind it, are gone -- not reimplemented, removed. An audit
+  found real bugs in it (a TOCTOU race between a selectable being reported ready and the
+  caller acting on it; the `$write` branch waiting on readability instead of writability;
+  losing helper coroutines being `discard()`ed instead of `cancel()`ed, leaking a
+  `FiberSelector`'s own background coroutine indefinitely for any raw `\Fiber` candidate
+  that didn't win). A full redesign was worked through and would have fixed all three, but
+  `select()` itself runs against phasync's actual goal: letting coroutines be written as
+  if they weren't async at all. Selecting across several different kinds of things
+  correctly requires reasoning explicitly about racing and cancellation -- exactly what
+  phasync exists to make unnecessary. It also wasn't proven necessary: absent from
+  `README.md` (unlike `Channel`/`WaitGroup`/`Publisher`), unused by `swerve`, and the one
+  real consumer (`phasync/server`'s accept loops) only ever needed the narrower "wait
+  across several raw stream resources" case -- which is itself better served by one
+  coroutine per listening socket than by racing them in one. See `docs/SEMANTICS.md`
+  section 8 for the full reasoning. `SelectableInterface` itself is unaffected; it was
+  never actually coupled to `select()`.
 
 ## 1.1.0 (2026-09-22)
 

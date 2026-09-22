@@ -76,9 +76,6 @@ dataset('sch suspension points', [
         $pair = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
         phasync::writable($pair[0], 0.5);
     }],
-    'select() on a sleeping fiber'    => [function () {
-        phasync::select([phasync::go(fn () => phasync::sleep(0.01))]);
-    }],
     'nested run() that sleeps'        => [fn () => phasync::run(fn () => phasync::sleep(0.01))],
 ]);
 
@@ -89,7 +86,6 @@ dataset('sch non-suspension points', [
         phasync::await(phasync::go(fn () => 1));
     }],
     'nested run() that never blocks'         => [fn () => phasync::run(fn () => 1)],
-    'select() of an empty array'             => [fn () => phasync::select([], 0.01)],
     'preempt() with the default interval'    => [fn () => phasync::preempt()],
 ]);
 

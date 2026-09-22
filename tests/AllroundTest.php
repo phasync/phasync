@@ -65,31 +65,6 @@ test('phasync::channel creates a channel for communication between coroutines', 
     });
 });
 
-test('phasync::select chooses the first ready selectable', function () {
-    $result = phasync::run(function () {
-        phasync::channel($read1, $write1);
-        phasync::channel($read2, $write2);
-
-        phasync::go(function () use ($write1) {
-            phasync::sleep(0.1);
-            $write1->write('First');
-        });
-
-        phasync::go(function () use ($write2) {
-            phasync::sleep(0.2);
-            $write2->write('Second');
-        });
-
-        $selected = phasync::select([$read1, $read2]);
-
-        $read2->read(); // Must read since it will write
-
-        return $selected->read();
-    });
-
-    expect($result)->toBe('First');
-});
-
 test('phasync handles exceptions in coroutines', function () {
     $exceptionThrown = false;
 

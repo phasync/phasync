@@ -477,6 +477,21 @@ This is a checklist to work through during 2.0.0 design, not a batch of removals
 several items are explicitly gated on other 2.0.0 work landing first (the PDO wrapper on
 direction B, `fork()`'s contract on clustering's shape).
 
+**`phasync::select()`** turned out to belong on this list too, discovered rather than planned:
+a from-scratch redesign (closures as wait-functions, `cancel()`-not-`discard()` for losers,
+`phasync::await()` gaining a `SelectableInterface` branch) was worked through in full and would
+have fixed its real bugs (a TOCTOU race inherent to returning identity instead of performing the
+operation; `$write` waiting on readability; a `FiberSelector` leak for non-winning `\Fiber`
+candidates). It was not built. `select()` is the one primitive that requires thinking explicitly
+about racing and cancelling losers -- exactly the async-aware reasoning phasync exists to make
+unnecessary -- and it wasn't proven necessary either: absent from `README.md`, unused by `swerve`,
+and the one real consumer (`phasync/server`'s accept loops) only needed the narrower
+raw-stream-resource case, which is itself better served by one coroutine per listening socket than
+by racing them. Done: `select()` and `Selector`/`ClosureSelector`/`FiberSelector` removed, not
+reimplemented; see `docs/SEMANTICS.md` section 8 for the full account. Follow-up, not done here:
+`phasync/server`'s `TcpServer`/`UdpServer` accept loops still call the now-removed
+`phasync::select()` and need restructuring to one-coroutine-per-listening-socket.
+
 ## Sequencing
 
 1. 1.1.0 ships first, clean, with the loud-failure fix (`IO-7`) as the extent of what stock PHP

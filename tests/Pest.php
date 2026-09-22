@@ -34,13 +34,6 @@ if (!\function_exists('phasyncResetProcessState')) {
 
         $set('phasync\Internal\Channel', 'blockedCount', 0);
 
-        // The selector pools keep objects with stale fields between uses (see the SEL-6 test
-        // about a pooled ClosureSelector), so which instance a select() gets changes its result.
-        foreach (['phasync\Internal\Selector', 'phasync\Internal\FiberSelector', 'phasync\Internal\ClosureSelector'] as $class) {
-            $set($class, 'pool', []);
-            $set($class, 'instanceCount', 0);
-        }
-
         \gc_enable();
 
         // Steady state: a driver that has just done its periodic maintenance. A brand new

@@ -68,7 +68,7 @@ test('TMO-1: the default timeout is 30 seconds', function () {
     expect((float) $initial)->toBe(30.0);
 });
 
-test('TMO-1: awaitFlag, await, channel read, sleep and select ignore the default timeout', function () {
+test('TMO-1: awaitFlag, await, channel read and sleep ignore the default timeout', function () {
     $results = tmoWithDefaultTimeout(0.2, static function () {
         return phasync::run(static function () {
             $flag = new stdClass();
@@ -91,9 +91,6 @@ test('TMO-1: awaitFlag, await, channel read, sleep and select ignore the default
                     phasync::sleep(0.6);
 
                     return 'ok';
-                }),
-                'select'       => phasync::go(static function () use ($sleeper) {
-                    return phasync::select([$sleeper]) === $sleeper ? 'ok' : 'nothing selected';
                 }),
             ];
             phasync::go(static function () use ($flag, $w) {
@@ -120,7 +117,6 @@ test('TMO-1: awaitFlag, await, channel read, sleep and select ignore the default
         'await'        => 'ok',
         'channel read' => 'late',
         'sleep'        => 'ok',
-        'select'       => 'ok',
     ]);
 });
 

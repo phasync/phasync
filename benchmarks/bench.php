@@ -9,7 +9,7 @@ declare(strict_types=1);
  *   php benchmarks/bench.php --save=FILE           also write JSON (a baseline)
  *   php benchmarks/bench.php --compare=FILE        compare against a saved baseline
  *   php benchmarks/bench.php --compare=FILE --strict   exit 1 if anything is SLOWER
- *   php benchmarks/bench.php --only=chan,select    only scenarios whose name contains one of these
+ *   php benchmarks/bench.php --only=chan,waitgroup only scenarios whose name contains one of these
  *   php benchmarks/bench.php --runs=N              measured runs per scenario (default 5)
  *
  * Every scenario runs in its own fresh PHP process (`--child=NAME`), so GC state, error
@@ -185,66 +185,6 @@ function scenarios(): array
                 });
                 \phasync::await($producer);
                 \phasync::await($consumer);
-            });
-
-            return $count;
-        }],
-
-        'select_2ch' => ['select() over 2 channels, one message each', static function (float $s) use ($n, $channel) {
-            $count = $n(5000, $s);
-            \phasync::run(static function () use ($count, $channel) {
-                [$rA, $wA] = $channel(0);
-                [$rB, $wB] = $channel(0);
-                $producer = \phasync::go(static function () use ($wA, $wB, $count) {
-                    for ($i = 0; $i < $count; ++$i) {
-                        (0 === $i % 2 ? $wA : $wB)->write($i);
-                    }
-                    $wA->close();
-                    $wB->close();
-                });
-                $consumer = \phasync::go(static function () use ($rA, $rB, $count) {
-                    for ($i = 0; $i < $count; ++$i) {
-                        $selected = \phasync::select([$rA, $rB]);
-                        $selected->read();
-                    }
-                });
-                \phasync::await($consumer);
-                \phasync::await($producer);
-            });
-
-            return $count;
-        }],
-
-        'select_4mixed' => ['select() over channel, channel, StringBuffer and fiber', static function (float $s) use ($n, $channel) {
-            $count = $n(2400, $s);
-            \phasync::run(static function () use ($count, $channel) {
-                [$rA, $wA] = $channel(1);
-                [$rB, $wB] = $channel(1);
-                $sb = new phasync\Util\StringBuffer();
-                for ($i = 0; $i < $count; ++$i) {
-                    $m = $i % 4;
-                    $gate = new stdClass();
-                    $fiber = \phasync::go(static function () use ($gate) {
-                        \phasync::awaitFlag($gate);
-                    });
-                    \phasync::go(static function () use ($m, $wA, $wB, $sb, $gate) {
-                        \phasync::sleep(0);
-                        match ($m) {
-                            0       => $wA->write(1),
-                            1       => $wB->write(1),
-                            2       => $sb->write('x'),
-                            default => \phasync::raiseFlag($gate),
-                        };
-                    });
-                    $selected = \phasync::select([$rA, $rB, $sb, $fiber]);
-                    if ($selected === $rA || $selected === $rB) {
-                        $selected->read();
-                    } elseif ($selected === $sb) {
-                        $sb->read(1);
-                    }
-                    \phasync::raiseFlag($gate);
-                    \phasync::await($fiber);
-                }
             });
 
             return $count;

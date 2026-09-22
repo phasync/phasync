@@ -19,12 +19,6 @@ test('using phasync::await() with a fiber not from phasync', function () {
     })->toThrow(LogicException::class);
 });
 
-test('using phasync::select() outside of phasync::run()', function () {
-    expect(function () {
-        phasync::select([]);
-    })->toThrow(LogicException::class);
-});
-
 test('using phasync::cancel() with a fiber not from phasync', function () {
     expect(function () {
         $fiber = new Fiber(function () { Fiber::suspend(); });

@@ -790,7 +790,7 @@ test('isReady respects SelectableInterface contract', function () {
     expect($sb->isReady())->toBeTrue();
 });
 
-test('StringBuffer can be used with phasync::select', function () {
+test('StringBuffer is a SelectableInterface: await() returns once data has arrived', function () {
     phasync::run(function () {
         $sb = new StringBuffer();
 
@@ -799,9 +799,9 @@ test('StringBuffer can be used with phasync::select', function () {
             $sb->write('data');
         });
 
-        $selected = phasync::select([$sb], timeout: 1.0);
+        $sb->await(1.0);
 
-        expect($selected)->toBe($sb);
+        expect($sb->isReady())->toBeTrue();
         expect($sb->read(4, 0))->toBe('data');
     });
 });
@@ -1135,17 +1135,14 @@ test('isReady() returns true when deadman switch triggered on empty buffer', fun
     });
 });
 
-test('phasync::select() selects failed StringBuffer', function () {
+test('a failed StringBuffer is immediately isReady()', function () {
     phasync::run(function () {
         $sb1 = new StringBuffer();
-        $sb2 = new StringBuffer();
 
         // Trigger deadman on sb1
         $deadman = $sb1->getDeadmanSwitch();
         $deadman->trigger();
 
-        // select() should return sb1 (the failed one)
-        $selected = phasync::select([$sb1, $sb2], 0);
-        expect($selected)->toBe($sb1);
+        expect($sb1->isReady())->toBeTrue();
     });
 });

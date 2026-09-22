@@ -242,11 +242,6 @@ test('RT-4: go() outside run() throws LogicException naming phasync::run()', fun
         ->toThrow(LogicException::class, "Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
 });
 
-test('RT-4: select() outside run() throws LogicException naming phasync::run()', function () {
-    expect(static fn () => phasync::select([]))
-        ->toThrow(LogicException::class, "Can't use phasync::select() outside of phasync. Use `phasync::run()` to launch a context.");
-});
-
 test('RT-4: await() of a Fiber that phasync did not create throws LogicException', function () {
     $fiber = new Fiber(static fn () => 1);
 

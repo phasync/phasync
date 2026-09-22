@@ -3,8 +3,9 @@
 namespace phasync;
 
 /**
- * Selectable objects can be used together with {@see phasync::select()} to wait for
- * multiple events simultaneously.
+ * Selectable objects give their own direct callers a non-blocking readiness check
+ * (isReady()) and a blocking wait (await()), for example {@see Util\WaitGroup}
+ * or {@see Util\StringBuffer}.
  */
 interface SelectableInterface
 {
