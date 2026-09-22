@@ -256,11 +256,12 @@ class StringBuffer implements SelectableInterface
 
     /**
      * Read a fixed number of bytes from the buffer, and return null
-     * if the buffer is or becomes ended, or if timeout expires.
+     * if the buffer is or becomes ended with too little data left.
      *
      * @param int<1,max> $length
      *
      * @throws DeadmanException If the deadman switch was triggered
+     * @throws TimeoutException If $timeout expires before $length bytes are available
      */
     public function readFixed(int $length, float $timeout = \PHP_FLOAT_MAX): ?string
     {
@@ -270,25 +271,28 @@ class StringBuffer implements SelectableInterface
 
         $timesOut = \microtime(true) + $timeout;
 
-        // Fill the buffer with enough data to read and optionally await more data if not ended
-        while (!$this->fill($length) && !$this->ended) {
+        // Fill the buffer with enough data to read and optionally await more data if not ended.
+        // $timeout > 0 matches read(): a timeout of exactly 0 is a non-blocking poll (return
+        // whatever the situation is right now, never throw), not an instant timeout.
+        while ($timeout > 0 && !$this->fill($length) && !$this->ended) {
             if ($this->failed) {
                 throw new DeadmanException('Writer terminated unexpectedly');
             }
             $remaining = $timesOut - \microtime(true);
             if ($remaining <= 0) {
-                break;
+                throw new TimeoutException('StringBuffer readFixed timed out');
             }
             // Wait directly on the flag - don't use isReady() which may return true
             // when there's some data but not enough for our fixed length requirement
             try {
                 \phasync::awaitFlag($this->queue, $remaining);
-            } catch (TimeoutException) {
-                // Timeout expired, exit the loop
-                break;
+            } catch (TimeoutException $e) {
+                throw new TimeoutException('StringBuffer readFixed timed out', 0, $e);
             }
         }
 
+        // Only reachable via $this->ended, or via $timeout <= 0, never via a real timeout
+        // expiring: a genuine "not enough data right now", distinct from a real timeout.
         if ($length > $this->length - $this->offset) {
             return null;
         }

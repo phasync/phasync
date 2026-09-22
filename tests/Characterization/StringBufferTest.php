@@ -216,12 +216,16 @@ test('BUF-2: readFixed($n) waits until $n bytes are available', function () {
     });
 });
 
-test('BUF-2: readFixed($n, $timeout) returns null on timeout and leaves the data in the buffer', function () {
+// The next two tests replaced tests that pinned readFixed() returning null on a real timeout,
+// ambiguous with the genuine end-of-stream case (D17 in SEMANTICS.md). Approved by the
+// maintainer: readFixed() now throws TimeoutException on a real timeout, matching read(). A
+// timeout of exactly 0 stays a non-blocking poll (BUF-2 below), never throwing.
+test('BUF-2: readFixed($n, $timeout) throws TimeoutException on a real timeout, and leaves the data in the buffer', function () {
     phasync::run(function () {
         $buffer = new StringBuffer();
         $buffer->write('ab');
         $start = \microtime(true);
-        expect($buffer->readFixed(5, 0.1))->toBeNull();
+        expect(fn () => $buffer->readFixed(5, 0.1))->toThrow(TimeoutException::class);
         expect(\microtime(true) - $start)->toBeGreaterThanOrEqual(0.1);
         expect($buffer->read(10))->toBe('ab');
     });
@@ -232,10 +236,19 @@ test('BUF-2: readFixed() timeouts in an idle loop fire at the 0.5 s idle boundar
     phasync::run(function () {
         $buffer = new StringBuffer();
         $start  = \microtime(true);
-        expect($buffer->readFixed(4, 0.05))->toBeNull();
+        expect(fn () => $buffer->readFixed(4, 0.05))->toThrow(TimeoutException::class);
         expect(\microtime(true) - $start)->toBeGreaterThan(0.3)->toBeLessThan(1.2);
     });
-})->group('surprise');
+});
+
+test('BUF-2: readFixed($n, 0) is a non-blocking poll: returns null immediately if not enough data, never throws', function () {
+    $buffer = new StringBuffer();
+    $buffer->write('Hi');
+    $start = \microtime(true);
+    expect($buffer->readFixed(10, 0))->toBeNull();
+    expect(\microtime(true) - $start)->toBeLessThan(0.05);
+    expect($buffer->read(10))->toBe('Hi');
+});
 
 test('BUF-2: readFixed() returns null when the buffer ends with fewer bytes, and keeps them', function () {
     phasync::run(function () {
