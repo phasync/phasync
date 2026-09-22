@@ -21,15 +21,17 @@ interface WriteChannelInterface extends SelectableInterface
     public function isClosed(): bool;
 
     /**
-     * Write a chunk of data to the writable stream. Writing may
-     * cause the coroutine to be suspended for example in the case
-     * of blocking IO.
+     * Write a value to the channel. Writing may cause the coroutine to be
+     * suspended, for example while waiting for a reader on an unbuffered
+     * channel.
      *
-     * @param string $value
-     *
-     * @return int
+     * Any value is accepted -- a channel is single-process, in-memory
+     * communication between coroutines, so nothing is ever serialized. This
+     * is unrelated to whether a value can cross a process boundary; that is
+     * a separate concern (see the 2.0.0 clustering primitive in
+     * docs/roadmap-2.0.md), not something a channel itself restricts.
      */
-    public function write(\Serializable|array|string|float|int|bool|null $value, float $timeout = \PHP_FLOAT_MAX): void;
+    public function write(mixed $value, float $timeout = \PHP_FLOAT_MAX): void;
 
     /**
      * Returns true if the channel is still readable.

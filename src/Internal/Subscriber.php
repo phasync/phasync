@@ -84,7 +84,7 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
         return null === $this->publisher || $this->currentMessage->next === $this->currentMessage;
     }
 
-    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): mixed
     {
         $eof = false;
         if ($this->isClosed()) {

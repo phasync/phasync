@@ -53,7 +53,7 @@ final class WriteChannel implements WriteChannelInterface
         return $this->channel->isClosed();
     }
 
-    public function write(\Serializable|array|string|float|int|bool|null $value, float $timeout = \PHP_FLOAT_MAX): void
+    public function write(mixed $value, float $timeout = \PHP_FLOAT_MAX): void
     {
         $this->channel->write($value, $timeout);
     }

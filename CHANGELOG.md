@@ -2,6 +2,42 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased (2.0.0)
+
+### Changed
+
+- `ReadChannelInterface::read()` and `WriteChannelInterface::write()` accept and return
+  `mixed` instead of `\Serializable|array|string|float|int|bool|null`. A channel is
+  single-process, in-memory communication between coroutines, so there was never a
+  serialization step the old union was protecting -- it was a leftover from not having
+  decided whether channels needed to survive a process boundary (D2), now resolved by
+  moving that concern to a separate, later clustering primitive (see
+  `docs/roadmap-2.0.md`). Closures, non-`Serializable` objects and resources now round-trip
+  through a channel like any other value.
+- `StringBuffer` takes an optional `$maxSize` in its constructor (default `null`, unbounded,
+  unchanged). With it set, `write()` blocks once the buffer holds that many unread bytes,
+  until the reader has consumed enough to make room -- the same wait/timeout shape as
+  `read()`/`readFixed()`.
+- `phasync\LockInterface`, `phasync\QueueInterface` and `phasync\LockTrait` moved to
+  `phasync\Util\LockInterface`, `phasync\Util\QueueInterface` and `phasync\Util\LockTrait`.
+  Their only real consumer was always `phasync\Util\Queue`; the 1.1.0 placement (matching
+  `phasync\SelectableInterface`/`phasync\DeadmanSwitchTrait`) didn't fit them the way it fits
+  those two, which are used broadly across core, not just by `Util\`. No back-compat shim:
+  2.0.0 is where the 1.1.0 shims (`phasync\Interfaces\*`, `phasync\Util\LockTrait`,
+  `phasync\Util\Collections\Queue`) are removed rather than kept a second cycle.
+
+### Fixed
+
+- `StringBuffer::readFromResource()`'s own backpressure loop never actually blocked:
+  `$totalRead` was only ever decremented (by `unread()`), never incremented by `read()`/
+  `readFixed()` consuming data, so the "is the buffer being drained" gap could never close;
+  and the loop waited via `await()`/`isReady()`, which return at once whenever *any* data is
+  buffered -- already true by definition once the gap is open. Past 1 MB net with a reader
+  that isn't keeping up, this was an unyielding busy loop pinning a CPU core, not
+  backpressure. Found while building `$maxSize` (no existing test exercised past 1 MB); fixed
+  by having `read()`/`readFixed()` track consumption correctly and raise the flag on it, and
+  waiting on that flag directly instead of through `await()`.
+
 ## 1.1.0 (2026-09-22)
 
 ### Fixed

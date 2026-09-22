@@ -57,7 +57,7 @@ final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
         }
     }
 
-    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): mixed
     {
         return $this->channel->read($timeout, $eof);
     }

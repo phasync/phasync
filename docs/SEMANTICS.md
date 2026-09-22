@@ -266,9 +266,12 @@ references may delay it and this is documented. **This is the primary way separa
 coroutines are torn down** (maintainer). The aim is to make this guarantee complete
 instead of adding cancellation broadcasts. ⚠️ ChannelsTest "channels memory leaking"
 
-**CHN-9. Any PHP value can be sent.** ❌ Currently limited to
-`Serializable|array|string|float|int|bool|null`, a leftover from the cross-process design
-(D2).
+**CHN-9. Any PHP value can be sent.** ✅ (2.0.0). Was
+`Serializable|array|string|float|int|bool|null`, a restriction left over from not having
+decided (D2) whether channels needed to survive a process boundary. Resolved: they don't --
+a channel is single-process, in-memory coroutine communication, so there was never a
+serialization step to justify the restriction. Cross-process transport is a separate,
+later concern (the clustering primitive, `docs/roadmap-2.0.md`).
 
 **CHN-10. No timing heuristics.** `read()` and `write()` do not insert `phasync::sleep()`
 calls or time-based "likely deadlock" checks. ❌ See DLK-1.
@@ -391,8 +394,13 @@ see the roadmap in `docs/roadmap-2.0.md` for that.
 another reads fixed or variable-sized frames. It is fast on purpose, and it is
 deliberately not a safe channel (use `Channel` for that).
 
-**BUF-1. `write()` never blocks.** There is no backpressure. Memory is bounded only by
-the writer. The intended pattern is a reader that drains faster than the writer fills.
+**BUF-1. `write()` never blocks by default.** There is no backpressure unless the
+constructor is given `$maxSize` (2.0.0). With no `$maxSize`, memory is bounded only by
+the writer, and the intended pattern is a reader that drains faster than the writer
+fills. With `$maxSize`, `write()` blocks once the buffer holds that many unread bytes,
+until the reader has consumed enough to make room -- the same wait/timeout shape as
+`read()`/`readFixed()` (`TimeoutException` on a real timeout, a `0` timeout never blocks
+or throws and instead writes past the limit once).
 
 **BUF-2. `read()` and `readFixed()` block until data is available or the buffer ends.**
 At end they return what is left, then empty or `null`.
@@ -532,7 +540,7 @@ fail on purpose and is reported before it is accepted.
 | DLK-3 | A global stall is not detected | `DeadlockException` |
 | CHN-1 | An unbuffered `write()` returns before any reader has read, and its timeout is ignored; `isReadyForWrite()` looks inverted | Rendezvous |
 | CHN-5 / D1 | `foreach` over a `ReadChannel` stops at a written `null` and leaves the rest unread | **Fixed:** `read()` takes `?bool &$eof = null`; `getIterator()` uses it. Also fixed in `Subscriber`/`Subscribers` (two further bugs found in the same family, see CHN-5) |
-| CHN-9 | `stdClass`, `Closure`, `DateTime` and resources throw `TypeError` | Any value |
+| CHN-9 / D2 | `stdClass`, `Closure`, `DateTime` and resources throw `TypeError` | **Fixed:** `read()`/`write()` are `mixed`. Resolved by recognizing cross-process transport as a separate concern (clustering, `docs/roadmap-2.0.md`), not something in-process channels need to be typed around |
 | WG-1 | `add()` takes no argument, so `add(3)` silently counts as 1 (PHP ignores extra arguments). Not a bug, a difference from Go | **Fixed** (D15): `add(int $delta = 1)` |
 | RL-1 | `RateLimiter::await($timeout)` ignores the timeout; dropping a limiter with an untaken token makes `run()` throw `ChannelException` | Timeout honoured; no throw |
 | FLG-1 | A flag freed while waited on does not wake its waiters: `awaitFlag()`'s parameter, the `flagGraph` value and `ObjectPoolTrait::popInstance()` keep it alive or keep its store undestroyed | Waiters woken with `CancelledException` when the flag is freed **Fixed**, see FlagsTest |
@@ -541,6 +549,7 @@ fail on purpose and is reported before it is accepted.
 | SEL-6 | Helpers of a finished or timed-out `select()` stay in the driver until `gc_collect_cycles()`; only the winner's `ClosureSelector` goes back to the pool | No helper outlives the call |
 | SEL-1 | `select(..., 0)` is not prompt (0 to about 0.5 s). A closure over an already-terminated fiber throws while the bare fiber works | Prompt; consistent |
 | BUF-2 *new* | `StringBuffer::read($n, $timeout > 0)` on an empty buffer **hangs the whole process** once the timeout expires: `await()` returns at once and `read()` loops without suspending | **Fixed:** `read()` throws `TimeoutException` at the deadline. An infinite wait with no writer still blocks, and an unread buffer still grows without limit, by design (maintainer) |
+| BUF-1 *new* | `readFromResource()`'s own backpressure loop (`while (totalWritten - totalRead > $bufferSize) { $this->await(); }`) never actually blocks: `$totalRead` was only ever decremented (by `unread()`), never incremented by `read()`/`readFixed()` consuming data, so the gap never closes; and `await()`/`isReady()` return at once whenever *any* data is buffered, which is already true here. Past 1 MB net, this is an unyielding busy loop, not backpressure -- found while building `$maxSize` (2.0.0), unexercised by any existing test (largest prior test: 100 KB) | **Fixed:** `read()`/`readFixed()` now increment `$totalRead` and raise the flag on every consumption; the loop waits directly on the flag instead of through `await()`, matching the pattern `readFixed()` already used for its own "not just any data, *enough* data" wait |
 | IO-4 *new* | `readable()` or `writable()` on `php://memory` makes `run()` throw `ValueError: No stream arrays were passed` | Documented or handled |
 | IO-5 *new* | Outside a coroutine, `stream()` on a non-blocking stream ignores its timeout and throws `TimeoutException` after about 1 s (inverted loop condition); a timeout under 1 s loops until data arrives | Honours the timeout |
 | IO-6 *new* | `io::fgets` can return partial lines, and `io::fgetc` never waits | Same result as the PHP function, without blocking the loop |
@@ -559,7 +568,7 @@ through the public API.
 | # | Question | Options | My recommendation |
 |---|----------|---------|-------------------|
 | D1 | `ReadChannelInterface::read()` / `Channel::read()`: `write(null)` is accepted today (the value union includes `null`), so a legitimately-written `null` and "channel closed" are indistinguishable, and `ReadChannel::getIterator()`'s `while (null !== $this->read())` truncates `foreach` at the first written `null` (pinned, `CHN-5`) | keep as is; throw on close; `read(float $timeout = PHP_FLOAT_MAX, ?bool &$eof = null): mixed` | **Decided (maintainer) and done:** the `&$eof` out-parameter (inspired by C#'s `out` pattern; `feof()`-style naming). `getIterator()` uses it, fixing `CHN-5` for free with no second method. `Subscriber`/`Subscribers` got the same fix and two further bugs it surfaced in that class specifically (see CHN-5) |
-| D2 | Which values can a channel carry? Currently `\Serializable\|array\|string\|float\|int\|bool\|null` | keep the union; any `mixed` | **Deferred (maintainer):** not decided. The restriction exists because whether channels will ever need to cross a process boundary is still genuinely open -- multi-process channel support has not been designed, and PHP ZTS builds may also bear on it. Revisit once that larger question is settled, not before |
+| D2 | Which values can a channel carry? Was `\Serializable\|array\|string\|float\|int\|bool\|null` | keep the union; any `mixed` | **Decided (maintainer) and done (2.0.0):** `mixed`. The restriction existed only because cross-process channel support was undecided; resolved by recognizing that as a separate concern -- a future clustering primitive (string broadcast, `docs/roadmap-2.0.md`) owns cross-process transport with its own explicit serialization at that layer, so in-process channels have no reason to be constrained by it. PHP ZTS builds remain a separate, still-open question, orthogonal to this |
 | D3 | Shape of multiple failures in one scope | first only (Go's `errgroup`); `AggregateException` holding all | `AggregateException`, with the first failure as the primary |
 | D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer):** `ContextInterface` and its storage go. A context is any object, optional on `run()`/`go()`. Callers keep their own `WeakMap<context, service>`, so `getContext()` is the only lookup needed |
 | D5 | Cancellation delivery | once per request (edge); every suspension while cancelled (level, as in Trio) | **Decided (maintainer):** cancellation is one exception thrown into the coroutine. Cleanup is done by catching it. No shielding |

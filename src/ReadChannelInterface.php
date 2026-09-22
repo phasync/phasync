@@ -2,15 +2,15 @@
 
 namespace phasync;
 
-use Serializable;
 use Traversable;
 
 /**
  * A readable channel provides messages asynchronously from various sources.
- * Messages must be serializable. Reading when no message will return `null`
- * when the channel is closed, and will block the coroutine if no messages
- * are buffered. The coroutine will be resumed as soon as another coroutine
- * writes to the channel.
+ * Any value can be written and read -- a channel is single-process, in-memory
+ * communication between coroutines, so nothing is ever serialized. Reading
+ * when no message will return `null` when the channel is closed, and will
+ * block the coroutine if no messages are buffered. The coroutine will be
+ * resumed as soon as another coroutine writes to the channel.
  */
 interface ReadChannelInterface extends SelectableInterface, Traversable
 {
@@ -44,7 +44,7 @@ interface ReadChannelInterface extends SelectableInterface, Traversable
      *
      * @throws \RuntimeException
      */
-    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null;
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): mixed;
 
     /**
      * Returns true if the channel is still readable.

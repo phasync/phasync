@@ -550,11 +550,17 @@ test('CHN-9: scalars, arrays, null and Serializable objects pass through unchang
     expect($out[5])->toBeInstanceOf(ArrayObject::class);
 });
 
-test('CHN-9: objects that are not Serializable are rejected with a TypeError [DIVERGENCE]', function () {
-    // SEMANTICS CHN-9 expects any PHP value to be accepted (D2).
+test('CHN-9: any value -- including a non-Serializable object, a Closure and a resource -- round-trips through a channel unchanged (D2, 2.0.0)', function () {
+    // Was CHN-9's divergence test: these four used to throw TypeError on write(). Fixed per
+    // D2 (docs/roadmap-2.0.md's clustering section) -- a channel is single-process, in-memory
+    // communication between coroutines, so there was never a serialization step to justify the
+    // restriction; cross-process transport is a separate, later concern. Reads interleaved with
+    // writes (capacity 1) rather than writing all four first: unlike the old TypeError-per-write
+    // version of this test, every write here actually succeeds and occupies the one buffer slot,
+    // so a second write before the matching read would block forever with nothing to drain it.
     $out = phasync::run(function () {
         phasync::channel($r, $w, 1);
-        $c = phasync::go(function () use ($w) {
+        $c = phasync::go(function () use ($r, $w) {
             $tries = [
                 'stdClass' => new stdClass(),
                 'Closure'  => static fn () => 1,
@@ -563,12 +569,8 @@ test('CHN-9: objects that are not Serializable are rejected with a TypeError [DI
             ];
             $out = [];
             foreach ($tries as $name => $value) {
-                try {
-                    $w->write($value);
-                    $out[$name] = 'accepted';
-                } catch (Throwable $e) {
-                    $out[$name] = \get_class($e);
-                }
+                $w->write($value);
+                $out[$name] = $r->read() === $value;
             }
 
             return $out;
@@ -578,12 +580,12 @@ test('CHN-9: objects that are not Serializable are rejected with a TypeError [DI
     });
 
     expect($out)->toBe([
-        'stdClass' => TypeError::class,
-        'Closure'  => TypeError::class,
-        'DateTime' => TypeError::class,
-        'resource' => TypeError::class,
+        'stdClass' => true,
+        'Closure'  => true,
+        'DateTime' => true,
+        'resource' => true,
     ]);
-})->group('divergence');
+});
 
 // ---------------------------------------------------------------------------
 // CHN-10  Timing heuristics inside Channel

@@ -106,7 +106,7 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         } while (!$this->closed || $this->hasReadableValue());
     }
 
-    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): \Serializable|array|string|float|int|bool|null
+    public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): mixed
     {
         $eof      = false;
         $timesOut = \microtime(true) + $timeout;
@@ -156,7 +156,7 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         }
     }
 
-    public function write($value, float $timeout = \PHP_FLOAT_MAX): void
+    public function write(mixed $value, float $timeout = \PHP_FLOAT_MAX): void
     {
         if ($this->closed) {
             throw new ChannelException('Channel is closed');
