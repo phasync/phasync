@@ -30,6 +30,11 @@ use phasync\TimeoutException;
  * If the writer exits without calling end(), the deadman switch triggers and
  * any blocking read will throw DeadmanException. Buffered data can still be
  * read before the exception is thrown.
+ *
+ * By default the buffer is unbounded: a writer that outpaces its reader grows
+ * it without limit. Pass $maxSize to the constructor for backpressure instead
+ * -- write() then blocks until enough has been read to make room, the same
+ * way read() blocks until there is enough to return.
  */
 class StringBuffer implements SelectableInterface
 {
@@ -85,10 +90,26 @@ class StringBuffer implements SelectableInterface
     private bool $failed = false;
 
     /**
-     * Create a new StringBuffer instance.
+     * The most bytes write() will let accumulate unread before it blocks the
+     * writer, or null for no limit (the default). Measured the same way
+     * readFromResource() already measured it: total bytes written minus
+     * total bytes actually consumed by read()/readFixed().
      */
-    public function __construct()
+    private ?int $maxSize = null;
+
+    /**
+     * Create a new StringBuffer instance.
+     *
+     * @param int<1,max>|null $maxSize Backpressure limit; null (the default) is unbounded
+     *
+     * @throws \OutOfBoundsException if $maxSize is given and is less than 1
+     */
+    public function __construct(?int $maxSize = null)
     {
+        if (null !== $maxSize && $maxSize < 1) {
+            throw new \OutOfBoundsException('$maxSize must be at least 1, or null for unbounded');
+        }
+        $this->maxSize   = $maxSize;
         $this->queue     = new \SplDoublyLinkedList();
     }
 
@@ -142,12 +163,35 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Write data to the buffer
+     * Write data to the buffer. If a $maxSize was given to the constructor and
+     * the buffer currently holds that much unread data, this blocks until the
+     * reader has consumed enough to make room, the same way read() blocks
+     * until there is enough to return.
+     *
+     * @throws \RuntimeException if the buffer has already been ended
+     * @throws TimeoutException  if $maxSize is set and $timeout expires before there is room
      */
-    public function write(string $chunk): void
+    public function write(string $chunk, float $timeout = \PHP_FLOAT_MAX): void
     {
         if ($this->ended) {
             throw new \RuntimeException('Buffer has been ended');
+        }
+        // $timeout > 0 matches read()/readFixed(): a timeout of exactly 0 never blocks and
+        // never throws here either, so it writes past $maxSize rather than fail the write --
+        // the cap is backpressure (make a fast writer wait for its reader), not a hard ceiling.
+        if (null !== $this->maxSize && $timeout > 0) {
+            $timesOut = \microtime(true) + $timeout;
+            while ($this->totalWritten - $this->totalRead >= $this->maxSize) {
+                $remaining = $timesOut - \microtime(true);
+                if ($remaining <= 0) {
+                    throw new TimeoutException('StringBuffer write timed out waiting for buffer space');
+                }
+                try {
+                    \phasync::awaitFlag($this->queue, $remaining);
+                } catch (TimeoutException $e) {
+                    throw new TimeoutException('StringBuffer write timed out waiting for buffer space', 0, $e);
+                }
+            }
         }
         $this->totalWritten += \strlen($chunk);
         $this->queue->push($chunk);
@@ -185,6 +229,13 @@ class StringBuffer implements SelectableInterface
         $chunk  = \substr($this->buffer, $this->offset, $maxLength);
         $length = \strlen($chunk);
         $this->offset += $length;
+        $this->totalRead += $length;
+        if ($length > 0) {
+            // Wakes a write() blocked on $maxSize backpressure, and readFromResource()'s own
+            // backpressure wait below -- both need to know when consumption, not just new data
+            // or new state, changes anything, and nothing else in this class signals that.
+            \phasync::raiseFlag($this->queue);
+        }
 
         return $chunk;
     }
@@ -210,9 +261,14 @@ class StringBuffer implements SelectableInterface
                     }
                     $this->write($chunk);
 
-                    // Avoid reading from the resource if the buffer isn't being drained.
+                    // Avoid reading from the resource if the buffer isn't being drained. Waits
+                    // directly on the flag, not await()/isReady() -- isReady() only asks "is
+                    // there anything to read", which is already true here (that's the whole
+                    // reason this loop is running), so it would return at once without ever
+                    // actually suspending this fiber, spinning forever instead of giving the
+                    // reader coroutine a chance to run and drain the buffer.
                     while ($this->totalWritten - $this->totalRead > $bufferSize && 'stream' === \get_resource_type($resource)) {
-                        $this->await();
+                        \phasync::awaitFlag($this->queue);
                     }
                 }
             } finally {
@@ -299,6 +355,10 @@ class StringBuffer implements SelectableInterface
 
         $chunk = \substr($this->buffer, $this->offset, $length);
         $this->offset += $length;
+        $this->totalRead += $length;
+        if ($length > 0) {
+            \phasync::raiseFlag($this->queue);
+        }
 
         return $chunk;
     }

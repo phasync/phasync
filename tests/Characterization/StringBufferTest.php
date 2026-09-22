@@ -590,3 +590,88 @@ test('BUF-6: phasync::select() returns a StringBuffer once it has data, and an e
         expect(phasync::select([$ended], 0))->toBe($ended);
     });
 });
+
+/* ------------------------------------------------------------- BUF-1 ($maxSize, 2.0.0) */
+
+test('BUF-1: a negative or zero $maxSize throws OutOfBoundsException', function () {
+    expect(fn () => new StringBuffer(0))->toThrow(OutOfBoundsException::class);
+    expect(fn () => new StringBuffer(-1))->toThrow(OutOfBoundsException::class);
+});
+
+test('BUF-1: with no $maxSize, write() still never blocks past any size', function () {
+    phasync::run(function () {
+        $buffer = new StringBuffer();
+        $buffer->write(\str_repeat('x', 5_000_000));
+        expect(true)->toBeTrue(); // reaching here at all is the assertion
+    });
+});
+
+test('BUF-1: write() blocks once $maxSize unread bytes are buffered, and a read() unblocks it', function () {
+    phasync::run(function () {
+        $buffer    = new StringBuffer(10);
+        $unblocked = false;
+        $buffer->write('0123456789'); // exactly at the limit
+        $writer  = phasync::go(function () use ($buffer, &$unblocked) {
+            $buffer->write('x'); // 10 - 0 >= 10, must block until a read happens
+            $unblocked = true;
+        });
+        phasync::sleep(0.02);
+        expect($unblocked)->toBeFalse();
+        expect($buffer->read(1))->toBe('0'); // frees one byte: 10 - 1 = 9 < 10
+        phasync::await($writer);
+        expect($unblocked)->toBeTrue();
+    });
+});
+
+test('BUF-1: write() throws TimeoutException if $maxSize space never frees up in time', function () {
+    phasync::run(function () {
+        $buffer = new StringBuffer(1);
+        $buffer->write('x');
+        $start = \microtime(true);
+        expect(fn () => $buffer->write('y', 0.1))->toThrow(TimeoutException::class);
+        expect(\microtime(true) - $start)->toBeGreaterThanOrEqual(0.1);
+    });
+});
+
+test('BUF-1: write($chunk, 0) with $maxSize set never blocks and writes past the limit', function () {
+    phasync::run(function () {
+        $buffer = new StringBuffer(1);
+        $buffer->write('x'); // already at the limit
+        $start = \microtime(true);
+        $buffer->write('y', 0); // must not throw, must not wait
+        expect(\microtime(true) - $start)->toBeLessThan(0.05);
+        expect($buffer->read(2))->toBe('xy');
+    });
+});
+
+test('BUF-1: readFromResource()\'s own backpressure no longer busy-loops past 1 MB with a slow reader (found building $maxSize)', function () {
+    // Runs in a subprocess with a wall-clock limit: before the fix this spun the CPU
+    // forever instead of yielding, so a hang here (not a clean "done") is the failure.
+    $result = bufchar_child(<<<'PHP'
+        phasync::run(function () {
+            [$source, $peer] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+            $buffer = new \phasync\Util\StringBuffer();
+            $copier = $buffer->readFromResource($source);
+
+            phasync::go(function () use ($peer) {
+                // Push well past the 1 MB internal threshold, slowly enough that the
+                // copier's own backpressure loop must actually engage and yield.
+                for ($i = 0; $i < 20; $i++) {
+                    \fwrite($peer, \str_repeat('x', 100_000));
+                    phasync::sleep(0.005);
+                }
+                \fclose($peer);
+            });
+
+            $total = 0;
+            while (!$buffer->eof()) {
+                $total += \strlen($buffer->read(65536));
+            }
+            phasync::await($copier);
+            echo $total === 2_000_000 ? "ok\n" : "FAIL: $total\n";
+        });
+        PHP, 5.0);
+
+    expect($result['timedOut'])->toBeFalse();
+    expect(\trim($result['stdout']))->toBe('ok');
+});
