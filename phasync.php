@@ -17,7 +17,6 @@ use phasync\ReadChannelInterface;
 use phasync\SelectableInterface;
 use phasync\SubscribersInterface;
 use phasync\TimeoutException;
-use phasync\Util\WaitGroup;
 use phasync\WriteChannelInterface;
 
 /**
@@ -815,18 +814,6 @@ final class phasync
     }
 
     /**
-     * Wait groups are used to coordinate multiple coroutines. A coroutine can add work
-     * to the wait group when the coroutine begins processing the task, and then notify
-     * the wait group that the work is done.
-     *
-     * @deprecated it's generally better to just construct `new WaitGroup()`
-     */
-    public static function waitGroup(): WaitGroup
-    {
-        return new WaitGroup();
-    }
-
-    /**
      * Signal all coroutines that are waiting for an event represented
      * by the object $signal to resume.
      *
@@ -1056,39 +1043,6 @@ final class phasync
     public static function getDefaultTimeout(): float
     {
         return self::$timeout;
-    }
-
-    /**
-     * Check immediately if the stream resource can be read, written or
-     * is in an except state.
-     *
-     * @internal
-     *
-     * @throws InvalidArgumentException
-     * @throws RuntimeException
-     */
-    public static function streamPoll($resource): int
-    {
-        if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
-            throw new InvalidArgumentException('Expecting a valid stream resource');
-        }
-        $r = $w = $e = [$resource];
-        $count = \stream_select($r, $w, $e, 0, 0);
-        if (false === $count) {
-            throw new RuntimeException('Unable to poll stream resource');
-        }
-        $result = 0;
-        if (!empty($r)) {
-            $result |= self::READABLE;
-        }
-        if (!empty($w)) {
-            $result |= self::WRITABLE;
-        }
-        if (!empty($e)) {
-            $result |= self::EXCEPT;
-        }
-
-        return $result;
     }
 
     /**

@@ -81,7 +81,7 @@ test('using phasync::channel() outside of phasync fails', function () {
     })->toThrow(LogicException::class);
 });
 
-test('using phasync::waitGroup() outside of phasync fails', function () {
+test('using WaitGroup outside of phasync fails', function () {
     expect(function () {
         $wg = new WaitGroup();
         $wg->add();

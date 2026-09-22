@@ -120,7 +120,7 @@ test('complex nested phasync::run() calls concurrently', function () {
     phasync::run(function () {
         $startTime = \microtime(true);
         $totalTime = 0;
-        $wg        = phasync::waitGroup();
+        $wg        = new \phasync\Util\WaitGroup();
 
         phasync::go(function () use ($wg, &$totalTime) {
             $startTime = \microtime(true);

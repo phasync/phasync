@@ -230,7 +230,7 @@ test('WG-1: cancelling one waiter throws CancelledException in it and the other 
     expect($log)->toBe(['a ' . CancelledException::class, 'b woke']);
 });
 
-test('WG-1: wait() is an alias of await() and phasync::waitGroup() returns a WaitGroup', function () {
+test('WG-1: wait() is an alias of await()', function () {
     $out = phasync::run(function () {
         $wg = new WaitGroup();
         $wg->add();
@@ -240,10 +240,10 @@ test('WG-1: wait() is an alias of await() and phasync::waitGroup() returns a Wai
         });
         $wg->wait();
 
-        return [$wg->isReady(), \get_class(phasync::waitGroup())];
+        return $wg->isReady();
     });
 
-    expect($out)->toBe([true, WaitGroup::class]);
+    expect($out)->toBeTrue();
 });
 
 test('WG-1: a WaitGroup is a SelectableInterface, and await() returns once it is ready', function () {

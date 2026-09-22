@@ -61,6 +61,11 @@ Earlier releases are listed on the GitHub releases page.
   coroutine per listening socket than by racing them in one. See `docs/SEMANTICS.md`
   section 8 for the full reasoning. `SelectableInterface` itself is unaffected; it was
   never actually coupled to `select()`.
+- `phasync::waitGroup()`, deprecated since 1.1.0-rc6 in favor of `new
+  phasync\Util\WaitGroup()` and never actually removed until now. It was a thin factory
+  wrapping a `Util` class, exactly the pattern this cleanup pass is removing from core.
+- `phasync::streamPoll()`, which had no callers anywhere in phasync, `swerve`, or
+  `server`.
 
 ## 1.1.0 (2026-09-22)
 

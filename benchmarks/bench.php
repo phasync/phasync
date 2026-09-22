@@ -194,7 +194,7 @@ function scenarios(): array
             $reps = $n(15, $s);
             for ($r = 0; $r < $reps; ++$r) {
                 \phasync::run(static function () {
-                    $wg = \phasync::waitGroup();
+                    $wg = new \phasync\Util\WaitGroup();
                     for ($i = 0; $i < 1000; ++$i) {
                         $wg->add();
                         \phasync::go(static function () use ($wg) {
