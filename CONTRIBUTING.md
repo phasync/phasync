@@ -27,16 +27,18 @@ You can then build the images:
 docker-compose up --build -d
 ```
 
-Now you can run commands needed to work on the project. For example, say you want to install the dependencies on PHP 8.2:
+Now you can run commands needed to work on the project. Services are named `phasync-82`
+through `phasync-85`, matching the PHP versions phasync supports. For example, say you want to
+install the dependencies on PHP 8.2:
 
 ```console
 docker-compose run phasync-82 composer install
 ```
 
-or for enter the container
+or to enter the container for PHP 8.4:
 
 ```console
-docker-compose exec phasync-82 sh
+docker-compose exec phasync-84 sh
 ```
 
 ## Testing
