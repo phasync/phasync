@@ -2,7 +2,40 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## 1.1.0-rc6 (unreleased)
+## Unreleased
+
+### Fixed
+
+- A failed `stream_select()` is reported loudly instead of silently stalling. On a stock POSIX
+  build, `stream_select()` fails for the whole batch (not "nothing ready", the call errors)
+  once any watched resource's real file descriptor number reaches `FD_SETSIZE` (1024). This was
+  suppressed with `@` and treated the same as "nothing ready", so every fiber waiting on stream
+  IO that tick hung forever with no trace of why. Every fiber in the batch now gets an
+  `IOException` carrying PHP's own warning text. Raising the `FD_SETSIZE` ceiling itself is
+  2.0.0 work; see `docs/roadmap-2.0.md`.
+
+### Removed
+
+- Windows support is dropped for 1.1.0 and will return, rebuilt, in 2.0.0.
+  `phasync\Process\WindowsProcessRunner` and the bundled `bin/ProcessWrapper[64].exe` binaries
+  are removed rather than kept as dead, deprecated code: the class has depended on
+  `phasync\Legacy\Loop`, a class that has never existed at any point in phasync's git history,
+  since the very first commit that introduced it, including every tagged 1.0.x release. Nobody
+  could have had Windows support working through a normal install of any released version.
+  `Process::run()` already throws a `LogicException` on Windows (see the `1.1.0-rc6` entry
+  below) and continues to.
+- `phasync\Psr\FormDataStream`, `phasync\Psr\TempFileStream` and
+  `phasync\Psr\MultipartStreamInterface` (the interface `FormDataStream` was its only
+  implementer of), none of which were referenced anywhere in phasync, swerve or server.
+
+### Development
+
+- Docker images for all four supported PHP versions (8.2 through 8.5), not just 8.2.
+- `docs/roadmap-2.0.md` captures the research behind the two 2.0.0 directions: native IO
+  hooking (transparent non-blocking PDO, memcached, etc.) and lifting the `FD_SETSIZE` ceiling,
+  both via FFI into the running PHP process's own Zend Engine internals.
+
+## 1.1.0-rc6 (2026-09-22)
 
 ### Fixed
 
