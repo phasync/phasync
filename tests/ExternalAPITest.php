@@ -1,9 +1,6 @@
 <?php
 
-use function phasync\await;
 use function phasync\file_get_contents;
-use function phasync\go;
-use function phasync\run;
 use function phasync\sleep;
 
 // Test for sleep() function inside phasync::run()
@@ -49,43 +46,3 @@ test('test file_get_contents() outside phasync::run()', function () {
 });
 
 // Add similar tests for other file functions, stream functions, and sleep()
-
-// Test for go() function inside phasync::run()
-test('test go() inside phasync::run()', function () {
-    phasync::run(function () {
-        $fiber = go(function () {
-            return 42; // Any value you want to return
-        });
-        expect($fiber)->toBeInstanceOf(Fiber::class); // Verify the return value is a Fiber instance
-    });
-});
-
-// Test for go() function outside phasync::run()
-test('test go() outside phasync::run()', function () {
-    expect(function () {
-        $fiber = go(function () {
-            return 42; // Any value you want to return
-        });
-    })->toThrow(LogicException::class); // Expect LogicException when go() is used outside phasync::run()
-});
-
-// Test for await() function inside phasync::run()
-test('test await() inside phasync::run()', function () {
-    phasync::run(function () {
-        $fiber = go(function () {
-            return 42;
-        });
-        $result = await($fiber);
-        expect($result)->toBe(42); // Verify the return value
-    });
-});
-
-// Test for await() function outside phasync::run()
-test('test await() outside phasync::run()', function () {
-    expect(function () {
-        $fiber = go(function () {
-            return 42;
-        });
-        $result = await($fiber);
-    })->toThrow(LogicException::class); // Expect LogicException when await() is used outside phasync::run()
-});

@@ -66,6 +66,34 @@ Earlier releases are listed on the GitHub releases page.
   wrapping a `Util` class, exactly the pattern this cleanup pass is removing from core.
 - `phasync::streamPoll()`, which had no callers anywhere in phasync, `swerve`, or
   `server`.
+- `\phasync\run()`, `\phasync\go()` and `\phasync\await()`, the namespaced-function
+  aliases in `src/functions.php`, deprecated since 1.1.0-rc6 in favor of the `phasync::`
+  class methods (unaffected by this change) and never actually removed. One of them,
+  `\phasync\go()`, had a real bug while it sat there: it spread its variadic `...$args`
+  into `phasync::go($fn, ...$args)`, but that method's second parameter takes one array,
+  not variadic positions -- `\phasync\go($fn, 'a', 'b')` would have passed `'a'` where an
+  array was expected. Moot now that it's gone, but a concrete sign these wrappers were
+  never being exercised.
+- `\phasync\idle()`. It never fit this file's own stated purpose (functions with the same
+  name as their native PHP equivalents, so importing them shadows the blocking native
+  function) -- there is no native `idle()` to shadow, it was just another thin alias for
+  `phasync::idle()`.
+- `phasync\io::fread()`, `fgets()`, `fgetc()`, `fgetcsv()`, `fputcsv()`, `fwrite()`,
+  `ftruncate()` and `stream_get_contents()`, and the `\phasync\{fread,fgets,fgetc,
+  fgetcsv,fputcsv,fwrite,ftruncate,stream_get_contents}` functions that delegated to
+  them. Zero usage anywhere outside phasync's own test suite -- not `swerve`, not
+  `server`. `io::fgetc()` also had a real, undetected bug: `return \fread($stream, 1);`
+  called the native *blocking* `\fread()` instead of `self::fread()`, so it never
+  actually waited at all, and nothing caught it because it was the one function with no
+  test coverage. `phasync\io::file_get_contents()`, `file_put_contents()` and `flock()`
+  are kept -- these are the two functions most PHP code reaches for out of habit, so a
+  coroutine-safe drop-in replacement has real ergonomic value independent of whether it's
+  technically redundant with anything else. `file_put_contents()`'s own resource-copying
+  path also had a harmless but sloppy duplicate `phasync::readable()` call for one read,
+  fixed while this file was being gone through carefully. `flock()`'s busy-poll-via-
+  `yield()` wait (there is no fd-based readiness signal for file locks, so some form of
+  polling is unavoidable in userland) is left as-is for now, flagged for a closer look
+  later rather than addressed in this pass.
 
 ## 1.1.0 (2026-09-22)
 

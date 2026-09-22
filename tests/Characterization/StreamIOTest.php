@@ -403,63 +403,13 @@ test('IO-1: an io() wrapped stream also works outside phasync::run()', function 
 });
 
 /* ------------------------------------------------------------------ phasync\io helpers */
-
-test('IO-1: io::fread() and io::stream_get_contents() wait for data inside a coroutine and restore blocking mode', function () {
-    phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        phasync::go(function () use ($b) {
-            phasync::sleep(0.03);
-            \fwrite($b, 'abcdefghij');
-        });
-        $start = \microtime(true);
-        expect(io::fread($a, 4))->toBe('abcd');
-        expect(\microtime(true) - $start)->toBeGreaterThanOrEqual(0.02);
-        expect(\stream_get_meta_data($a)['blocked'])->toBeTrue();
-
-        [$c, $d] = iochar_pair();
-        phasync::go(function () use ($d) {
-            phasync::sleep(0.03);
-            \fwrite($d, 'the whole thing');
-            \fclose($d);
-        });
-        expect(io::stream_get_contents($c))->toBe('the whole thing');
-    });
-});
-
-test('IO-1: io::fread() on a stream whose peer has closed returns an empty string', function () {
-    phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        \fclose($b);
-        expect(io::fread($a, 10))->toBe('');
-    });
-});
-
-test('IO-1: io::fgets() returns whatever is available, which may be a partial line', function () {
-    // A line that arrives in two pieces is returned in two pieces, not waited for until "\n".
-    phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        $writer  = phasync::go(function () use ($b) {
-            phasync::sleep(0.03);
-            \fwrite($b, "first\nsec");
-            phasync::sleep(0.03);
-            \fwrite($b, "ond\n");
-        });
-        expect(io::fgets($a))->toBe("first\n");
-        expect(io::fgets($a))->toBe('sec');
-        // Keep $a open until the writer is done, or its second write hits a closed pipe.
-        phasync::await($writer);
-    });
-})->group('surprise');
-
-test('IO-1: io::fgetc() does not wait: on an empty non-blocking stream it returns an empty string', function () {
-    phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        \stream_set_blocking($a, false);
-        expect(io::fgetc($a))->toBe('');
-        \fwrite($b, 'e');
-        expect(io::fgetc($a))->toBe('e');
-    });
-})->group('surprise');
+/*
+ * phasync\io was narrowed in 2.0.0 to file_get_contents()/file_put_contents()/flock() only.
+ * fread(), fgets(), fgetc(), fgetcsv(), fputcsv(), fwrite(), ftruncate() and
+ * stream_get_contents() are removed: zero usage anywhere outside this file's own tests, and
+ * fgetc() had a real bug (it called the native blocking \fread(), not self::fread(), so it
+ * never waited at all) that sat undetected because nothing exercised it. See CHANGELOG.md.
+ */
 
 test('IO-1: io::file_get_contents() and io::file_put_contents() read and write files inside a coroutine', function () {
     iochar_with_file("line1\nline2\nline3", function (string $path) {
@@ -491,33 +441,6 @@ test('IO-1: io::file_get_contents() and io::file_put_contents() read and write f
     });
 });
 
-test('IO-1: io::fgets(), io::fgetcsv() and io::fputcsv() work on files inside a coroutine', function () {
-    iochar_with_file("line1\nline2\n", function (string $path) {
-        phasync::run(function () use ($path) {
-            $file = \fopen($path, 'r');
-            expect(io::fgets($file))->toBe("line1\n");
-            expect(io::fgetcsv($file))->toBe(['line2']);
-
-            $csv = \fopen($path . '.out', 'w+');
-            expect(io::fputcsv($csv, ['x', 'y z', 'q"r']))->toBe(15);
-            \rewind($csv);
-            expect(\stream_get_contents($csv))->toBe("x,\"y z\",\"q\"\"r\"\n");
-        });
-    });
-});
-
-test('IO-1: io::ftruncate() truncates and reports 1 (a bool coerced to the declared int)', function () {
-    iochar_with_file('', function (string $path) {
-        phasync::run(function () use ($path) {
-            $file = \fopen($path, 'w+');
-            \fwrite($file, 'abcdef');
-            expect(io::ftruncate($file, 3))->toBe(1);
-            \rewind($file);
-            expect(\stream_get_contents($file))->toBe('abc');
-        });
-    });
-});
-
 test('IO-1: io::flock() inside a coroutine waits for the lock by yielding, and LOCK_NB fails at once', function () {
     iochar_with_file('x', function (string $path) {
         phasync::run(function () use ($path) {
@@ -537,24 +460,16 @@ test('IO-1: io::flock() inside a coroutine waits for the lock by yielding, and L
     });
 });
 
-test('IO-1: the io helpers throw TypeError for a non-resource when called inside a coroutine', function () {
+test('IO-1: io::flock() throws TypeError for a non-resource when called inside a coroutine', function () {
     phasync::run(function () {
-        expect(fn () => io::fgets('nope'))->toThrow(TypeError::class);
-        expect(fn () => io::fwrite('nope', 'x'))->toThrow(TypeError::class);
-        expect(fn () => io::fgetcsv('nope'))->toThrow(TypeError::class);
-        expect(fn () => io::stream_get_contents('nope'))->toThrow(TypeError::class);
+        expect(fn () => io::flock('nope', \LOCK_SH))->toThrow(TypeError::class);
     });
 });
 
 test('IO-1: outside a coroutine the io helpers do the plain PHP function', function () {
     iochar_with_file("l1\nl2\n", function (string $path) {
-        [$a, $b] = iochar_pair();
-        \fwrite($b, "l1\nl2\n");
-        expect(io::fgets($a))->toBe("l1\n");
-        expect(io::fread($a, 10))->toBe("l2\n");
         expect(io::file_get_contents($path))->toBe("l1\nl2\n");
         expect(io::file_put_contents($path . '.out', 'z'))->toBe(1);
-        expect(io::fwrite($b, 'q'))->toBe(1);
     });
 });
 
