@@ -182,23 +182,24 @@ test('RL-1: run() finishes normally when the limiter is dropped after its last t
     expect(\microtime(true) - $t)->toBeLessThan(3.0);
 });
 
-test('RL-1: dropping a limiter that still holds an untaken token makes run() throw ChannelException', function () {
-    // The token generator is blocked writing the next token when the read end is dropped,
-    // so it wakes with "Channel is closed" and that failure escapes run().
-    $out = null;
-    try {
-        phasync::run(function () {
-            $rl = new RateLimiter(50);
-            phasync::sleep(0.2);
+test('RL-1: dropping a limiter that still holds an untaken token lets run() finish normally', function () {
+    // Was a [SURPRISE]: an uncaught ChannelException used to escape run() just from
+    // dropping an unused RateLimiter. Fixed as a side effect of CHN-1: the token
+    // generator's write() now genuinely blocks until a reader consumes it (so it is
+    // actually blocked in write(), not mid-cycle, when the read end is dropped); write()
+    // woken by the channel closing returns normally rather than throwing (see Channel::
+    // write()'s unbuffered branch -- it returns unconditionally once awaitWritable()
+    // resolves, whatever the reason), so the generator's do/while loop just sees
+    // isClosed() and exits cleanly instead of throwing.
+    $out = phasync::run(function () {
+        $rl = new RateLimiter(50);
+        phasync::sleep(0.2);
 
-            return 'body finished';
-        });
-    } catch (Throwable $e) {
-        $out = [\get_class($e), $e->getMessage()];
-    }
+        return 'body finished';
+    });
 
-    expect($out)->toBe([ChannelException::class, 'Channel is closed']);
-})->group('surprise');
+    expect($out)->toBe('body finished');
+});
 
 test('RL-1: a limiter that was never used can be dropped without error', function () {
     rlPreemptIsDue(true); // go() in the constructor suspends the caller, so the generator is already waiting for a reader

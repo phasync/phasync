@@ -209,22 +209,26 @@ test('TMO-2: writable() on a full socket buffer throws TimeoutException', functi
 });
 
 test('TMO-2: a channel read timeout throws TimeoutException and the channel stays usable', function () {
+    // Write and read moved to separate fibers: with the CHN-1 fix, unbuffered write()
+    // genuinely blocks until a reader consumes it, so writing then reading in the SAME
+    // fiber (the original form of this test) is a self-deadlock -- write() can't return
+    // until read() runs, but read() can't run until write() returns first.
     $result = phasync::run(static function () {
         phasync::channel($r, $w);
-        $worker = phasync::go(static function () use ($r, $w) {
-            $log = [];
+        $log    = [];
+        $worker = phasync::go(static function () use ($r, &$log) {
             try {
                 $r->read(0.1);
             } catch (TimeoutException $e) {
                 $log[] = $e->getMessage();
             }
-            $w->write('after');
             $log[] = $r->read();
-
-            return $log;
         });
+        phasync::sleep(0.15); // let the timeout happen first
+        $w->write('after');
+        phasync::await($worker);
 
-        return phasync::await($worker);
+        return $log;
     });
 
     expect($result)->toBe(['Channel read operation timed out', 'after']);

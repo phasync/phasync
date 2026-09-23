@@ -243,8 +243,13 @@ test('writing null via a channel without closing it', function () {
         $received = [];
         phasync::channel($r, $w);
         $reader = phasync::go(function () use ($r, &$received) {
-            while (!$r->isClosed()) {
-                $message    = $r->read();
+            // Check $eof, not isClosed() before read(): those are two separate calls, and
+            // a written null is indistinguishable from end-of-stream by return value alone.
+            while (true) {
+                $message = $r->read(eof: $eof);
+                if ($eof) {
+                    break;
+                }
                 $received[] = $message;
             }
         });

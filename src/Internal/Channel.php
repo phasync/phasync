@@ -44,7 +44,13 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         if ($this->closed) {
             return true;
         } elseif (0 === $this->capacity) {
-            return $this->hasPendingWrite;
+            // Ready to accept a NEW write when there is no unconsumed pending value --
+            // i.e. once a reader has taken the last one (or none has been written yet).
+            // (Previously returned $this->hasPendingWrite, the inverse of this -- which
+            // made write() return the instant it queued a value instead of waiting for a
+            // reader to consume it, and made isReady() report "ready" exactly while a
+            // write is unconsumed. See CHN-1 in docs/SEMANTICS.md.)
+            return !$this->hasPendingWrite;
         }
 
         return $this->buffer->count() < $this->capacity;
