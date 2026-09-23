@@ -41,13 +41,14 @@ final class Subscribers implements SubscribersInterface
 
         \phasync::service(static function () use ($lastMessage, $notifyMessageFlag, $readChannel, &$waiting) {
             try {
-                while (0 === $waiting) {
-                    if ($readChannel->isClosed()) {
-                        return;
-                    }
-                    // Don't start reading until somebody is waiting
-                    \phasync::yield();
-                }
+                // Must read unconditionally from the moment the publisher exists, not only
+                // once a subscriber is waiting: $readChannel is an unbuffered channel, and
+                // write() now always suspends the writer until a reader takes the value
+                // (Channel's rendezvous fix). This service IS that reader -- without it
+                // reading immediately, a publish with zero subscribers would suspend its
+                // writer forever, since nothing would ever be there to receive it. Whether
+                // any real Subscriber is listening is a separate concern, handled below by
+                // $waiting and the ChannelMessage list, not by delaying the read.
                 while (true) {
                     // eof, not "null and isClosed()": a published null racing with close() could
                     // otherwise be misread as end-of-stream and silently dropped, never reaching

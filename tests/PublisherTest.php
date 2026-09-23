@@ -23,13 +23,19 @@ test('publisher subscribing deadlock protection', function () {
             return true;
         });
     })->toThrow(ChannelException::class);
-    expect(function () {
-        phasync::run(function () {
-            phasync::publisher($subscribers, $publisher);
+});
+test('writing to a publisher with no subscribers succeeds (the internal forwarding service is always a reader)', function () {
+    // Not a deadlock case: Subscribers' internal service reads from the underlying channel
+    // unconditionally from construction, regardless of whether any Subscriber exists yet,
+    // so a write() always has somewhere to rendezvous with, and completes normally.
+    $out = phasync::run(function () {
+        phasync::publisher($subscribers, $publisher);
+        $publisher->write('something');
 
-            $publisher->write('something');
-        });
-    })->toThrow(ChannelException::class);
+        return 'written';
+    });
+
+    expect($out)->toBe('written');
 });
 test('publisher semantics', function () {
     expect(phasync::run(function () {

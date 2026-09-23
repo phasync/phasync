@@ -884,7 +884,11 @@ test('PUB-1: a late subscriber only sees messages published after it subscribed'
     expect($got)->toBe(['early' => ['m1', 'm2', 'm3'], 'late' => ['m3']]);
 });
 
-test('PUB-1: with no subscriber waiting, the first write returns and the second blocks', function () {
+test('PUB-1: with no subscriber waiting, both writes succeed (the internal service is always a reader)', function () {
+    // Subscribers' internal forwarding service reads from the underlying channel
+    // unconditionally from construction (not only once a Subscriber is waiting), so it's
+    // always available to rendezvous with a write(), regardless of whether any real
+    // subscriber ever exists.
     $log = phasync::run(function () {
         phasync::publisher($subs, $pub);
         $log = [];
@@ -904,11 +908,8 @@ test('PUB-1: with no subscriber waiting, the first write returns and the second 
         return $log;
     });
 
-    expect($log)->toBe(['write 1 returned', TimeoutException::class]);
-})->skip('TEMP: Channel\'s CHN-1 fix alone makes this hang -- Subscribers\' internal service '
-    . 'does not read until a subscriber is waiting, so with true rendezvous semantics a '
-    . 'publish with none blocks forever. Restored in the very next commit, which adapts '
-    . 'Subscribers to read unconditionally.');
+    expect($log)->toBe(['write 1 returned', 'write 2 returned']);
+});
 
 test('PUB-1: a subscriber reads null once the publisher is closed and isClosed() turns true after the last message', function () {
     $out = phasync::run(function () {
