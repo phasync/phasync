@@ -260,6 +260,32 @@ test('DLK-2: a three-coroutine await cycle throws LogicException in the last cor
     expect($log)->toBe(['2: LogicException']);
 });
 
+test('DLK-2: a two-channel cross deadlock (A fills X waiting for B, B fills Y waiting for A) is not detected [DIVERGENCE]', function () {
+    // The contract (DLK-2) says await cycles are detected "when they form". That is true
+    // for phasync::await($fiber) chains (StreamSelectDriver's flagGraph, which only tracks
+    // \Fiber-typed flags), but Channel blocks on its own private \stdClass flag -- never a
+    // \Fiber -- so a cycle mediated entirely through channels is invisible to that detector.
+    // Nor does the creator-fiber heuristic (DLK-1) catch it: neither A nor B is the channel's
+    // creator (the parent fiber below is), and the parent has already suspended in
+    // phasync::await() by the time A/B reach their blocking write(), so
+    // ensureNotCreatorFiber() never sees creatorFiber as "running" for either channel.
+    //
+    // Uses buffered (capacity 1) channels, pre-filled, so the block is a genuine "no room
+    // until someone reads" wait -- NOT unbuffered write(), whose isReadyForWrite() has a
+    // separate, already-known bug (findings table CHN-1) where it returns true immediately
+    // instead of waiting for a reader, which would make this scenario not actually block.
+    $report = dlkRunStalled([
+        'cross-channel' => 'phasync::channel($r1, $w1, 1); phasync::channel($r2, $w2, 1);'
+            . ' $w1->write("prefill1"); $w2->write("prefill2");'
+            . ' $a = phasync::go(function () use ($w1, $r2) { $w1->write("from a"); $r2->read(); });'
+            . ' $b = phasync::go(function () use ($w2, $r1) { $w2->write("from b"); $r1->read(); });'
+            . ' phasync::await($a); phasync::await($b);',
+    ], 2.0);
+
+    expect($report['cross-channel']['running'])->toBeTrue();
+    expect($report['cross-channel']['stdout'])->toBe("waiting\n");
+})->group('divergence');
+
 // ---------------------------------------------------------------------------
 // DLK-3 / DLK-4: stalls
 // ---------------------------------------------------------------------------
