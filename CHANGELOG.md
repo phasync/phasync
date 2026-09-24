@@ -2,7 +2,11 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## Unreleased (2.0.0)
+## 2.0.0-alpha0 (2026-09-24)
+
+Early preview of the 2.0.0 line: a major, deliberately breaking redesign pass. Expect
+further changes before a stable 2.0.0 -- notably, real global deadlock detection (DLK-3,
+see `docs/SEMANTICS.md`) is planned but not yet implemented.
 
 ### Added
 
