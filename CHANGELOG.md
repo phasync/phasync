@@ -4,6 +4,17 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased (2.0.0)
 
+### Added
+
+- `phasync\try_enable_ext()`: a safe, non-throwing probe that opportunistically loads the
+  optional `phasync/phasync-ext` C extension if it's installed and available, without ever
+  requiring it -- phasync behaves identically whether it returns `true` or `false`. Loading
+  the extension can replace the current process (see `phasync\ext\ensure_loaded()`, which
+  this wraps), so it must be called explicitly, once, as early as possible in a CLI
+  script -- never automatically from inside `phasync::run()` or other library code that
+  might run after the application has already done work with side effects. `composer.json`
+  now `suggest`s `phasync/phasync-ext`.
+
 ### Changed
 
 - `ReadChannelInterface::read()` and `WriteChannelInterface::write()` accept and return
@@ -41,6 +52,15 @@ Earlier releases are listed on the GitHub releases page.
   `RateLimiter`, ...) in addition to a `\Fiber` or a promise-like object. Previously
   `phasync::await($aChannel, $timeout)` threw, since a `SelectableInterface` doesn't look
   like a promise to the pluggable promise handler.
+- Unbuffered `Channel::write()` returned the instant a value was queued instead of waiting
+  for a reader to actually consume it (CHN-1): `isReadyForWrite()` had an inverted condition
+  for the unbuffered case (`$hasPendingWrite` instead of `!$hasPendingWrite`). It's now a
+  true rendezvous. `Subscribers`' internal forwarding service adapted to match: it used to
+  defer reading from its underlying channel until a `Subscriber` was waiting, which under
+  true rendezvous semantics meant publishing with zero subscribers would suspend the writer
+  forever (nothing was there yet to receive it); it now reads unconditionally from
+  construction, so it's always available to rendezvous with a `write()`, regardless of
+  subscriber count.
 
 ### Removed
 
