@@ -257,32 +257,3 @@ test('a stream created inside run() behaves natively once run() has returned', f
     \fclose($accepted);
     \fclose($server);
 });
-
-test('readable() does not wait on a blocking auto-managed stream, but does on a non-blocking one', function () {
-    [$server, $port] = exthooks_server();
-    phasync::run(function () use ($server, $port) {
-        $a   = \stream_socket_client("tcp://127.0.0.1:$port");
-        $b   = \stream_socket_accept(phasync::readable($server)); // a listener: a real wait
-        $log = [];
-
-        // Blocking: returns at once, though nothing has been written (a real wait would
-        // never end: the writer starts after it), and fread() suspends until the data comes
-        phasync::readable($a);
-        $log[] = 'readable returned';
-        phasync::go(function () use ($b) {
-            phasync::sleep(0.02);
-            \fwrite($b, 'blocking');
-        });
-        $log[] = \fread($a, 100);
-
-        // Non-blocking: the extension leaves the read alone, so readable() waits
-        \stream_set_blocking($a, false);
-        phasync::go(function () use ($b) {
-            phasync::sleep(0.02);
-            \fwrite($b, 'non-blocking');
-        });
-        $log[] = \fread(phasync::readable($a), 100);
-
-        expect($log)->toBe(['readable returned', 'blocking', 'non-blocking']);
-    });
-})->skip(!\function_exists('phasync\ext\is_auto_managed'), 'needs phasync\ext\is_auto_managed()');

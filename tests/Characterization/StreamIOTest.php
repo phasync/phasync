@@ -108,14 +108,6 @@ test('IO-1: readable() and writable() return the same resource', function () {
     });
 });
 
-test('IO-1: inside a coroutine the resource is switched to non-blocking mode', function () {
-    phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        expect(\stream_get_meta_data($a)['blocked'])->toBeTrue();
-        phasync::stream($a, phasync::WRITABLE);
-        expect(\stream_get_meta_data($a)['blocked'])->toBeFalse();
-    });
-});
 
 test('IO-1: readable() suspends until data arrives, and other coroutines run meanwhile', function () {
     phasync::run(function () {
@@ -333,67 +325,27 @@ test('IO-2: outside phasync::run() a non-blocking resource without data times ou
 
 /* ------------------------------------------------------------------ IO-8 */
 
-// IO-8: waiting on a stream inside run() makes it non-blocking, so the read or write after
-// the wait cannot block the process. phasync-ext's auto-managed streams are left blocking:
-// the extension suspends their reads and writes itself.
-if (!\function_exists('iochar_auto_managed')) {
-    function iochar_auto_managed($stream): bool
-    {
-        return \function_exists('phasync\ext\is_auto_managed') && \phasync\ext\is_auto_managed($stream);
-    }
-}
+// IO-8: waiting on a stream never changes its blocking mode. The mode is the caller's, and it
+// decides what reads and writes do (PHP's own semantics, with or without phasync-ext): a
+// blocking fgets() waits for a whole line, a non-blocking one returns what is there.
 
-test('IO-8: readable() and writable() inside run() leave a blocking stream non-blocking', function () {
+test('IO-8: readable(), writable() and stream() leave a stream in the blocking mode it had', function () {
     $modes = phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        [$c, $d] = iochar_pair();
-        $auto = [iochar_auto_managed($a), iochar_auto_managed($c)];
-        \fwrite($b, 'x');
-        phasync::readable($a);
-        phasync::writable($c);
-
-        return [[\stream_get_meta_data($a)['blocked'], \stream_get_meta_data($c)['blocked']], $auto];
-    });
-
-    expect($modes[0])->toBe($modes[1]);
-});
-
-test('IO-8: a stream set back to blocking after a wait stays blocking; phasync makes a stream non-blocking once', function () {
-    $blocked = phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        \fwrite($b, 'xy');
-        phasync::readable($a);
-        \stream_set_blocking($a, true);
-        $auto = iochar_auto_managed($a);
-        phasync::readable($a);
-
-        return [\stream_get_meta_data($a)['blocked'], $auto];
-    });
-
-    expect($blocked[0])->toBeTrue();
-});
-
-test('IO-8: the memory of which streams were made non-blocking stays bounded', function () {
-    $size = (new ReflectionClassConstant('phasync', 'NON_BLOCKING_CACHE_SIZE'))->getValue();
-    phasync::run(function () use ($size) {
-        for ($i = 0; $i <= $size + 10; ++$i) {
-            $stream = \fopen('php://stdin', 'r');
-            phasync::writable($stream);
-            \fclose($stream);
+        $modes = [];
+        foreach ([true, false] as $blocking) {
+            [$a, $b] = iochar_pair();
+            \stream_set_blocking($a, $blocking);
+            \fwrite($b, 'x');
+            phasync::readable($a);
+            phasync::writable($a);
+            phasync::stream($a, phasync::READABLE | phasync::WRITABLE);
+            $modes[] = \stream_get_meta_data($a)['blocked'];
         }
+
+        return $modes;
     });
 
-    expect(\count((new ReflectionProperty('phasync', 'nonBlocking'))->getValue()))->toBeLessThanOrEqual($size);
-})->skip(\extension_loaded('phasync'), 'phasync-ext auto-manages the stream, so it is never remembered');
-
-test('IO-8: PHP does not reuse the id of a closed resource, which the memory of non-blocking streams relies on', function () {
-    $first = \fopen('php://memory', 'r');
-    $id    = \get_resource_id($first);
-    \fclose($first);
-    unset($first);
-    $second = \fopen('php://memory', 'r');
-
-    expect(\get_resource_id($second))->toBeGreaterThan($id);
+    expect($modes)->toBe([true, false]);
 });
 
 /* ------------------------------------------------------------------ IO-7 */
