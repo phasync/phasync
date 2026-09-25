@@ -92,6 +92,13 @@ final class phasync
     public const DEFAULT_PREEMPT_INTERVAL = 50000000;
 
     /**
+     * How many streams stream() remembers having made non-blocking, a few MB. A stream
+     * that was dropped is made non-blocking again on its next wait, at the cost of two
+     * syscalls.
+     */
+    private const NON_BLOCKING_CACHE_SIZE = 65536;
+
+    /**
      * The recursion depth of run statements that are active.
      */
     private static int $runDepth = 0;
@@ -114,6 +121,23 @@ final class phasync
      * so readable() and writable() have nothing to do for them.
      */
     private static bool $managed = false;
+
+    /**
+     * Resource ids of the streams stream() has made non-blocking, oldest first. PHP never
+     * reuses a resource id, so an id here can only be the stream it was recorded for. When
+     * full, the older half is dropped; ids of closed streams leave that way.
+     *
+     * @var array<int, true>
+     */
+    private static array $nonBlocking = [];
+
+    /**
+     * The same for streams that are objects, for when PHP turns stream resources into
+     * objects: object ids are reused, so these are held weakly instead.
+     *
+     * @var \WeakMap<object, true>|null
+     */
+    private static ?\WeakMap $nonBlockingObjects = null;
 
     /**
      * A function that sets an onFulfilled and/or an onRejected callback on
@@ -772,9 +796,25 @@ final class phasync
                 // No point in blocking here; instead the fwrite/fread call will block
                 return $mode & (self::READABLE | self::WRITABLE);
             }
-        } elseif (!(self::$managed && \phasync\ext\is_auto_managed($resource))) {
-            // phasync-ext only suspends reads and writes on blocking streams, so leave those
-            \stream_set_blocking($resource, false);
+        } elseif (\is_object($resource)
+            ? !isset(self::$nonBlockingObjects[$resource])
+            : !isset(self::$nonBlocking[$id = \get_resource_id($resource)])
+        ) {
+            // stream_set_blocking() costs two syscalls even when nothing changes, so it is
+            // done once per stream. phasync-ext only suspends reads and writes on blocking
+            // streams, so those are left alone.
+            if (!(self::$managed && \phasync\ext\is_auto_managed($resource))) {
+                \stream_set_blocking($resource, false);
+                if (\is_object($resource)) {
+                    self::$nonBlockingObjects ??= new \WeakMap();
+                    self::$nonBlockingObjects[$resource] = true;
+                } else {
+                    self::$nonBlocking[$id] = true;
+                    if (\count(self::$nonBlocking) > self::NON_BLOCKING_CACHE_SIZE) {
+                        self::$nonBlocking = \array_slice(self::$nonBlocking, -(self::NON_BLOCKING_CACHE_SIZE >> 1), null, true);
+                    }
+                }
+            }
         }
 
         $driver = self::getDriver();

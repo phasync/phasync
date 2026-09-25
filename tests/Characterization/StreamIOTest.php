@@ -310,7 +310,7 @@ test('IO-8: readable() and writable() inside run() leave a blocking stream non-b
     expect($modes[0])->toBe($modes[1]);
 });
 
-test('IO-8: a stream set back to blocking after a wait is made non-blocking again by the next wait', function () {
+test('IO-8: a stream set back to blocking after a wait stays blocking; phasync makes a stream non-blocking once', function () {
     $blocked = phasync::run(function () {
         [$a, $b] = iochar_pair();
         \fwrite($b, 'xy');
@@ -322,7 +322,30 @@ test('IO-8: a stream set back to blocking after a wait is made non-blocking agai
         return [\stream_get_meta_data($a)['blocked'], $auto];
     });
 
-    expect($blocked[0])->toBe($blocked[1]);
+    expect($blocked[0])->toBeTrue();
+});
+
+test('IO-8: the memory of which streams were made non-blocking stays bounded', function () {
+    $size = (new ReflectionClassConstant('phasync', 'NON_BLOCKING_CACHE_SIZE'))->getValue();
+    phasync::run(function () use ($size) {
+        for ($i = 0; $i <= $size + 10; ++$i) {
+            $stream = \fopen('php://stdin', 'r');
+            phasync::writable($stream);
+            \fclose($stream);
+        }
+    });
+
+    expect(\count((new ReflectionProperty('phasync', 'nonBlocking'))->getValue()))->toBeLessThanOrEqual($size);
+})->skip(\extension_loaded('phasync'), 'phasync-ext auto-manages the stream, so it is never remembered');
+
+test('IO-8: PHP does not reuse the id of a closed resource, which the memory of non-blocking streams relies on', function () {
+    $first = \fopen('php://memory', 'r');
+    $id    = \get_resource_id($first);
+    \fclose($first);
+    unset($first);
+    $second = \fopen('php://memory', 'r');
+
+    expect(\get_resource_id($second))->toBeGreaterThan($id);
 });
 
 /* ------------------------------------------------------------------ IO-7 */
