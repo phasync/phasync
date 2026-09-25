@@ -81,11 +81,43 @@ final class StreamSelectDriver implements DriverInterface
     private Scheduler $scheduler;
 
     /**
-     * All fibers suspended waiting for IO.
+     * All fibers suspended waiting for IO: the resource, the mode and the resource id.
      *
-     * @var WeakMap<Fiber,array{0: resource, 1: int}
+     * @var WeakMap<Fiber,array{0: resource, 1: int, 2: int}>
      */
     private \WeakMap $streams;
+
+    /**
+     * The fiber waiting to read (or for out of band data) and the fiber waiting to write,
+     * per resource id. A stream has at most one waiting fiber per direction, so these and
+     * the stream_select() arrays below are kept up to date as waits start and end, instead
+     * of being rebuilt from all waiting fibers on every tick.
+     *
+     * @var array<int, \Fiber>
+     */
+    private array $readWaiters = [];
+
+    /**
+     * @var array<int, \Fiber>
+     */
+    private array $writeWaiters = [];
+
+    /**
+     * The streams to pass to stream_select(), per resource id.
+     *
+     * @var array<int, resource>
+     */
+    private array $readSet = [];
+
+    /**
+     * @var array<int, resource>
+     */
+    private array $writeSet = [];
+
+    /**
+     * @var array<int, resource>
+     */
+    private array $exceptSet = [];
 
     /**
      * The most recent stream select result for a fiber.
@@ -296,91 +328,85 @@ final class StreamSelectDriver implements DriverInterface
          * Activate any Fibers waiting for stream activity
          */
         if (0 !== $this->streams->count()) {
-            /** @var resource[] */
-            $reads = [];
-            /** @var resource[] */
-            $writes = [];
-            /** @var resource[] */
-            $excepts = [];
-            /** @var array<int,\Fiber[]> */
-            $resourceFiberMap = [];
+            $reads   = $this->readSet;
+            $writes  = $this->writeSet;
+            $excepts = $this->exceptSet;
 
-            $streamCount = 0;
-            foreach ($this->streams as $fiber => [$resource, $mode]) {
-                if (!\is_resource($resource)) {
-                    unset($this->streams[$fiber]);
+            $selectWarning = null;
+            \set_error_handler(static function (int $code, string $message) use (&$selectWarning): bool {
+                $selectWarning = $message;
+
+                return true;
+            });
+            try {
+                $seconds      = (int) $maxSleepTime;
+                $microseconds = (int) (($maxSleepTime - $seconds) * 1000000);
+                $result       = $this->useExtSelect
+                    ? \phasync\ext\stream_select($reads, $writes, $excepts, $seconds, $microseconds)
+                    : \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
+            } catch (\TypeError|\ValueError $e) {
+                // A stream was closed while a fiber waited on it (ValueError when no open
+                // stream is left to select on). Rare, so only now look for it.
+                $closed = [];
+                foreach ($this->streams as $fiber => [$resource]) {
+                    if (!\is_resource($resource)) {
+                        $closed[] = $fiber;
+                    }
+                }
+                if (!$closed) {
+                    throw $e; // not a closed stream, for example one stream_select() can't wait on
+                }
+                foreach ($closed as $fiber) {
+                    $this->endStreamWait($fiber);
                     $this->streamResults[$fiber] = 0;
                     $this->enqueueWithException($fiber, new IOException('Stream closed'));
-                    continue;
                 }
-                ++$streamCount;
-                $resourceId                      = \get_resource_id($resource);
-                $resourceFiberMap[$resourceId][] = $fiber;
-                if ($mode & DriverInterface::STREAM_READ) {
-                    $reads[$resourceId] = $resource;
-                }
-                if ($mode & DriverInterface::STREAM_WRITE) {
-                    $writes[$resourceId] = $resource;
-                }
-                if ($mode & DriverInterface::STREAM_EXCEPT) {
-                    $excepts[$resourceId] = $resource;
-                }
+                $result = 0;
+            } finally {
+                \restore_error_handler();
             }
 
-            if ($streamCount > 0) {
-                $selectWarning = null;
-                \set_error_handler(static function (int $code, string $message) use (&$selectWarning): bool {
-                    $selectWarning = $message;
-
-                    return true;
-                });
-                try {
-                    $seconds      = (int) $maxSleepTime;
-                    $microseconds = (int) (($maxSleepTime - $seconds) * 1000000);
-                    $result       = $this->useExtSelect
-                        ? \phasync\ext\stream_select($reads, $writes, $excepts, $seconds, $microseconds)
-                        : \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
-                } finally {
-                    \restore_error_handler();
+            if (false === $result) {
+                // stream_select() failed for the whole batch, not just one resource -- for
+                // example every watched stream has a file descriptor number >= FD_SETSIZE
+                // (1024 on a typical POSIX build). Every fiber that was waiting this tick
+                // must be told, loudly, or it would wait forever with no trace of why.
+                $exception = new IOException(
+                    'stream_select() failed for ' . $this->streams->count() . ' watched stream(s): '
+                    . ($selectWarning ?? 'no error was reported')
+                );
+                $failed = [];
+                foreach ($this->streams as $fiber => $_) {
+                    $failed[] = $fiber;
                 }
-
-                if (false === $result) {
-                    // stream_select() failed for the whole batch, not just one resource -- for
-                    // example every watched stream has a file descriptor number >= FD_SETSIZE
-                    // (1024 on a typical POSIX build). Every fiber that was waiting this tick
-                    // must be told, loudly, or it would wait forever with no trace of why.
-                    $exception = new IOException(
-                        'stream_select() failed for ' . $streamCount . ' watched stream(s): '
-                        . ($selectWarning ?? 'no error was reported')
-                    );
-                    foreach ($resourceFiberMap as $fibers) {
-                        foreach ($fibers as $fiber) {
-                            if (isset($this->streams[$fiber])) {
-                                unset($this->streams[$fiber]);
-                                $this->enqueueWithException($fiber, $exception);
-                            }
-                        }
-                    }
-                } elseif ($result > 0) {
-                    foreach ([
-                        DriverInterface::STREAM_READ   => $reads,
-                        DriverInterface::STREAM_WRITE  => $writes,
-                        DriverInterface::STREAM_EXCEPT => $excepts,
-                    ] as $mode => $resourceList) {
-                        foreach ($resourceList as $resource) {
-                            $resourceId = \get_resource_id($resource);
-                            foreach ($resourceFiberMap[$resourceId] as $fiber) {
-                                $this->streamResults[$fiber] |= $mode;
-                                if (isset($this->streams[$fiber])) {
-                                    $this->enqueue($fiber);
-                                    unset($this->streams[$fiber]);
-                                }
-                            }
-                        }
+                foreach ($failed as $fiber) {
+                    $this->endStreamWait($fiber);
+                    $this->enqueueWithException($fiber, $exception);
+                }
+            } elseif ($result > 0) {
+                $ready = [];
+                foreach ($reads as $id => $_) {
+                    $fiber                       = $this->readWaiters[$id];
+                    $this->streamResults[$fiber] |= DriverInterface::STREAM_READ;
+                    $ready[]                     = $fiber;
+                }
+                foreach ($excepts as $id => $_) {
+                    $fiber                       = $this->readWaiters[$id];
+                    $this->streamResults[$fiber] |= DriverInterface::STREAM_EXCEPT;
+                    $ready[]                     = $fiber;
+                }
+                foreach ($writes as $id => $_) {
+                    $fiber                       = $this->writeWaiters[$id];
+                    $this->streamResults[$fiber] |= DriverInterface::STREAM_WRITE;
+                    $ready[]                     = $fiber;
+                }
+                foreach ($ready as $fiber) {
+                    if (isset($this->streams[$fiber])) {
+                        $this->endStreamWait($fiber);
+                        $this->enqueue($fiber);
                     }
                 }
             }
-            unset($resourceFiberMap);
         } elseif ($maxSleepTime > 0) {
             // There are no fibers waiting for afterNext, and the
             \usleep((int) ($maxSleepTime * 1000000));
@@ -639,9 +665,46 @@ final class StreamSelectDriver implements DriverInterface
             throw new \InvalidArgumentException('Expecting a stream resource type');
         }
         // FiberState::for($fiber)->log('whenResourceActivity (mode=' . $mode . ' timeout=' . $timeout . ')');
-        $this->streams[$fiber]       = [$resource, $mode];
+        $id    = \get_resource_id($resource);
+        $read  = 0 !== ($mode & (DriverInterface::STREAM_READ | DriverInterface::STREAM_EXCEPT));
+        $write = 0 !== ($mode & DriverInterface::STREAM_WRITE);
+        if ($read && isset($this->readWaiters[$id])) {
+            throw new \LogicException('Another coroutine is already waiting to read from this stream');
+        }
+        if ($write && isset($this->writeWaiters[$id])) {
+            throw new \LogicException('Another coroutine is already waiting to write to this stream');
+        }
+        if ($read) {
+            $this->readWaiters[$id] = $fiber;
+            if ($mode & DriverInterface::STREAM_READ) {
+                $this->readSet[$id] = $resource;
+            }
+            if ($mode & DriverInterface::STREAM_EXCEPT) {
+                $this->exceptSet[$id] = $resource;
+            }
+        }
+        if ($write) {
+            $this->writeWaiters[$id] = $fiber;
+            $this->writeSet[$id]     = $resource;
+        }
+        $this->streams[$fiber]       = [$resource, $mode, $id];
         $this->streamResults[$fiber] = 0;
         $this->pending[$fiber]       = \microtime(true) + $timeout;
+    }
+
+    /**
+     * End a fiber's wait for stream activity.
+     */
+    private function endStreamWait(\Fiber $fiber): void
+    {
+        [, $mode, $id] = $this->streams[$fiber];
+        unset($this->streams[$fiber]);
+        if ($mode & (DriverInterface::STREAM_READ | DriverInterface::STREAM_EXCEPT)) {
+            unset($this->readWaiters[$id], $this->readSet[$id], $this->exceptSet[$id]);
+        }
+        if ($mode & DriverInterface::STREAM_WRITE) {
+            unset($this->writeWaiters[$id], $this->writeSet[$id]);
+        }
     }
 
     public function getLastResourceState(\Fiber $fiber): ?int
@@ -713,7 +776,7 @@ final class StreamSelectDriver implements DriverInterface
             // May be waiting for IO
             if (isset($this->streams[$fiber])) {
                 $cancelled = true;
-                unset($this->streams[$fiber]);
+                $this->endStreamWait($fiber);
                 break;
             }
 

@@ -823,8 +823,8 @@ final class phasync
             $timeout = $timeout ?? self::getDefaultTimeout();
             $result = null;
             $pid = self::$pid;
+            $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
             try {
-                $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
                 self::suspend();
 
                 return $result = $driver->getLastResourceState($fiber);

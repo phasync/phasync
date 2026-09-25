@@ -136,30 +136,77 @@ test('IO-1: readable() suspends until data arrives, and other coroutines run mea
     });
 });
 
-test('IO-1: several coroutines waiting on one resource are all resumed by one event, and only the first fread gets the data', function () {
-    phasync::run(function () {
+test('IO-1: a second coroutine waiting to read a stream that is already waited on for reading gets LogicException at once', function () {
+    $log = phasync::run(function () {
         [$a, $b] = iochar_pair();
-        $got     = [];
-        $waiters = [];
-        foreach (['A', 'B', 'C'] as $name) {
-            $waiters[] = phasync::go(function () use ($a, $name, &$got) {
-                phasync::readable($a, 2.0);
-                $got[] = $name . ':' . \var_export(\fread($a, 10), true);
-            });
-        }
-        phasync::sleep(0.02);
-        expect(iochar_state()['streams'])->toBeGreaterThanOrEqual(3);
+        $log     = [];
+        $first   = phasync::go(function () use ($a, &$log) {
+            phasync::readable($a);
+            $log[] = 'first: ' . \fread($a, 10);
+        });
+        $second = phasync::go(function () use ($a, &$log) {
+            try {
+                phasync::readable($a);
+                $log[] = 'second: readable';
+            } catch (Throwable $e) {
+                $log[] = 'second: ' . $e::class;
+            }
+        });
+        phasync::await($second);
         \fwrite($b, 'data');
-        foreach ($waiters as $waiter) {
-            phasync::await($waiter);
-        }
-        expect($got)->toBe(["A:'data'", "B:''", "C:''"]);
+        phasync::await($first);
+
+        return $log;
     });
+
+    expect($log)->toBe(['second: ' . LogicException::class, 'first: data']);
 });
 
-test('IO-1: a coroutine waiting for readability is also resumed when the resource only becomes writable', function () {
-    // SCH-3 says no spurious wake-ups. The driver resumes every coroutine waiting on a resource
-    // when any of the requested events fires, whichever event that coroutine asked for.
+test('IO-1: once the waiting coroutine has resumed, another coroutine may wait on the stream', function () {
+    $log = phasync::run(function () {
+        [$a, $b] = iochar_pair();
+        $log     = [];
+        \fwrite($b, 'x');
+        phasync::await(phasync::go(function () use ($a, &$log) {
+            phasync::readable($a);
+            $log[] = 'first: ' . \fread($a, 10);
+        }));
+        \fwrite($b, 'y');
+        phasync::await(phasync::go(function () use ($a, &$log) {
+            phasync::readable($a);
+            $log[] = 'second: ' . \fread($a, 10);
+        }));
+
+        return $log;
+    });
+
+    expect($log)->toBe(['first: x', 'second: y']);
+});
+
+test('IO-1: waiting for both directions with stream() takes both, so neither a reader nor a writer may wait too', function () {
+    $log = phasync::run(function () {
+        [$a, $b] = iochar_pair();
+        $log     = [];
+        $both    = phasync::go(function () use ($a) {
+            phasync::stream($a, phasync::READABLE | phasync::WRITABLE);
+        });
+        foreach (['readable', 'writable'] as $wait) {
+            try {
+                phasync::$wait($a, 1);
+                $log[] = $wait . ': waited';
+            } catch (Throwable $e) {
+                $log[] = $wait . ': ' . $e::class;
+            }
+        }
+        phasync::await($both);
+
+        return $log;
+    });
+
+    expect($log)->toBe(['readable: ' . LogicException::class, 'writable: ' . LogicException::class]);
+});
+
+test('IO-1: a reader and a writer may wait on the same stream, and each is resumed only by its own event', function () {
     phasync::run(function () {
         [$a, $b] = iochar_pair();
         $log     = [];
@@ -172,12 +219,13 @@ test('IO-1: a coroutine waiting for readability is also resumed when the resourc
             $log[] = 'writable';
         });
         phasync::sleep(0.05);
-        expect($log)->toBe(['readable', 'writable']);
-        expect(\fread($a, 10))->toBe('');
+        expect($log)->toBe(['writable']); // the stream is writable, but nothing to read yet
+        \fwrite($b, 'x');
         phasync::await($reader);
         phasync::await($writer);
+        expect($log)->toBe(['writable', 'readable']);
     });
-})->group('surprise');
+});
 
 test('IO-1: readable() with a timeout throws TimeoutException when nothing arrives', function () {
     phasync::run(function () {

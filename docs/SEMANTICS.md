@@ -364,8 +364,21 @@ variable.
 **RL-1. `RateLimiter`.** Contract to be written; it is not yet specified. 🆕 (D8)
 
 **IO-1. Waiting on a stream.** `readable`/`writable`/`stream` suspend until the resource
-is ready. Several coroutines may wait on the same resource, and all are resumed. ✅
-regression fixed in 575d4b8
+is ready. At most one coroutine waits on a stream per direction: one may wait to read (or
+for out of band data) and one to write, which covers full duplex use. A second coroutine
+that tries to wait in a direction that is taken gets `LogicException` at once, without
+waiting. `stream()` with both directions takes both. A waiting coroutine is resumed only by
+the events it asked for. ✅ Changed in 2.0: before, several coroutines could wait on one
+stream in the same direction and one event resumed all of them, whichever event each had
+asked for.
+
+Two coroutines reading (or writing) one stream at the same time is a data race, as with a
+shared buffered reader in Go or Rust: PHP's stream buffer is shared, so each could get part
+of the other's data. phasync catches it when the second coroutine has to wait. It does not
+catch a second coroutine whose read is satisfied without waiting, because it never reaches
+phasync; that coroutine silently takes data the first was waiting for. Give each direction
+of a stream to one coroutine at a time; to share a stream, pass it between coroutines (for
+example through a channel) or guard it with a lock.
 
 **IO-2. A resource closed while waited on throws `IOException`** in the waiting
 coroutine. ⚠️

@@ -484,7 +484,7 @@ test('CAN-7: cancelling one of two flag waiters leaves the other waiting and it 
     expect($result)->toBe([['a ' . CancelledException::class, 'b woke'], 1]);
 });
 
-test('CAN-7: cancelling one of two waiters on the same stream leaves the other waiting', function () {
+test('CAN-7: cancelling the coroutine waiting on a stream lets another coroutine wait on it', function () {
     $log = phasync::run(static function () {
         [$a, $b] = canPair();
         $log     = [];
@@ -496,18 +496,14 @@ test('CAN-7: cancelling one of two waiters on the same stream leaves the other w
                 $log[] = 'first ' . $e::class;
             }
         });
-        $second = phasync::go(static function () use ($a, &$log) {
-            try {
-                phasync::readable($a);
-                $log[] = 'second readable';
-            } catch (Throwable $e) {
-                $log[] = 'second ' . $e::class;
-            }
-        });
         phasync::sleep(0.01);
         phasync::cancel($first);
-        \fwrite($b, 'x');
         phasync::await($first);
+        $second = phasync::go(static function () use ($a, &$log) {
+            phasync::readable($a);
+            $log[] = 'second readable';
+        });
+        \fwrite($b, 'x');
         phasync::await($second);
 
         return $log;
