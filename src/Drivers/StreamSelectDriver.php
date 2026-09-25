@@ -83,7 +83,7 @@ final class StreamSelectDriver implements DriverInterface
     /**
      * All fibers suspended waiting for IO: the resource, the mode and the resource id.
      *
-     * @var WeakMap<Fiber,array{0: resource, 1: int, 2: int}>
+     * @var \WeakMap<\Fiber,array{0: resource, 1: int, 2: int}>
      */
     private \WeakMap $streams;
 

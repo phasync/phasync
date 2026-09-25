@@ -96,9 +96,9 @@ function parity_observe(Closure $io): array
             return true;
         });
         try {
-            $start  = \microtime(true);
+            $start             = \microtime(true);
             [$result, $stream] = $io();
-            $elapsed = \microtime(true) - $start;
+            $elapsed           = \microtime(true) - $start;
         } finally {
             \restore_error_handler();
         }

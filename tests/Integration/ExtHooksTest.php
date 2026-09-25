@@ -22,7 +22,7 @@ function exthooks_server(): array
 {
     $server = \stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
     if (false === $server) {
-        throw new \RuntimeException("Unable to start server: $errstr");
+        throw new RuntimeException("Unable to start server: $errstr");
     }
     $name = \stream_socket_get_name($server, false);
     $port = (int) \substr($name, \strrpos($name, ':') + 1);
@@ -61,7 +61,7 @@ test('a hooked fread() on a real TCP socket suspends the coroutine and resumes w
 test('a hooked fread() that would block genuinely lets other coroutines run while it waits', function () {
     phasync::run(function () {
         [$server, $port] = exthooks_server();
-        $log = [];
+        $log             = [];
 
         $accepted = null;
         phasync::go(function () use ($server, &$accepted) {
@@ -72,7 +72,7 @@ test('a hooked fread() that would block genuinely lets other coroutines run whil
 
         $reader = phasync::go(function () use ($client, &$log) {
             $log[] = 'reader: about to fread (nothing written yet)';
-            $data = \fread($client, 100); // must suspend: no data yet
+            $data  = \fread($client, 100); // must suspend: no data yet
             $log[] = 'reader: got ' . $data;
         });
 
@@ -104,7 +104,7 @@ test('a hooked fread() that would block genuinely lets other coroutines run whil
 test('several hooked sockets waiting concurrently each wake with their own data, not a mix-up', function () {
     phasync::run(function () {
         [$server, $port] = exthooks_server();
-        $accepted = [];
+        $accepted        = [];
         phasync::go(function () use ($server, &$accepted) {
             for ($i = 0; $i < 3; ++$i) {
                 $accepted[] = \stream_socket_accept(phasync::readable($server));
@@ -194,9 +194,9 @@ test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, 
 
             $reader = phasync::go(function () use ($pipePath, &$log) {
                 $log[] = 'reader: about to fopen (no writer yet)';
-                $fp = \fopen($pipePath, 'r');
+                $fp    = \fopen($pipePath, 'r');
                 $log[] = 'reader: fopen returned';
-                $data = \stream_get_contents($fp);
+                $data  = \stream_get_contents($fp);
                 \fclose($fp);
 
                 return $data;
@@ -211,7 +211,7 @@ test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, 
             $writer = phasync::go(function () use ($pipePath, &$log) {
                 phasync::sleep(0.05); // let the reader register first
                 $log[] = 'writer: about to fopen';
-                $fp = \fopen($pipePath, 'w');
+                $fp    = \fopen($pipePath, 'w');
                 $log[] = 'writer: fopen returned';
                 \fwrite($fp, 'Hello, World!');
                 \fclose($fp);
@@ -237,7 +237,7 @@ test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, 
 });
 
 test('a stream created inside run() behaves natively once run() has returned', function () {
-    [$server, $port] = exthooks_server();
+    [$server, $port]     = exthooks_server();
     [$client, $accepted] = phasync::run(function () use ($server, $port) {
         $client = \stream_socket_client("tcp://127.0.0.1:$port", $errno, $errstr, 5);
 

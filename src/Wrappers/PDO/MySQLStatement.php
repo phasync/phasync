@@ -157,10 +157,10 @@ class MySQLStatement extends \PDOStatement implements \IteratorAggregate
     private function convertFetchStyle(int $fetchStyle): int
     {
         return match ($fetchStyle) {
-            \PDO::FETCH_ASSOC => \MYSQLI_ASSOC,
-            \PDO::FETCH_NUM   => \MYSQLI_NUM,
-            \PDO::FETCH_BOTH  => \MYSQLI_BOTH,
-            default           => \MYSQLI_ASSOC,
+            \PDO::FETCH_ASSOC => MYSQLI_ASSOC,
+            \PDO::FETCH_NUM   => MYSQLI_NUM,
+            \PDO::FETCH_BOTH  => MYSQLI_BOTH,
+            default           => MYSQLI_ASSOC,
         };
     }
 }

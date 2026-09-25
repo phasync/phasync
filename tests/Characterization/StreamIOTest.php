@@ -108,7 +108,6 @@ test('IO-1: readable() and writable() return the same resource', function () {
     });
 });
 
-
 test('IO-1: readable() suspends until data arrives, and other coroutines run meanwhile', function () {
     phasync::run(function () {
         [$a, $b] = iochar_pair();
@@ -574,7 +573,8 @@ test('IO-3: preempt() in a busy loop lets siblings run, without it they wait, an
             for ($i = 0; $i < 60; ++$i) {
                 $sum += $i;
                 // 1 ms of CPU work; not usleep(), which phasync-ext turns into a suspension
-                for ($until = \hrtime(true) + 1_000_000; \hrtime(true) < $until;);
+                for ($until = \hrtime(true) + 1_000_000; \hrtime(true) < $until;) {
+                }
                 if ($preempt) {
                     phasync::preempt();
                 }
