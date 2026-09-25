@@ -16,6 +16,11 @@ jobs:
 
     name: ⚙️ Running test for PHP ${{ matrix.php }}
 
+    env:
+      # phasync must behave the same with and without the extension, so the suite runs both
+      # ways. Bump deliberately; the release tree bundles a binary per PHP version.
+      PHASYNC_EXT_VERSION: 0.4.0-alpha10
+
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v6
@@ -49,6 +54,15 @@ jobs:
 
       - name: ✅ Tests
         run: composer test-with-coverage
+
+      - name: 📥 Download phasync-ext
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/phasync.so" \
+            "https://raw.githubusercontent.com/phasync/phasync-ext/$PHASYNC_EXT_VERSION/bin/phasync-${{ matrix.php }}-nts-x86_64-glibc.so"
+          php -d extension="$RUNNER_TEMP/phasync.so" -r 'extension_loaded("phasync") || exit(1); echo "phasync-ext ", phpversion("phasync"), "\n";'
+
+      - name: ✅ Tests with phasync-ext
+        run: php -d extension="$RUNNER_TEMP/phasync.so" vendor/bin/pest --stop-on-defect
 
       - name: 📤 Upload coverage to Codecov
         uses: codecov/codecov-action@v5
