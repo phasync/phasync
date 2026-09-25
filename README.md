@@ -162,6 +162,38 @@ phasync::idle(0.1);
 $files = glob("*.txt");
 ```
 
+### The phasync extension
+
+[phasync-ext](https://github.com/phasync/phasync-ext) is an optional PHP extension that makes
+code which was not written for phasync, such as packages from Packagist, cooperate with it:
+
+```bash
+composer require phasync/phasync-ext
+```
+
+```php
+phasync\try_enable_ext(); // first line of your script; may restart the process once
+```
+
+It installs from composer with prebuilt binaries for PHP 8.3 to 8.5 on Linux, and loads itself
+on the command line. For php-fpm, enable it in php.ini.
+
+The rules become:
+
+1. **Code that is not phasync-aware just works.** Inside `phasync::run()`, `fread()` /
+   `fwrite()` on blocking streams, file reads, DNS lookups and `usleep()` suspend the
+   coroutine instead of blocking the process. I/O outside PHP's streams, such as curl or a
+   database client library, still blocks, and so does CPU-bound code.
+2. **Your own code should still be phasync-aware.** Use non-blocking streams with
+   `phasync::readable()` / `phasync::writable()`, and `phasync::sleep()`. That code behaves
+   the same with and without the extension, at no measurable cost, and it is the fastest
+   option for request/response servers: waiting explicitly avoids a read attempt that would
+   fail first.
+
+The extension also lets phasync wait on file descriptors numbered 1024 and higher, which
+PHP's own `stream_select()` cannot handle. Without it, a process with more than roughly
+1,000 open streams fails.
+
 
 ## Utilities
 
