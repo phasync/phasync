@@ -33,6 +33,7 @@ is more than 15% slower and `FASTER` when it is more than 15% faster.
 | `waitgroup_1000` | `WaitGroup` with 1000 workers |
 | `timers_1000` | 1000 coroutines looping `sleep(0.001)` (timer scheduling) |
 | `stream_pair_4k` | non-blocking socketpair echo with 4 KB messages |
+| `stream_idle_400` | socketpair ping-pong while 400 other coroutines wait on quiet streams (per-tick cost of waiting streams) |
 | `sbuf_frames64`, `sbuf_chunks8k_read100`, `sbuf_frame_parse` | `StringBuffer` throughput and protocol parsing |
 | `memory_100k` | 100 000 short coroutines; also reports peak memory and GC runs |
 

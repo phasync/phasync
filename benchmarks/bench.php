@@ -267,6 +267,52 @@ function scenarios(): array
             return $count;
         }],
 
+        'stream_idle_400' => ['socketpair ping-pong while 400 other coroutines wait on quiet streams', static function (float $s) use ($n) {
+            $count = $n(5000, $s);
+            [$a, $b] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+            \stream_set_blocking($a, false);
+            \stream_set_blocking($b, false);
+            $quiet = [];
+            for ($i = 0; $i < 400; ++$i) {
+                $quiet[] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+            }
+            \phasync::run(static function () use ($a, $b, $count, $quiet) {
+                $idle = [];
+                foreach ($quiet as [$q]) {
+                    $idle[] = \phasync::go(static function () use ($q) {
+                        try {
+                            \phasync::readable($q, 60);
+                        } catch (\Throwable) {
+                        }
+                    });
+                }
+                $server = \phasync::go(static function () use ($b, $count) {
+                    for ($i = 0; $i < $count; ++$i) {
+                        \fread(\phasync::readable($b), 16);
+                        \fwrite(\phasync::writable($b), 'pong');
+                    }
+                });
+                $client = \phasync::go(static function () use ($a, $count) {
+                    for ($i = 0; $i < $count; ++$i) {
+                        \fwrite(\phasync::writable($a), 'ping');
+                        \fread(\phasync::readable($a), 16);
+                    }
+                });
+                \phasync::await($client);
+                \phasync::await($server);
+                foreach ($quiet as [$q, $r]) {
+                    \fwrite($r, 'x'); // release the idle waiters
+                }
+                foreach ($idle as $fiber) {
+                    \phasync::await($fiber);
+                }
+            });
+            \fclose($a);
+            \fclose($b);
+
+            return $count;
+        }],
+
         'sbuf_frames64' => ['StringBuffer: write 64-byte frames, readFixed(64)', static function (float $s) use ($n) {
             $count = $n(600000, $s);
             \phasync::run(static function () use ($count) {
