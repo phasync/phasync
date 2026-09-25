@@ -322,7 +322,7 @@ test('IO-7: a stream past FD_SETSIZE makes readable() throw IOException naming t
     expect($result[0])->toBe(IOException::class);
     // Loud and fast: nowhere near the 3 s timeout it used to silently wait out.
     expect($result[1])->toBeLessThan(1.0);
-})->group('divergence');
+})->group('divergence')->skip(\extension_loaded('phasync'), 'the phasync extension has no FD_SETSIZE limit');
 
 test('IO-7: the failure is delivered to every fiber waiting that tick, not only the one with the bad descriptor', function () {
     $kept    = iochar_push_past_fd_setsize();
@@ -355,7 +355,22 @@ test('IO-7: the failure is delivered to every fiber waiting that tick, not only 
     });
 
     expect($result)->toBe(['high' => IOException::class, 'innocent' => IOException::class]);
-})->group('divergence');
+})->group('divergence')->skip(\extension_loaded('phasync'), 'the phasync extension has no FD_SETSIZE limit');
+
+test('IO-7: with the phasync extension, a stream past FD_SETSIZE is waited on like any other', function () {
+    $kept     = iochar_push_past_fd_setsize();
+    [$a, $b]  = \end($kept);
+    $received = phasync::run(function () use ($a, $b) {
+        phasync::go(function () use ($b) {
+            phasync::sleep(0.05);
+            \fwrite($b, 'hello');
+        });
+
+        return \fread(phasync::readable($a, 3.0), 100);
+    });
+
+    expect($received)->toBe('hello');
+})->skip(!\extension_loaded('phasync'), 'needs the phasync extension');
 
 /* ------------------------------------------------------------------ io() wrapper */
 

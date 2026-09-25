@@ -150,10 +150,18 @@ final class StreamSelectDriver implements DriverInterface
     private ?ContextInterface $currentContext = null;
 
     /**
+     * The phasync extension's poll()-based stream_select() when it is loaded. It takes the
+     * same arguments as the native one but is not limited by FD_SETSIZE, which caps the
+     * native one at file descriptor numbers below 1024 on a typical build.
+     */
+    private bool $useExtSelect;
+
+    /**
      * Create a new StreamSelectDriver instance.
      */
     public function __construct()
     {
+        $this->useExtSelect = \function_exists('phasync\ext\stream_select');
         $this->clear();
     }
 
@@ -327,7 +335,11 @@ final class StreamSelectDriver implements DriverInterface
                     return true;
                 });
                 try {
-                    $result = \stream_select($reads, $writes, $excepts, (int) $maxSleepTime, (int) (($maxSleepTime - (int) $maxSleepTime) * 1000000));
+                    $seconds      = (int) $maxSleepTime;
+                    $microseconds = (int) (($maxSleepTime - $seconds) * 1000000);
+                    $result       = $this->useExtSelect
+                        ? \phasync\ext\stream_select($reads, $writes, $excepts, $seconds, $microseconds)
+                        : \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
                 } finally {
                     \restore_error_handler();
                 }
