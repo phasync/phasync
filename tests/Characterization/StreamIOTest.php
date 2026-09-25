@@ -283,6 +283,48 @@ test('IO-2: outside phasync::run() a non-blocking resource without data times ou
     expect(\microtime(true) - $start)->toBeGreaterThan(0.9)->toBeLessThan(2.0);
 })->group('surprise');
 
+/* ------------------------------------------------------------------ IO-8 */
+
+// IO-8: waiting on a stream inside run() makes it non-blocking, so the read or write after
+// the wait cannot block the process. phasync-ext's auto-managed streams are left blocking:
+// the extension suspends their reads and writes itself.
+if (!\function_exists('iochar_auto_managed')) {
+    function iochar_auto_managed($stream): bool
+    {
+        return \function_exists('phasync\ext\is_auto_managed') && \phasync\ext\is_auto_managed($stream);
+    }
+}
+
+test('IO-8: readable() and writable() inside run() leave a blocking stream non-blocking', function () {
+    $modes = phasync::run(function () {
+        [$a, $b] = iochar_pair();
+        [$c, $d] = iochar_pair();
+        $auto = [iochar_auto_managed($a), iochar_auto_managed($c)];
+        \fwrite($b, 'x');
+        phasync::readable($a);
+        phasync::writable($c);
+
+        return [[\stream_get_meta_data($a)['blocked'], \stream_get_meta_data($c)['blocked']], $auto];
+    });
+
+    expect($modes[0])->toBe($modes[1]);
+});
+
+test('IO-8: a stream set back to blocking after a wait is made non-blocking again by the next wait', function () {
+    $blocked = phasync::run(function () {
+        [$a, $b] = iochar_pair();
+        \fwrite($b, 'xy');
+        phasync::readable($a);
+        \stream_set_blocking($a, true);
+        $auto = iochar_auto_managed($a);
+        phasync::readable($a);
+
+        return [\stream_get_meta_data($a)['blocked'], $auto];
+    });
+
+    expect($blocked[0])->toBe($blocked[1]);
+});
+
 /* ------------------------------------------------------------------ IO-7 */
 
 // IO-7: on a stock POSIX build, stream_select() fails outright (and used to fail *silently*, see
