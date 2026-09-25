@@ -2,6 +2,42 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- phasync-ext integration. With the extension loaded (see `phasync\try_enable_ext()`), the
+  outermost `phasync::run()` puts its coroutines under `phasync\ext\manage()`: blocking code
+  inside a coroutine -- `fread()`/`fwrite()`/`fgets()` on a blocking stream, file reads, DNS
+  lookups, `usleep()` -- suspends the coroutine instead of the whole process. The functions
+  return exactly what PHP returns, including on a socket timeout (partial data or `false`,
+  `stream_get_meta_data()['timed_out']` set, no exception); cancelling a coroutine that is
+  blocked in one of them throws out of that call. Needs phasync-ext 0.4.0-alpha9 or later.
+- With the extension loaded, the driver uses `phasync\ext\stream_select()`, which has no
+  `FD_SETSIZE` limit, so file descriptors numbered 1024 and higher work.
+- phasync behaves the same with and without the extension. The only differences: without
+  it, file descriptors from 1024 up fail (IO-7), and blocking code blocks the process. The
+  suite runs in both modes; `tests/Characterization/ParityTest.php` compares the two.
+
+### Changed
+
+- **Breaking:** at most one coroutine waits on a stream per direction (IO-1). A second
+  coroutine waiting to read (or write) a stream that already has a waiting reader (or
+  writer) gets `LogicException` at once, without waiting. One reader and one writer at a
+  time is fine. Two coroutines reading one stream at once is a data race on PHP's shared
+  stream buffer, as with a shared buffered reader in Go.
+- **Breaking:** a coroutine waiting on a stream is resumed only by the events it asked for.
+  Before, a coroutine waiting to read was also resumed when the stream became writable.
+- **Breaking:** `readable()`, `writable()` and `stream()` no longer make a stream
+  non-blocking. The blocking mode is the caller's and decides what reads and writes do, as
+  in plain PHP: a blocking `fgets()` waits for a whole line, a non-blocking one returns what
+  is there. phasync's own helpers (`io::`, `Process`) make their streams non-blocking
+  themselves, so they behave as before.
+- Waiting on streams is faster with many waiting coroutines: the driver keeps the waiter of
+  each direction and the `stream_select()` arrays up to date as waits start and end, instead
+  of rebuilding them from every waiting coroutine on each tick. With 400 coroutines waiting
+  on quiet streams, a socket ping-pong runs 2.1 times faster (benchmark `stream_idle_400`).
+
 ## 2.0.0-alpha0 (2026-09-24)
 
 Early preview of the 2.0.0 line: a major, deliberately breaking redesign pass. Expect

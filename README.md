@@ -181,14 +181,19 @@ on the command line. For php-fpm, enable it in php.ini.
 The rules become:
 
 1. **Code that is not phasync-aware just works.** Inside `phasync::run()`, `fread()` /
-   `fwrite()` on blocking streams, file reads, DNS lookups and `usleep()` suspend the
-   coroutine instead of blocking the process. I/O outside PHP's streams, such as curl or a
-   database client library, still blocks, and so does CPU-bound code.
-2. **Your own code should still be phasync-aware.** Use non-blocking streams with
-   `phasync::readable()` / `phasync::writable()`, and `phasync::sleep()`. That code behaves
-   the same with and without the extension, at no measurable cost, and it is the fastest
-   option for request/response servers: waiting explicitly avoids a read attempt that would
-   fail first.
+   `fwrite()` / `fgets()` on blocking streams, file reads, DNS lookups and `usleep()`
+   suspend the coroutine instead of blocking the process, and return exactly what PHP
+   returns, socket timeouts included. I/O outside PHP's streams, such as curl or a database
+   client library, still blocks, and so does CPU-bound code.
+2. **Your own code should still be phasync-aware.** Make your streams non-blocking
+   (`stream_set_blocking($fp, false)`; phasync leaves a stream's mode alone) and wait with
+   `phasync::readable()` / `phasync::writable()` and `phasync::sleep()`. That code behaves
+   the same with and without the extension, and it is the fastest option for
+   request/response servers: waiting explicitly avoids a read attempt that would fail
+   first.
+
+Either way, a stream can have one coroutine reading and one writing at a time. A second
+coroutine waiting to read (or write) the same stream gets a `LogicException`.
 
 The extension also lets phasync wait on file descriptors numbered 1024 and higher, which
 PHP's own `stream_select()` cannot handle. Without it, a process with more than roughly
