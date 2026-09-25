@@ -19,7 +19,7 @@ jobs:
     env:
       # phasync must behave the same with and without the extension, so the suite runs both
       # ways. Bump deliberately; the release tree bundles a binary per PHP version.
-      PHASYNC_EXT_VERSION: 0.4.0-alpha10
+      PHASYNC_EXT_VERSION: 0.4.0-alpha11
 
     steps:
       - name: 📥 Checkout code

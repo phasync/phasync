@@ -436,6 +436,42 @@ test('IO-7: with the phasync extension, a stream past FD_SETSIZE is waited on li
     expect($received)->toBe('hello');
 })->skip(!\extension_loaded('phasync'), 'needs the phasync extension');
 
+test('IO-7: a signal arriving while the loop waits in stream_select() does not fail the waiting coroutines', function () {
+    // stream_select() returns false when a signal interrupts it (EINTR), natively and with
+    // phasync-ext. That is not a failure: nothing was ready yet, so the waiters keep waiting.
+    $signals = 0;
+    \pcntl_async_signals(true);
+    \pcntl_signal(\SIGUSR1, static function () use (&$signals) {
+        ++$signals;
+    });
+    try {
+        $result = phasync::run(function () {
+            [$a, $b] = iochar_pair();
+            $reader  = phasync::go(function () use ($a) {
+                try {
+                    phasync::readable($a, 3.0);
+
+                    return \fread($a, 10);
+                } catch (Throwable $e) {
+                    return $e::class . ': ' . $e->getMessage();
+                }
+            });
+            // A separate process, so the signal lands while this one waits in stream_select()
+            $kill = \proc_open(['sh', '-c', 'sleep 0.2; kill -USR1 ' . \getmypid()], [], $pipes);
+            phasync::sleep(0.5);
+            \proc_close($kill);
+            \fwrite($b, 'data');
+
+            return phasync::await($reader);
+        });
+    } finally {
+        \pcntl_signal(\SIGUSR1, \SIG_DFL);
+    }
+
+    expect($signals)->toBe(1);
+    expect($result)->toBe('data');
+})->skip(!\function_exists('pcntl_signal'), 'needs pcntl');
+
 /* ------------------------------------------------------------------ io() wrapper */
 
 test('IO-1: io() returns anything that is not a stream unchanged, and never wraps twice', function () {

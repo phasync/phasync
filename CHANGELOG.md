@@ -2,6 +2,16 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Fixed
+
+- A signal arriving while the event loop waits in `stream_select()` (EINTR, for example
+  SIGCHLD from a child process or a `pcntl_signal()` handler) no longer fails every
+  coroutine waiting on a stream with `IOException`. `stream_select()` returns `false` then,
+  natively and with phasync-ext 0.4.0-alpha11; nothing is ready yet, so the waiters keep
+  waiting.
+
 ## 2.0.0-alpha1 (2026-09-25)
 
 ### Added

@@ -19,6 +19,12 @@ use WeakMap;
 final class StreamSelectDriver implements DriverInterface
 {
     /**
+     * errno for a system call interrupted by a signal, as stream_select() reports it in its
+     * warning ("Unable to select [4]: Interrupted system call").
+     */
+    private const EINTR = 4;
+
+    /**
      * Holds the queue of fibers that will be activated on the next
      * invocation of {@see StreamSelectDriver::tick()}.
      *
@@ -364,6 +370,11 @@ final class StreamSelectDriver implements DriverInterface
                 $result = 0;
             } finally {
                 \restore_error_handler();
+            }
+
+            if (false === $result && \str_contains($selectWarning ?? '', '[' . self::EINTR . ']')) {
+                // A signal interrupted the wait. Nothing is ready yet; the waiters keep waiting.
+                $result = 0;
             }
 
             if (false === $result) {

@@ -397,7 +397,10 @@ be the culprit, since the whole batch failed together. ✅ Fixed (StreamIOTest `
 same as "nothing ready" (`if (false !== $result && $result > 0)`), so every stream-waiting
 coroutine in the process hung forever with no trace of why, for as long as any watched
 resource kept that high fd number. This does not raise the `FD_SETSIZE` ceiling itself --
-see the roadmap in `docs/roadmap-2.0.md` for that.
+see the roadmap in `docs/roadmap-2.0.md` for that. A signal interrupting the wait (EINTR,
+for example SIGCHLD from a child process or a `pcntl_signal()` handler) also makes
+`stream_select()` return false, but that is not a failure: nothing is ready yet, and the
+waiters keep waiting. ✅ Fixed in 2.0.0-alpha2; before, it failed every waiting coroutine.
 
 
 ## 11. `StringBuffer`
