@@ -508,7 +508,8 @@ test('IO-3: preempt() in a busy loop lets siblings run, without it they wait, an
             $sum = 0;
             for ($i = 0; $i < 60; ++$i) {
                 $sum += $i;
-                \usleep(1000);
+                // 1 ms of CPU work; not usleep(), which phasync-ext turns into a suspension
+                for ($until = \hrtime(true) + 1_000_000; \hrtime(true) < $until;);
                 if ($preempt) {
                     phasync::preempt();
                 }

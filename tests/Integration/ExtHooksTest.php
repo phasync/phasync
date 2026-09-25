@@ -1,32 +1,13 @@
 <?php
 
 /*
- * In-depth integration tests for phasync-ext wired into phasync's own scheduler via
- * ExtBridge, not the extension's own isolated test harness. Skipped entirely if the
- * extension isn't loaded, so the rest of the suite is unaffected.
+ * Integration tests for phasync-ext under phasync::run(), which puts the process under
+ * phasync\ext\manage() when the extension is loaded. Load it with a full path:
+ *
+ *   php -d extension=/path/to/phasync-ext/modules/phasync.so vendor/bin/pest
+ *
+ * Skipped entirely if the extension isn't loaded.
  */
-
-require_once __DIR__ . '/ExtBridge.php';
-
-use phasync\Ext\ExtBridge;
-
-// NOTE: we tried auto-loading phasync-ext here via FFI + php_load_extension() (bypassing
-// dl()'s bare-filename/extension_dir restriction) so this suite would run with a plain
-// `vendor/bin/pest`. Reverted: reproducibly ~50% crash rate (glibc heap corruption, SIGABRT,
-// always at process shutdown) when the module is force-initialized late via start_now=1 --
-// root cause as far as traced: phasync-ext's MINIT registers a PHP_INI_SYSTEM ini entry, and
-// zend_ini.c's registration code isn't written to support that happening this late for a
-// MODULE_PERSISTENT-tagged module (only dl()'s MODULE_TEMPORARY path is special-cased for
-// "called during the request").
-//
-// No workaround needed, though: `-d extension=` accepts a full path directly, not just a
-// bare filename resolved against extension_dir -- dl.c's bare-filename restriction only
-// applies to MODULE_TEMPORARY (dl()'s own path), and `-d extension=` always loads as
-// MODULE_PERSISTENT. So this needs no symlink, no sudo, no enable_dl:
-//
-//   php -d extension=/path/to/phasync-ext/modules/phasync.so vendor/bin/pest
-//
-// This suite is skipped otherwise.
 
 uses()->beforeEach(function () {
     if (!\extension_loaded('phasync')) {
@@ -37,7 +18,7 @@ uses()->beforeEach(function () {
 /**
  * @return array{0: resource, 1: int} [server socket, port]
  */
-function extbridge_server(): array
+function exthooks_server(): array
 {
     $server = \stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
     if (false === $server) {
@@ -50,8 +31,8 @@ function extbridge_server(): array
 }
 
 test('a hooked fread() on a real TCP socket suspends the coroutine and resumes with the data', function () {
-    ExtBridge::run(function () {
-        [$server, $port] = extbridge_server();
+    phasync::run(function () {
+        [$server, $port] = exthooks_server();
 
         $accepted = null;
         phasync::go(function () use ($server, &$accepted) {
@@ -78,8 +59,8 @@ test('a hooked fread() on a real TCP socket suspends the coroutine and resumes w
 });
 
 test('a hooked fread() that would block genuinely lets other coroutines run while it waits', function () {
-    ExtBridge::run(function () {
-        [$server, $port] = extbridge_server();
+    phasync::run(function () {
+        [$server, $port] = exthooks_server();
         $log = [];
 
         $accepted = null;
@@ -121,8 +102,8 @@ test('a hooked fread() that would block genuinely lets other coroutines run whil
 });
 
 test('several hooked sockets waiting concurrently each wake with their own data, not a mix-up', function () {
-    ExtBridge::run(function () {
-        [$server, $port] = extbridge_server();
+    phasync::run(function () {
+        [$server, $port] = exthooks_server();
         $accepted = [];
         phasync::go(function () use ($server, &$accepted) {
             for ($i = 0; $i < 3; ++$i) {
@@ -173,7 +154,7 @@ test('several hooked sockets waiting concurrently each wake with their own data,
 });
 
 test('the sleep() hook routes through phasync::sleep(), not a real blocking sleep', function () {
-    ExtBridge::run(function () {
+    phasync::run(function () {
         $log = [];
         phasync::go(function () use (&$log) {
             $log[] = 'sleeper: before';
@@ -193,35 +174,6 @@ test('the sleep() hook routes through phasync::sleep(), not a real blocking slee
     });
 });
 
-test('the bridge leaves nothing pending after every waiter has resolved', function () {
-    ExtBridge::run(function () {
-        [$server, $port] = extbridge_server();
-        $accepted = null;
-        phasync::go(function () use ($server, &$accepted) {
-            $accepted = \stream_socket_accept(phasync::readable($server));
-        });
-        $client = \stream_socket_client("tcp://127.0.0.1:$port", $errno, $errstr, 5);
-        phasync::sleep(0.02);
-
-        expect(ExtBridge::pendingCount())->toBe(0);
-
-        $reader = phasync::go(function () use ($client) {
-            \fread($client, 100);
-        });
-        phasync::sleep(0.01); // let it register and start waiting
-        expect(ExtBridge::pendingCount())->toBe(1);
-
-        \fwrite($accepted, 'x');
-        phasync::await($reader);
-
-        expect(ExtBridge::pendingCount())->toBe(0);
-
-        \fclose($client);
-        \fclose($accepted);
-        \fclose($server);
-    });
-});
-
 test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, without blocking the process', function () {
     // FIFO open() blocks in-kernel until the OTHER end is also opened -- there is no fd to
     // poll yet, so this is structurally unsolvable by cooperative/Fiber scheduling alone;
@@ -230,13 +182,13 @@ test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, 
     // scheduler turn while the reader's fopen() blocks the single thread), so simply not
     // hanging is itself part of what this test proves -- the sibling-coroutine log below
     // makes that explicit rather than relying on "it didn't time out".
-    $pipePath = \sys_get_temp_dir() . '/phasync_extbridge_test_' . \getmypid() . '.fifo';
+    $pipePath = \sys_get_temp_dir() . '/phasync_exthooks_test_' . \getmypid() . '.fifo';
     if (\file_exists($pipePath)) {
         \unlink($pipePath);
     }
 
     try {
-        ExtBridge::run(function () use ($pipePath) {
+        phasync::run(function () use ($pipePath) {
             \posix_mkfifo($pipePath, 0600);
             $log = [];
 
@@ -269,13 +221,13 @@ test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, 
             $data = phasync::await($reader);
 
             expect($data)->toBe('Hello, World!');
-            expect($log)->toBe([
+            expect(\array_slice($log, 0, 3))->toBe([
                 'reader: about to fopen (no writer yet)',
                 'sibling: ran while reader\'s fopen() was pending',
                 'writer: about to fopen',
-                'reader: fopen returned',
-                'writer: fopen returned',
             ]);
+            // Both opens are released by the same rendezvous; which fiber wakes first is timing.
+            expect(\array_slice($log, 3))->toEqualCanonicalizing(['reader: fopen returned', 'writer: fopen returned']);
         });
     } finally {
         if (\file_exists($pipePath)) {
@@ -283,3 +235,53 @@ test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, 
         }
     }
 });
+
+test('a stream created inside run() behaves natively once run() has returned', function () {
+    [$server, $port] = exthooks_server();
+    [$client, $accepted] = phasync::run(function () use ($server, $port) {
+        $client = \stream_socket_client("tcp://127.0.0.1:$port", $errno, $errstr, 5);
+
+        return [$client, \stream_socket_accept(phasync::readable($server))];
+    });
+
+    \stream_set_blocking($client, false);
+    $start = \microtime(true);
+    expect(\fread($client, 100))->toBe('');                // non-blocking: empty, at once
+    expect(\microtime(true) - $start)->toBeLessThan(0.1);
+
+    \fwrite($accepted, 'native');
+    \stream_set_blocking($client, true);
+    expect(\fread($client, 100))->toBe('native');
+
+    \fclose($client);
+    \fclose($accepted);
+    \fclose($server);
+});
+
+test('readable() does not wait on a blocking auto-managed stream, but does on a non-blocking one', function () {
+    [$a, $b] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+    phasync::run(function () use ($a, $b) {
+        $log = [];
+        phasync::go(function () use (&$log) {
+            $log[] = 'sibling';
+        });
+
+        // Blocking: returns at once, and the fread() itself waits for the data
+        phasync::readable($a);
+        $log[] = 'readable returned';
+        phasync::go(function () use ($b) {
+            \fwrite($b, 'blocking');
+        });
+        $log[] = \fread($a, 100);
+
+        // Non-blocking: the extension leaves the read alone, so readable() waits
+        \stream_set_blocking($a, false);
+        phasync::go(function () use ($b) {
+            phasync::sleep(0.02);
+            \fwrite($b, 'non-blocking');
+        });
+        $log[] = \fread(phasync::readable($a), 100);
+
+        expect($log)->toBe(['readable returned', 'sibling', 'blocking', 'non-blocking']);
+    });
+})->skip(!\function_exists('phasync\ext\is_auto_managed'), 'needs phasync\ext\is_auto_managed()');

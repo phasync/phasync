@@ -109,6 +109,13 @@ final class phasync
     private static ?int $pid = null;
 
     /**
+     * True inside run() when phasync-ext is loaded and supports is_auto_managed():
+     * reads and writes on auto-managed streams suspend the coroutine by themselves,
+     * so readable() and writable() have nothing to do for them.
+     */
+    private static bool $managed = false;
+
+    /**
      * A function that sets an onFulfilled and/or an onRejected callback on
      * a promise.
      *
@@ -252,21 +259,41 @@ final class phasync
 
             $exception = null;
 
-            try {
-                $fiber = $driver->create($fn, $args, $context);
-            } catch (Throwable $e) {
-                unset($fiber);
-                $exception = $e;
-            }
+            $start = static function () use ($driver, $fn, $args, $context, $runDepth, &$fiber, &$exception) {
+                try {
+                    $fiber = $driver->create($fn, $args, $context);
+                } catch (Throwable $e) {
+                    $fiber     = null;
+                    $exception = $e;
+                }
 
-            if (0 === $runDepth) {
-                while ($driver->count() > 0) {
-                    $driver->tick();
+                if (0 === $runDepth) {
+                    while ($driver->count() > 0) {
+                        $driver->tick();
+                    }
+                } else {
+                    while ($context->getFibers()->count() > 0) {
+                        self::yield();
+                    }
+                }
+            };
+
+            if (0 === $runDepth && \function_exists('phasync\ext\manage')) {
+                // With phasync-ext, blocking I/O and sleeps inside coroutines call back
+                // into the event loop instead of blocking the process.
+                self::$managed = \function_exists('phasync\ext\is_auto_managed');
+                try {
+                    \phasync\ext\manage(
+                        $start,
+                        static fn ($stream) => self::stream($stream, self::READABLE),
+                        static fn ($stream) => self::stream($stream, self::WRITABLE),
+                        static fn (int $microseconds) => self::sleep($microseconds / 1_000_000),
+                    );
+                } finally {
+                    self::$managed = false;
                 }
             } else {
-                while ($context->getFibers()->count() > 0) {
-                    self::yield();
-                }
+                $start();
             }
 
             if (null !== $exception) {
@@ -665,6 +692,10 @@ final class phasync
      * Utility function to suspend the current fiber until a stream resource becomes readable,
      * by wrapping `phasync::stream($resource, $timeout, phasync::READABLE)`.
      *
+     * With phasync-ext loaded, a blocking stream already suspends the coroutine on a read or
+     * write that would block, so without a `$timeout` this returns at once for such streams.
+     * Non-blocking streams and listening sockets are waited on as usual.
+     *
      * @param resource $resource
      *
      * @return resource Returns the same resource for convenience
@@ -674,6 +705,11 @@ final class phasync
      */
     public static function readable(mixed $resource, ?float $timeout = null): mixed
     {
+        if (self::$managed && null === $timeout && \is_resource($resource) && \phasync\ext\is_auto_managed($resource)) {
+            // The next read or write suspends by itself if it would block
+            return $resource;
+        }
+
         self::stream($resource, self::READABLE, $timeout);
 
         if (!\is_resource($resource)) {
@@ -687,6 +723,10 @@ final class phasync
      * Utility function to suspend the current fiber until a stream resource becomes readable,
      * by wrapping `phasync::stream($resource, $timeout, phasync::WRITABLE)`.
      *
+     * With phasync-ext loaded, a blocking stream already suspends the coroutine on a read or
+     * write that would block, so without a `$timeout` this returns at once for such streams.
+     * Non-blocking streams and listening sockets are waited on as usual.
+     *
      * @param resource $resource
      *
      * @return resource Returns the same resource for convenience
@@ -696,6 +736,11 @@ final class phasync
      */
     public static function writable(mixed $resource, ?float $timeout = null): mixed
     {
+        if (self::$managed && null === $timeout && \is_resource($resource) && \phasync\ext\is_auto_managed($resource)) {
+            // The next read or write suspends by itself if it would block
+            return $resource;
+        }
+
         self::stream($resource, self::WRITABLE, $timeout);
 
         if (!\is_resource($resource)) {
@@ -727,7 +772,8 @@ final class phasync
                 // No point in blocking here; instead the fwrite/fread call will block
                 return $mode & (self::READABLE | self::WRITABLE);
             }
-        } else {
+        } elseif (!(self::$managed && \phasync\ext\is_auto_managed($resource))) {
+            // phasync-ext only suspends reads and writes on blocking streams, so leave those
             \stream_set_blocking($resource, false);
         }
 
