@@ -11,6 +11,10 @@ Earlier releases are listed on the GitHub releases page.
   coroutine waiting on a stream with `IOException`. `stream_select()` returns `false` then,
   natively and with phasync-ext 0.4.0-alpha11; nothing is ready yet, so the waiters keep
   waiting.
+- `StringBuffer::readFixed($n, 0)`, a non-blocking poll, returned `null` even when `$n`
+  bytes had been written, unless an earlier read had already moved them into the buffer. A
+  parser polling for complete frames in the coroutine that fills the buffer (swerve's
+  FastCGI records) then never saw a frame that arrived in pieces.
 
 ## 2.0.0-alpha1 (2026-09-25)
 

@@ -163,6 +163,27 @@ test('BUF-2: read($max, 0) polls: it returns an empty string at once when nothin
     });
 });
 
+test('BUF-2: read($max, 0) polls: it returns data already written, across chunks, at once', function () {
+    phasync::run(function () {
+        $buffer = new StringBuffer();
+        $buffer->write('abc');
+        $buffer->write('def');
+        expect($buffer->read(5, 0))->toBe('abcde');
+        expect($buffer->read(5, 0))->toBe('f');
+    });
+});
+
+test('BUF-2: readFixed($n, 0) polls: it returns $n bytes at once when they were already written, across chunks', function () {
+    phasync::run(function () {
+        $buffer = new StringBuffer();
+        $buffer->write('1234');
+        $buffer->write('5678');
+        expect($buffer->readFixed(6, 0))->toBe('123456');
+        expect($buffer->readFixed(6, 0))->toBeNull(); // only 2 bytes left
+        expect($buffer->readFixed(2, 0))->toBe('78');
+    });
+});
+
 test('BUF-2: read($max, $timeout) returns data that arrives before the timeout', function () {
     phasync::run(function () {
         $buffer = new StringBuffer();

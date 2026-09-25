@@ -328,9 +328,13 @@ class StringBuffer implements SelectableInterface
         $timesOut = \microtime(true) + $timeout;
 
         // Fill the buffer with enough data to read and optionally await more data if not ended.
-        // $timeout > 0 matches read(): a timeout of exactly 0 is a non-blocking poll (return
-        // whatever the situation is right now, never throw), not an instant timeout.
-        while ($timeout > 0 && !$this->fill($length) && !$this->ended) {
+        // A timeout of exactly 0 is a non-blocking poll, as in read(): it takes what has been
+        // written so far and never throws. It still fills first, or data written but not yet
+        // moved into the buffer would be missed.
+        while (!$this->fill($length) && !$this->ended) {
+            if ($timeout <= 0) {
+                break;
+            }
             if ($this->failed) {
                 throw new DeadmanException('Writer terminated unexpectedly');
             }
