@@ -41,7 +41,7 @@ class MySQL extends \PDO
 
     public function query(string $query, ?int $fetchMode = null, ...$fetchModeArgs): \PDOStatement|false
     {
-        $this->mysqli->query($query, MYSQLI_ASYNC);
+        $this->mysqli->query($query, \MYSQLI_ASYNC);
 
         MySQLiPoll::poll($this->mysqli);
 
@@ -55,7 +55,7 @@ class MySQL extends \PDO
 
     public function exec(string $query): int|false
     {
-        $this->mysqli->query($query, MYSQLI_ASYNC);
+        $this->mysqli->query($query, \MYSQLI_ASYNC);
 
         MySQLiPoll::poll($this->mysqli);
 
