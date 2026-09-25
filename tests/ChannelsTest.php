@@ -155,10 +155,7 @@ test('reader reacts correctly when writer closes before any read', function () {
 });
 
 test('channels memory leaking', function () {
-    \gc_collect_cycles();
-    $memStart = \memory_get_usage(true);
-
-    for ($i = 0; $i < 10000; ++$i) {
+    $round = static function (): void {
         phasync::run(function () {
             phasync::channel($read1, $write1);
             phasync::channel($read2, $write2);
@@ -180,8 +177,22 @@ test('channels memory leaking', function () {
                 }
             });
         });
+    };
+
+    // Warm up first, so object pools and caches are filled before measuring, and measure the
+    // bytes PHP allocated: memory_get_usage(true) moves in 2 MB chunks, so it can grow a
+    // chunk without any leak, depending on how full the current one was at the start.
+    for ($i = 0; $i < 1000; ++$i) {
+        $round();
     }
-    expect($memStart)->toBeGreaterThan(\memory_get_usage(true) - 500000);
+    \gc_collect_cycles();
+    $memStart = \memory_get_usage();
+    for ($i = 0; $i < 10000; ++$i) {
+        $round();
+    }
+    \gc_collect_cycles();
+
+    expect(\memory_get_usage() - $memStart)->toBeLessThan(500000); // under 50 bytes per run()
 });
 
 test('unbuffered channel tests', function () {
