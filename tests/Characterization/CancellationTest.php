@@ -45,6 +45,17 @@ $suspensionKinds = [
 
         return [static fn () => $r->read(), static fn () => [$r, $w]];
     },
+    // A busy coroutine is suspended by preempt() (as inside go()), queued to run again
+    'preempt'     => function () {
+        phasync::setPreemptInterval(0);
+
+        return [static function () {
+            $end = \microtime(true) + 0.5;
+            while (\microtime(true) < $end) {
+                phasync::preempt();
+            }
+        }, static fn () => null];
+    },
 ];
 
 foreach ($suspensionKinds as $kind => $factory) {

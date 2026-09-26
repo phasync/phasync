@@ -577,26 +577,23 @@ final class phasync
      */
     public static function preempt(): void
     {
-        try {
-            $elapsed = ($now = \hrtime(true)) - self::$lastPreemptTime;
-            if ($elapsed > self::$preemptInterval) {
-                if (null === self::getDriver()->getCurrentFiber()) {
-                    // Minimize cost of calling this outside of phasync
-                    return;
-                }
-                if (0 === self::$lastPreemptTime) {
-                    // This check is too costly to perform on every preempt()
-                    // call, so we'll just set it here and wait for the next call.
-                    self::$lastPreemptTime = $now;
-                } else {
-                    $driver = self::getDriver();
-                    self::$lastPreemptTime = $now;
-                    $driver->enqueue($driver->getCurrentFiber());
-                    self::suspend();
-                }
+        $elapsed = ($now = \hrtime(true)) - self::$lastPreemptTime;
+        if ($elapsed > self::$preemptInterval) {
+            if (null === self::getDriver()->getCurrentFiber()) {
+                // Minimize cost of calling this outside of phasync
+                return;
             }
-        } catch (Throwable) {
-            // Ignore; this function must never throw
+            if (0 === self::$lastPreemptTime) {
+                // This check is too costly to perform on every preempt()
+                // call, so we'll just set it here and wait for the next call.
+                self::$lastPreemptTime = $now;
+            } else {
+                $driver = self::getDriver();
+                self::$lastPreemptTime = $now;
+                $driver->enqueue($driver->getCurrentFiber());
+                // A suspension point: a cancellation delivered meanwhile is thrown here (CAN-1)
+                self::suspend();
+            }
         }
     }
 

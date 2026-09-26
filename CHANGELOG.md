@@ -2,6 +2,16 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha6 (2026-09-26)
+
+### Fixed
+
+- A cancellation was lost when it reached a coroutine suspended in `phasync::preempt()`,
+  which `go()` also calls: `preempt()` swallowed every exception thrown into it, so the
+  cancelled coroutine carried on as if nothing had happened, and a `run()` waiting for it
+  never returned. It is a suspension point like any other now (CAN-1): the cancellation is
+  thrown there.
+
 ## 2.0.0-alpha5 (2026-09-26)
 
 ### Fixed
