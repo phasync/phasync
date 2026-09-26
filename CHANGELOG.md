@@ -2,6 +2,17 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Fixed
+
+- `exit()` inside `phasync::run()` while coroutines waited on channels, publishers or flags
+  ended the process with a fatal `LogicException` ("Flag is no longer valid and can't be
+  raised", or "Can't enqueue a terminated fiber"), and exit code 255. PHP's shutdown
+  destroys every object, also those still referenced, in no particular order, and a
+  channel's destructor raised a flag already destroyed. A service cancelled by that shutdown
+  no longer reports "ERROR IN SERVICE CONTEXT" either.
+
 ## 2.0.0-alpha3 (2026-09-26)
 
 ### Changed

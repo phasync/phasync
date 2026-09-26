@@ -279,3 +279,21 @@ test('RT-4: go() with run: true outside a coroutine runs the closure, but the re
     expect($fiber)->toBeInstanceOf(Fiber::class);
     expect(static fn () => phasync::await($fiber))->toThrow(LogicException::class, "Can't await a coroutine not from phasync");
 })->group('surprise');
+
+test('RT-7: exit() inside run(), with coroutines waiting on channels, publishers and timers, ends the process cleanly', function () {
+    $code = <<<'PHP'
+        require $argv[1];
+        phasync::run(function () {
+            phasync::publisher($subscribers, $publisher);
+            $sub = $subscribers->subscribe();
+            phasync::go(function () use ($sub) { $sub->read(5); });
+            phasync::channel($r, $w);
+            phasync::go(function () use ($r) { $r->read(); });
+            $GLOBALS['keep'] = [$publisher, $w];
+            phasync::go(function () { phasync::sleep(0.05); echo "exiting\n"; exit(0); });
+        });
+        PHP;
+    $process = proc_open([PHP_BINARY, '-r', $code, __DIR__ . '/../../vendor/autoload.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $out     = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+    expect([proc_close($process), $out])->toBe([0, "exiting\n"]);
+});

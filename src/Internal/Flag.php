@@ -64,10 +64,10 @@ final class Flag implements ObjectPoolInterface, \Countable
 
     public function raiseFlag(): int
     {
-        if (!isset(self::$allFibers[$this->id])) {
-            throw new \LogicException("Flag is no longer valid and can't be raised");
-        }
-        if (0 === \count(self::$allFibers[$this->id])) {
+        // Destroyed: after exit(), PHP's shutdown destroys every object, also those still
+        // referenced, in no particular order, and a destructor may raise this flag after it
+        // was destroyed itself (a channel closing). Its waiters were cancelled then.
+        if (0 === $this->count()) {
             return 0;
         }
         $driver = $this->driver;
@@ -75,8 +75,11 @@ final class Flag implements ObjectPoolInterface, \Countable
         foreach (self::$allFibers[$this->id] as $k => $fiber) {
             unset(self::$allFibers[$this->id][$k]);
             unset($driver->flagGraph[$fiber]);
-            $this->driver->enqueue($fiber);
-            ++$count;
+            // A waiter destroyed in that shutdown, already
+            if (!$fiber->isTerminated()) {
+                $this->driver->enqueue($fiber);
+                ++$count;
+            }
         }
 
         return $count;
@@ -84,7 +87,7 @@ final class Flag implements ObjectPoolInterface, \Countable
 
     public function cancelAll(?\Throwable $cancellationException = null): void
     {
-        if (0 === \count(self::$allFibers[$this->id])) {
+        if (0 === $this->count()) {
             return;
         }
         foreach (self::$allFibers[$this->id] as $fid => $fiber) {
@@ -102,9 +105,10 @@ final class Flag implements ObjectPoolInterface, \Countable
         $this->pushInstance();
     }
 
+    /** Fibers waiting; none once destroyed, see raiseFlag(). */
     public function count(): int
     {
-        return \count(self::$allFibers[$this->id]);
+        return \count(self::$allFibers[$this->id] ?? []);
     }
 
     public function add(\Fiber $fiber): void
