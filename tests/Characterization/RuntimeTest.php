@@ -293,7 +293,7 @@ test('RT-7: exit() inside run(), with coroutines waiting on channels, publishers
             phasync::go(function () { phasync::sleep(0.05); echo "exiting\n"; exit(0); });
         });
         PHP;
-    $process = proc_open([PHP_BINARY, '-r', $code, __DIR__ . '/../../vendor/autoload.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-    $out     = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
-    expect([proc_close($process), $out])->toBe([0, "exiting\n"]);
+    $process = \proc_open([\PHP_BINARY, '-r', $code, __DIR__ . '/../../vendor/autoload.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $out     = \stream_get_contents($pipes[1]) . \stream_get_contents($pipes[2]);
+    expect([\proc_close($process), $out])->toBe([0, "exiting\n"]);
 });

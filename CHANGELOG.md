@@ -2,6 +2,14 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha5 (2026-09-26)
+
+### Fixed
+
+- Subscribing to a publisher after it was closed hung forever: the subscription looked for
+  the end of the message list, whose last message is its own next. It now starts at the end,
+  and its first read reports end-of-stream.
+
 ## 2.0.0-alpha4 (2026-09-26)
 
 ### Fixed

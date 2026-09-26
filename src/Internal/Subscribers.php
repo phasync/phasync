@@ -96,7 +96,8 @@ final class Subscribers implements SubscribersInterface
      */
     public function getStartMessage(): ChannelMessage
     {
-        while ($this->lastMessage->next) {
+        // A closed publisher's last message is its own next: the end
+        while ($this->lastMessage->next && $this->lastMessage->next !== $this->lastMessage) {
             $this->lastMessage = $this->lastMessage->next;
         }
 

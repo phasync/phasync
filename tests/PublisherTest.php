@@ -110,3 +110,16 @@ test('sending null via publisher', function () {
         expect($messages)->toBe([null, 'Great success', null, null]);
     });
 });
+test('subscribing to a closed publisher gives a subscription at its end, instead of hanging', function () {
+    $out = phasync::run(function () {
+        phasync::publisher($subscribers, $publisher);
+        $publisher->close();
+        phasync::sleep(0.01); // the publisher's service reads the close
+        $subscription = $subscribers->subscribe();
+        $message      = $subscription->read(1, $eof);
+
+        return [$message, $eof, $subscription->isClosed()];
+    });
+
+    expect($out)->toBe([null, true, true]);
+});
