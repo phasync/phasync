@@ -2,6 +2,14 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha7 (2026-09-26)
+
+### Added
+
+- `phasync\Context\ChildContextInterface`: a context whose coroutines work on behalf of
+  another context's (a part of a request that can be cancelled on its own). Code that keys
+  per-request state by the current context walks up to the root.
+
 ## 2.0.0-alpha6 (2026-09-26)
 
 ### Fixed
