@@ -1,0 +1,170 @@
+{
+    "meta": {
+        "php": "8.5.1",
+        "os": "Linux 6.8.0-106-generic",
+        "cpu": "Intel(R) Xeon(R) CPU E5-2697 v3 @ 2.60GHz",
+        "date": "2026-09-21T16:03:44+00:00",
+        "git": "bf0943f9365b01650962cd0749e7d621947944b8",
+        "runs": 5
+    },
+    "scenarios": {
+        "run_empty": {
+            "description": "empty phasync::run() calls",
+            "ops": 20000,
+            "median_ops": 38801.263671795015,
+            "min_ops": 38091.26615566776,
+            "max_ops": 40017.737702165534,
+            "median_secs": 0.51544713,
+            "extra": []
+        },
+        "go_await_trivial": {
+            "description": "go() + await() of a trivial closure",
+            "ops": 40000,
+            "median_ops": 53500.216201061194,
+            "min_ops": 51210.77664835084,
+            "max_ops": 56825.31509029897,
+            "median_secs": 0.74766053,
+            "extra": []
+        },
+        "go_alive_10k": {
+            "description": "10k coroutines alive at once, each sleep(0) once",
+            "ops": 30000,
+            "median_ops": 37229.35330491236,
+            "min_ops": 34844.675850259744,
+            "max_ops": 38510.17844619278,
+            "median_secs": 0.80581577,
+            "extra": []
+        },
+        "switch_sleep0": {
+            "description": "context switches: two coroutines looping sleep(0)",
+            "ops": 300000,
+            "median_ops": 1122176.876509316,
+            "min_ops": 1078348.859831557,
+            "max_ops": 1129364.132644224,
+            "median_secs": 0.267337535,
+            "extra": []
+        },
+        "switch_yield": {
+            "description": "context switches: two coroutines looping yield()",
+            "ops": 200000,
+            "median_ops": 502883.76178778394,
+            "min_ops": 493013.7997175514,
+            "max_ops": 507040.15366074955,
+            "median_secs": 0.39770622,
+            "extra": []
+        },
+        "flag_roundtrip": {
+            "description": "raiseFlag()/awaitFlag() ping-pong round trips",
+            "ops": 100000,
+            "median_ops": 189045.30619352538,
+            "min_ops": 187376.477795418,
+            "max_ops": 190906.6631837655,
+            "median_secs": 0.528973726,
+            "extra": []
+        },
+        "chan_unbuffered_pingpong": {
+            "description": "unbuffered channels, request/response round trips",
+            "ops": 40000,
+            "median_ops": 79343.30844283495,
+            "min_ops": 78383.56748706213,
+            "max_ops": 80028.18784843673,
+            "median_secs": 0.504138292,
+            "extra": []
+        },
+        "chan_buffered64": {
+            "description": "buffered channel (capacity 64), producer/consumer messages",
+            "ops": 150000,
+            "median_ops": 373921.28756474954,
+            "min_ops": 372398.96176261833,
+            "max_ops": 375738.74746616813,
+            "median_secs": 0.401153946,
+            "extra": []
+        },
+        "select_2ch": {
+            "description": "select() over 2 channels, one message each",
+            "ops": 5000,
+            "median_ops": 11390.93691859519,
+            "min_ops": 10897.703633057039,
+            "max_ops": 13621.21198215193,
+            "median_secs": 0.438945456,
+            "extra": []
+        },
+        "select_4mixed": {
+            "description": "select() over channel, channel, StringBuffer and fiber",
+            "ops": 2400,
+            "median_ops": 3732.36245876935,
+            "min_ops": 3458.601985406435,
+            "max_ops": 4058.466491492092,
+            "median_secs": 0.643024365,
+            "extra": []
+        },
+        "waitgroup_1000": {
+            "description": "WaitGroup with 1000 workers (sleep(0) then done)",
+            "ops": 15000,
+            "median_ops": 36488.819196974066,
+            "min_ops": 33505.95324954103,
+            "max_ops": 37994.02644744931,
+            "median_secs": 0.411084829,
+            "extra": []
+        },
+        "timers_1000": {
+            "description": "timer wakeups: 1000 coroutines looping sleep(0.001)",
+            "ops": 100000,
+            "median_ops": 265130.88997684227,
+            "min_ops": 242250.24038975855,
+            "max_ops": 267355.6328642292,
+            "median_secs": 0.377172196,
+            "extra": []
+        },
+        "stream_pair_4k": {
+            "description": "socketpair echo, 4 KB messages, round trips",
+            "ops": 10000,
+            "median_ops": 23575.413942952928,
+            "min_ops": 23521.712250435634,
+            "max_ops": 23676.82759301276,
+            "median_secs": 0.424170707,
+            "extra": []
+        },
+        "sbuf_frames64": {
+            "description": "StringBuffer: write 64-byte frames, readFixed(64)",
+            "ops": 600000,
+            "median_ops": 1358143.5127070895,
+            "min_ops": 1349057.355279136,
+            "max_ops": 1359961.0071980017,
+            "median_secs": 0.441779528,
+            "extra": []
+        },
+        "sbuf_chunks8k_read100": {
+            "description": "StringBuffer: write 8 KB chunks, read(100) calls",
+            "ops": 984000,
+            "median_ops": 2767952.087019418,
+            "min_ops": 2726992.9686315386,
+            "max_ops": 2796796.5787583287,
+            "median_secs": 0.355497483,
+            "extra": []
+        },
+        "sbuf_frame_parse": {
+            "description": "StringBuffer: parse length-prefixed frames from 8 KB chunks",
+            "ops": 461900,
+            "median_ops": 1613126.5460861034,
+            "min_ops": 1600800.1630286218,
+            "max_ops": 1614535.8025009483,
+            "median_secs": 0.286338354,
+            "extra": []
+        },
+        "memory_100k": {
+            "description": "100k short coroutines created and finished (peak memory, GC runs)",
+            "ops": 100000,
+            "median_ops": 55850.65983047442,
+            "min_ops": 50988.36709939452,
+            "max_ops": 56151.877892306016,
+            "median_secs": 1.790489142,
+            "extra": {
+                "peak_memory_mb": 2.33,
+                "memory_growth_mb": 0,
+                "gc_runs": 4,
+                "gc_collected": 0
+            }
+        }
+    }
+}

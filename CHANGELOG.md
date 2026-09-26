@@ -2,6 +2,13 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha8 (2026-09-26)
+
+### Removed
+
+- `phasync\Context\ChildContextInterface`, added in alpha7: not needed. A context stays the
+  request's; a component framework tracks its parts' coroutines itself.
+
 ## 2.0.0-alpha7 (2026-09-26)
 
 ### Added
