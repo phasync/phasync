@@ -2,7 +2,6 @@
 
 namespace phasync\Internal;
 
-use phasync\ChannelException;
 use phasync\ReadChannelInterface;
 use phasync\SubscriberInterface;
 use phasync\SubscribersInterface;
@@ -25,7 +24,6 @@ final class Subscribers implements SubscribersInterface
     private ChannelMessage $lastMessage;
     private \stdClass $notifyMessageFlag;
     private int $waiting = 0;
-    private ?\Fiber $creatingFiber;
     private ReadChannelInterface $readChannel;
 
     public function __construct(ReadChannelInterface $readChannel)
@@ -37,7 +35,6 @@ final class Subscribers implements SubscribersInterface
         $lastMessage         = $this->lastMessage = new ChannelMessage();
         $waiting             = &$this->waiting;
         $this->readChannel   = $readChannel;
-        $this->creatingFiber = \phasync::getFiber();
 
         \phasync::service(static function () use ($lastMessage, $notifyMessageFlag, $readChannel, &$waiting) {
             try {
@@ -79,13 +76,6 @@ final class Subscribers implements SubscribersInterface
      */
     public function subscribe(): SubscriberInterface
     {
-        if ($this->creatingFiber) {
-            if (\phasync::getFiber() === $this->creatingFiber) {
-                throw new ChannelException("Can't subscribe to a publisher from the coroutine that created it");
-            }
-            $this->creatingFiber = null;
-        }
-
         return new Subscriber($this);
     }
 

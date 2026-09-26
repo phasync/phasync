@@ -2,6 +2,16 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Changed
+
+- The coroutine that created a publisher (`phasync::publisher()`) may now subscribe to it.
+  Subscribing from there threw `ChannelException`, a guard from before the publisher read
+  every message at once; it only caught the creator waiting for messages nobody else sends,
+  and only until another coroutine subscribed. Such a wait now waits, as a read of a channel
+  nobody writes to does.
+
 ## 2.0.0-alpha2 (2026-09-25)
 
 ### Fixed

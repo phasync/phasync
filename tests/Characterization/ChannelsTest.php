@@ -836,20 +836,21 @@ test('PUB-1: every subscriber receives every message in order, then end-of-strea
     expect($got)->toBe(['a' => [1, 2, 3], 'b' => [1, 2, 3]]);
 });
 
-test('PUB-1: the coroutine that created the publisher cannot subscribe', function () {
+test('PUB-1: the coroutine that created the publisher can subscribe, and receives what it publishes', function () {
     $out = phasync::run(function () {
         phasync::publisher($subs, $pub);
-        try {
-            $subs->subscribe();
-        } catch (Throwable $e) {
-            $out = [\get_class($e), $e->getMessage()];
-        }
+        $sub = $subs->subscribe();
+        $pub->write('a');
+        $pub->write('b');
+        $out = [$sub->read(), $sub->read()];
         $pub->close();
+        $out[] = $sub->read(eof: $eof);
+        $out[] = $eof;
 
         return $out;
     });
 
-    expect($out)->toBe([ChannelException::class, "Can't subscribe to a publisher from the coroutine that created it"]);
+    expect($out)->toBe(['a', 'b', null, true]);
 });
 
 test('PUB-1: a late subscriber only sees messages published after it subscribed', function () {

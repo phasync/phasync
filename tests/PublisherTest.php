@@ -1,28 +1,24 @@
 <?php
 
-use phasync\ChannelException;
 use phasync\Util\WaitGroup;
 
 phasync::setDefaultTimeout(3);
 
-test('publisher subscribing deadlock protection', function () {
+test('the coroutine that created a publisher can subscribe to it and receive what it publishes', function () {
     expect(
         phasync::run(function () {
             phasync::publisher($subscribers, $publisher);
-
-            return true;
-        })
-    )->toBeTrue();
-    expect(function () {
-        phasync::run(function () {
-            phasync::publisher($subscribers, $publisher);
-
-            foreach ($subscribers as $message) {
+            $subscription = $subscribers->subscribe();
+            $publisher->write('mine');
+            $publisher->close();
+            $got = [];
+            foreach ($subscription as $message) {
+                $got[] = $message;
             }
 
-            return true;
-        });
-    })->toThrow(ChannelException::class);
+            return $got;
+        })
+    )->toBe(['mine']);
 });
 test('writing to a publisher with no subscribers succeeds (the internal forwarding service is always a reader)', function () {
     // Not a deadlock case: Subscribers' internal service reads from the underlying channel
