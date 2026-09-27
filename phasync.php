@@ -235,14 +235,14 @@ final class phasync
             };
 
             if (0 === $runDepth && \function_exists('phasync\ext\manage')) {
-                // With phasync-ext, blocking I/O and sleeps inside coroutines call back
-                // into the event loop instead of blocking the process. $timeout is how long
-                // PHP itself would wait (null: forever); when a TimeoutException ends the
-                // wait, the extension finishes the call the way PHP does on a timeout.
+                // With phasync-ext, blocking I/O and sleeps inside coroutines park them in the
+                // event loop instead of blocking the process. When PHP's own call has a timeout
+                // and the park times out, the extension finishes the call the way PHP does.
                 \phasync\ext\manage(
                     $start,
-                    static fn ($stream, ?float $timeout) => self::readable($stream, $timeout ?? \PHP_FLOAT_MAX),
-                    static fn ($stream, ?float $timeout) => self::writable($stream, $timeout ?? \PHP_FLOAT_MAX),
+                    $driver->getSlot(...),
+                    $driver->park(...),
+                    $driver->unpark(...),
                     static fn (int $microseconds) => self::sleep($microseconds / 1_000_000),
                     TimeoutException::class,
                 );

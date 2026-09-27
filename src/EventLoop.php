@@ -196,7 +196,7 @@ final class EventLoop implements \Countable
         $this->idleFlag              = new \stdClass();
         $this->afterNextFlag         = new \stdClass();
         $this->serviceContext        = new ServiceContext();
-        $this->poller                = new StreamSelectPoller($this);
+        $this->poller                = \function_exists('phasync\ext\manage') ? new PhasyncExtPoller($this) : new StreamSelectPoller($this);
         $this->parked                = [];
         $this->parkedSlots           = [];
         $this->callbackQueue         = new \SplQueue();
