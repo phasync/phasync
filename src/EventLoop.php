@@ -570,17 +570,21 @@ final class EventLoop implements DriverInterface
     }
 
     /**
-     * Resume the coroutine parked in $slot.
-     *
-     * @throws \LogicException if no coroutine is parked in $slot, also when its wait was cancelled
-     *                         or timed out (which resumes it, and empties the slot)
+     * Resume the coroutine parked in $slot. False if the slot is vacant: nothing was parked in
+     * it, it was unparked already, or its wait was cancelled or timed out (which resumed the
+     * coroutine, and vacated the slot).
      */
-    public function unpark(int $slot): void
+    public function unpark(int $slot): bool
     {
-        $fiber = $this->parked[$slot] ?? throw new \LogicException('No coroutine is parked in slot ' . $slot);
+        if (!isset($this->parked[$slot])) {
+            return false;
+        }
+        $fiber = $this->parked[$slot];
         unset($this->parked[$slot], $this->parkedSlots[\spl_object_id($fiber)]);
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
         $this->queue->enqueue($fiber);
+
+        return true;
     }
 
     public function getPoller(): PollerInterface

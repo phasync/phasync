@@ -22,7 +22,7 @@ test('unpark() resumes the coroutine parked in the slot', function () {
 
             return 'resumed';
         });
-        $loop->unpark($slot);
+        expect($loop->unpark($slot))->toBeTrue();
 
         return phasync::await($parked);
     }))->toBe('resumed');
@@ -44,34 +44,34 @@ test('park() in a slot that is taken throws LogicException', function () {
     });
 });
 
-test('unpark() of an empty slot throws LogicException, also when it was unparked already', function () {
+test('unpark() of a vacant slot returns false, also when it was unparked already', function () {
     phasync::run(function () {
         $loop = park_loop();
         $slot = $loop->getSlot();
-        expect(fn () => $loop->unpark($slot))->toThrow(LogicException::class);
+        expect($loop->unpark($slot))->toBeFalse();
         $parked = phasync::go(fn () => $loop->park($slot));
-        $loop->unpark($slot);
-        expect(fn () => $loop->unpark($slot))->toThrow(LogicException::class);
+        expect($loop->unpark($slot))->toBeTrue();
+        expect($loop->unpark($slot))->toBeFalse();
         phasync::await($parked);
     });
 });
 
-test('a parked coroutine times out, and its slot is emptied', function () {
+test('a parked coroutine times out, and its slot is vacated', function () {
     phasync::run(function () {
         $loop = park_loop();
         $slot = $loop->getSlot();
         expect(fn () => $loop->park($slot, 0.05))->toThrow(TimeoutException::class);
-        expect(fn () => $loop->unpark($slot))->toThrow(LogicException::class);
+        expect($loop->unpark($slot))->toBeFalse();
     });
 });
 
-test('cancelling a parked coroutine empties its slot at once', function () {
+test('cancelling a parked coroutine vacates its slot at once', function () {
     phasync::run(function () {
         $loop   = park_loop();
         $slot   = $loop->getSlot();
         $parked = phasync::go(fn () => $loop->park($slot));
         phasync::cancel($parked);
-        expect(fn () => $loop->unpark($slot))->toThrow(LogicException::class);
+        expect($loop->unpark($slot))->toBeFalse();
         expect(fn () => phasync::await($parked))->toThrow(CancelledException::class);
     });
 });
