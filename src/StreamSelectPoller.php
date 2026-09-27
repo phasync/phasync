@@ -2,8 +2,6 @@
 
 namespace phasync;
 
-use phasync\Internal\PollFlag;
-
 /**
  * A poller on stream_select(), or on phasync-ext's stream_select() when the extension is loaded
  * (no FD_SETSIZE limit there).
@@ -13,7 +11,7 @@ final class StreamSelectPoller implements PollerInterface
     private const EINTR = 4;
 
     /**
-     * The streams waited for, and their flags, by resource id.
+     * The streams waited for, and the slots their waiters are parked in, by resource id.
      *
      * @var array<int, resource>
      */
@@ -25,32 +23,27 @@ final class StreamSelectPoller implements PollerInterface
     private array $writeStreams = [];
 
     /**
-     * @var array<int, PollFlag>
+     * @var array<int, int>
      */
-    private array $readFlags = [];
+    private array $readSlots = [];
 
     /**
-     * @var array<int, PollFlag>
+     * @var array<int, int>
      */
-    private array $writeFlags = [];
+    private array $writeSlots = [];
 
     /**
-     * Flags not in use: $spareFlags[0 .. $spareCount - 1]. Flags never leave the poller and the
-     * event loop, so they are reused. Slots from $spareCount up are stale and never read; they
-     * are overwritten, not unset.
-     *
-     * @var list<PollFlag>
+     * How many times stream_select() failed for all waiters at once, and the last such failure.
+     * A waiter that sees the count change while it waited throws the failure.
      */
-    private array $spareFlags = [];
-    private int $spareCount   = 0;
+    private int $failures         = 0;
+    private ?IOException $failure = null;
 
     /** stream_select(), or phasync-ext's when loaded */
     private readonly \Closure $select;
 
-    public function __construct(
-        private readonly \Closure $awaitFlag,
-        private readonly \Closure $raiseFlag,
-    ) {
+    public function __construct(private readonly EventLoop $loop)
+    {
         $this->select = \function_exists('phasync\ext\stream_select') ? \phasync\ext\stream_select(...) : \stream_select(...);
     }
 
@@ -109,80 +102,71 @@ final class StreamSelectPoller implements PollerInterface
             // a stream's file descriptor number is >= FD_SETSIZE (1024 on a typical POSIX
             // build). Every waiter must be told, loudly, or it would wait forever with no trace
             // of why.
-            $exception = new IOException(
-                'stream_select() failed for ' . (\count($this->readFlags) + \count($this->writeFlags)) . ' watched stream(s): '
+            $this->failure = new IOException(
+                'stream_select() failed for ' . (\count($this->readSlots) + \count($this->writeSlots)) . ' watched stream(s): '
                 . ($selectWarning ?? 'no error was reported')
             );
-            $reads  = $this->readFlags;
-            $writes = $this->writeFlags;
-            foreach ($reads as $flag) {
-                $flag->error = $exception;
-            }
-            foreach ($writes as $flag) {
-                $flag->error = $exception;
-            }
+            ++$this->failures;
+            $reads  = $this->readStreams;
+            $writes = $this->writeStreams;
         }
 
-        $raiseFlag = $this->raiseFlag;
+        $loop = $this->loop;
         foreach ($reads as $id => $_) {
-            $flag = $this->readFlags[$id];
-            unset($this->readStreams[$id], $this->readFlags[$id]);
-            $raiseFlag($flag);
+            $slot = $this->readSlots[$id];
+            unset($this->readStreams[$id], $this->readSlots[$id]);
+            $loop->unpark($slot);
         }
         foreach ($writes as $id => $_) {
-            $flag = $this->writeFlags[$id];
-            unset($this->writeStreams[$id], $this->writeFlags[$id]);
-            $raiseFlag($flag);
+            $slot = $this->writeSlots[$id];
+            unset($this->writeStreams[$id], $this->writeSlots[$id]);
+            $loop->unpark($slot);
         }
     }
 
     public function readable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
     {
         $id = \get_resource_id($stream);
-        if (isset($this->readFlags[$id])) {
+        if (isset($this->readSlots[$id])) {
             throw new \LogicException('Another coroutine is already waiting to read from this stream');
         }
-        $flag                    = $this->spareCount > 0 ? $this->spareFlags[--$this->spareCount] : new PollFlag();
-        $this->readStreams[$id]  = $stream;
-        $this->readFlags[$id]    = $flag;
+        $slot                   = $this->loop->getSlot();
+        $this->readStreams[$id] = $stream;
+        $this->readSlots[$id]   = $slot;
+        $failures               = $this->failures;
         try {
-            ($this->awaitFlag)($flag, $timeout);
+            $this->loop->park($slot, $timeout);
         } finally {
-            if (($this->readFlags[$id] ?? null) === $flag) {
-                // Not raised: the wait was cancelled or timed out
-                unset($this->readStreams[$id], $this->readFlags[$id]);
+            if (($this->readSlots[$id] ?? null) === $slot) {
+                // Not unparked: the wait was cancelled or timed out
+                unset($this->readStreams[$id], $this->readSlots[$id]);
             }
-            $this->spareFlags[$this->spareCount++] = $flag;
         }
-        if (null !== $flag->error) {
-            $error       = $flag->error;
-            $flag->error = null;
-            throw $error;
+        if ($failures !== $this->failures) {
+            throw $this->failure;
         }
     }
 
     public function writable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
     {
         $id = \get_resource_id($stream);
-        if (isset($this->writeFlags[$id])) {
+        if (isset($this->writeSlots[$id])) {
             throw new \LogicException('Another coroutine is already waiting to write to this stream');
         }
-        $flag                    = $this->spareCount > 0 ? $this->spareFlags[--$this->spareCount] : new PollFlag();
+        $slot                    = $this->loop->getSlot();
         $this->writeStreams[$id] = $stream;
-        $this->writeFlags[$id]   = $flag;
+        $this->writeSlots[$id]   = $slot;
+        $failures                = $this->failures;
         try {
-            ($this->awaitFlag)($flag, $timeout);
+            $this->loop->park($slot, $timeout);
         } finally {
-            if (($this->writeFlags[$id] ?? null) === $flag) {
-                // Not raised: the wait was cancelled or timed out
-                unset($this->writeStreams[$id], $this->writeFlags[$id]);
+            if (($this->writeSlots[$id] ?? null) === $slot) {
+                // Not unparked: the wait was cancelled or timed out
+                unset($this->writeStreams[$id], $this->writeSlots[$id]);
             }
-            $this->spareFlags[$this->spareCount++] = $flag;
         }
-        if (null !== $flag->error) {
-            $error       = $flag->error;
-            $flag->error = null;
-            throw $error;
+        if ($failures !== $this->failures) {
+            throw $this->failure;
         }
     }
 }

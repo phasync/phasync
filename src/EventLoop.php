@@ -91,18 +91,22 @@ final class EventLoop implements DriverInterface
     private \WeakMap $flaggedFibers;
 
     /**
-     * The coroutine waiting for each poller flag, by the flag's object id, and the reverse. The
-     * poller's flags never reach other code and outlive their waits, so they need none of the
-     * bookkeeping of userland flags ({@see self::$flaggedFibers}).
+     * The coroutine parked in each slot ({@see self::park()}); false once its wait was cancelled,
+     * until it leaves park().
      *
-     * @var array<int, \Fiber>
+     * @var array<int, \Fiber|false>
      */
-    private array $pollWaiters = [];
+    private array $parked = [];
 
     /**
+     * The slot each parked coroutine waits in, by its object id. A parked coroutine can't go
+     * away (its slot holds it), so the id is its own until unpark() or discard() removes it.
+     *
      * @var array<int, int>
      */
-    private array $pollWaiterFlags = [];
+    private array $parkedSlots = [];
+
+    private int $nextSlot = 0;
 
     /**
      * The time of the last timeout check iteration. This value is used
@@ -191,9 +195,9 @@ final class EventLoop implements DriverInterface
         $this->idleFlag              = new \stdClass();
         $this->afterNextFlag         = new \stdClass();
         $this->serviceContext        = new ServiceContext();
-        $this->poller                = new StreamSelectPoller($this->awaitPollFlag(...), $this->raisePollFlag(...));
-        $this->pollWaiters           = [];
-        $this->pollWaiterFlags       = [];
+        $this->poller                = new StreamSelectPoller($this);
+        $this->parked                = [];
+        $this->parkedSlots           = [];
         $this->callbackQueue         = new \SplQueue();
         \gc_collect_cycles();
         $this->shouldGarbageCollect = true;
@@ -216,7 +220,7 @@ final class EventLoop implements DriverInterface
             'scheduler'             => $this->scheduler->count(),
             'flaggedFibers'         => $this->flaggedFibers->count(),
             'flagGraph'             => $this->flagGraph->count(),
-            'pollWaiters'           => \count($this->pollWaiters),
+            'parked'                => \count($this->parked),
         ];
 
         return $result;
@@ -529,18 +533,35 @@ final class EventLoop implements DriverInterface
     }
 
     /**
-     * Suspend the current coroutine until the poller raises $flag.
+     * A slot number no one else has, for {@see self::park()} and {@see self::unpark()}.
      */
-    private function awaitPollFlag(object $flag, float $timeout): void
+    public function getSlot(): int
     {
-        $fiber                                            = $this->currentFiber;
-        $flagId                                           = \spl_object_id($flag);
-        $this->pollWaiters[$flagId]                       = $fiber;
-        $this->pollWaiterFlags[\spl_object_id($fiber)]    = $flagId;
-        $this->pending[$fiber]                            = \microtime(true) + $timeout;
+        return $this->nextSlot++;
+    }
+
+    /**
+     * Suspend the current coroutine in $slot until {@see self::unpark()} resumes it, or until
+     * it is cancelled or times out. A lighter wait than a flag, for trusted code (pollers,
+     * services) that owns its slots and always unparks what it parked.
+     *
+     * @throws \LogicException  if a coroutine is parked in $slot already
+     * @throws TimeoutException after $timeout seconds
+     */
+    public function park(int $slot, float $timeout = \PHP_FLOAT_MAX): void
+    {
+        if (isset($this->parked[$slot])) {
+            throw new \LogicException('A coroutine is parked in slot ' . $slot . ' already');
+        }
+        $fiber                                     = $this->currentFiber;
+        $this->parked[$slot]                       = $fiber;
+        $this->parkedSlots[\spl_object_id($fiber)] = $slot;
+        $this->pending[$fiber]                     = \microtime(true) + $timeout;
         try {
             \Fiber::suspend();
         } catch (\Throwable $e) {
+            // Cancelled or timed out: the slot was kept until now, see discard()
+            unset($this->parked[$slot]);
             // As phasync::suspend(): the exception gets a trace from here
             try {
                 $className = \get_class($e);
@@ -552,21 +573,20 @@ final class EventLoop implements DriverInterface
     }
 
     /**
-     * Resume the coroutine waiting for $flag, if any: its wait may have been cancelled or timed
-     * out in this tick, before the poller saw the stream ready.
+     * Resume the coroutine parked in $slot. Nothing happens if its wait was cancelled or timed
+     * out and it hasn't run since.
+     *
+     * @throws \LogicException if no coroutine is parked in $slot
      */
-    private function raisePollFlag(object $flag): int
+    public function unpark(int $slot): void
     {
-        $flagId = \spl_object_id($flag);
-        if (!isset($this->pollWaiters[$flagId])) {
-            return 0;
+        $fiber = $this->parked[$slot] ?? throw new \LogicException('No coroutine is parked in slot ' . $slot);
+        if (false === $fiber) {
+            return;
         }
-        $fiber = $this->pollWaiters[$flagId];
-        unset($this->pollWaiters[$flagId], $this->pollWaiterFlags[\spl_object_id($fiber)]);
+        unset($this->parked[$slot], $this->parkedSlots[\spl_object_id($fiber)]);
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
         $this->queue->enqueue($fiber);
-
-        return 1;
     }
 
     public function getPoller(): PollerInterface
@@ -628,10 +648,12 @@ final class EventLoop implements DriverInterface
 
         do {
             $cancelled = false;
-            // Waiting for the poller
+            // Parked: the slot stays taken until the coroutine leaves park(), so that an
+            // unpark() meanwhile (the poller finding the stream ready this tick) is harmless
             $fiberId = \spl_object_id($fiber);
-            if (isset($this->pollWaiterFlags[$fiberId])) {
-                unset($this->pollWaiters[$this->pollWaiterFlags[$fiberId]], $this->pollWaiterFlags[$fiberId]);
+            if (isset($this->parkedSlots[$fiberId])) {
+                $this->parked[$this->parkedSlots[$fiberId]] = false;
+                unset($this->parkedSlots[$fiberId]);
                 $cancelled = true;
                 break;
             }
