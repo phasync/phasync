@@ -2,6 +2,8 @@
 
 namespace phasync;
 
+use phasync\Internal\PollFlag;
+
 /**
  * A poller on stream_select(), or on phasync-ext's stream_select() when the extension is loaded
  * (no FD_SETSIZE limit there).
@@ -18,9 +20,19 @@ final class StreamSelectPoller implements PollerInterface
     private array $streams = [[], []];
 
     /**
-     * @var array{0: array<int, \stdClass>, 1: array<int, \stdClass>}
+     * @var array{0: array<int, PollFlag>, 1: array<int, PollFlag>}
      */
     private array $flags = [[], []];
+
+    /**
+     * Flags not in use: $spareFlags[0 .. $spareCount - 1]. Flags never leave the poller and the
+     * event loop, so they are reused, and slots are overwritten, never unset: as many flags as
+     * were needed once may be needed again.
+     *
+     * @var list<PollFlag>
+     */
+    private array $spareFlags = [];
+    private int $spareCount   = 0;
 
     private readonly bool $useExtSelect;
 
@@ -126,7 +138,7 @@ final class StreamSelectPoller implements PollerInterface
         if (isset($this->flags[$direction][$id])) {
             throw new \LogicException('Another coroutine is already waiting to ' . ($direction ? 'write to' : 'read from') . ' this stream');
         }
-        $flag                           = new \stdClass();
+        $flag                           = $this->spareCount > 0 ? $this->spareFlags[--$this->spareCount] : new PollFlag();
         $this->streams[$direction][$id] = $stream;
         $this->flags[$direction][$id]   = $flag;
         try {
@@ -136,9 +148,12 @@ final class StreamSelectPoller implements PollerInterface
                 // Not raised: the wait was cancelled or timed out
                 unset($this->streams[$direction][$id], $this->flags[$direction][$id]);
             }
+            $error                                 = $flag->error;
+            $flag->error                           = null;
+            $this->spareFlags[$this->spareCount++] = $flag;
         }
-        if (isset($flag->error)) {
-            throw $flag->error;
+        if ($error) {
+            throw $error;
         }
     }
 
