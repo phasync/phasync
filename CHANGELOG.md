@@ -2,6 +2,15 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha10 (2026-09-27)
+
+### Fixed
+
+- `Synchronized::run()` refused a second coroutine of the same context ("not reentrant")
+  instead of making it wait: it took the context for the holder, and the coroutines of one
+  request share a context. The holder is the coroutine now; only the coroutine holding the
+  lock is refused when it asks again.
+
 ## 2.0.0-alpha9 (2026-09-27)
 
 ### Added
