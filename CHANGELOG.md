@@ -2,6 +2,17 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha9 (2026-09-27)
+
+### Added
+
+- `phasync\Util\Pool`: a bounded pool of interchangeable resources (database connections,
+  sockets to a service). `borrow()` waits while all are out, borrowers are served in the order
+  they came, `release()` / `discard()` give an instance back (discard: broken, make a new one),
+  `use(fn)` borrows and releases around a function. Instances are made on demand up to the
+  size. One dropped without being given back is noticed when it is destroyed: a warning, and a
+  new one in its place.
+
 ## 2.0.0-alpha8 (2026-09-26)
 
 ### Removed
