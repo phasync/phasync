@@ -157,7 +157,11 @@ final class EventLoop implements \Countable
      * same arguments as the native one but is not limited by FD_SETSIZE, which caps the
      * native one at file descriptor numbers below 1024 on a typical build.
      */
-    private PollerInterface $poller;
+    /**
+     * phasync-ext's poller when the extension is loaded (epoll, and its worker threads' waiters),
+     * else stream_select().
+     */
+    private PollerInterface|ext\Poller $poller;
 
     /**
      * Create a new EventLoop instance.
@@ -196,7 +200,9 @@ final class EventLoop implements \Countable
         $this->idleFlag              = new \stdClass();
         $this->afterNextFlag         = new \stdClass();
         $this->serviceContext        = new ServiceContext();
-        $this->poller                = \function_exists('phasync\ext\manage') ? new PhasyncExtPoller($this) : new StreamSelectPoller($this);
+        $this->poller                = \class_exists(ext\Poller::class, false)
+            ? new ext\Poller($this->getSlot(...), $this->park(...), $this->unpark(...))
+            : new StreamSelectPoller($this);
         $this->parked                = [];
         $this->parkedSlots           = [];
         $this->callbackQueue         = new \SplQueue();
@@ -647,7 +653,7 @@ final class EventLoop implements \Countable
     /**
      * The poller that coroutines wait for streams with.
      */
-    public function getPoller(): PollerInterface
+    public function getPoller(): PollerInterface|ext\Poller
     {
         return $this->poller;
     }

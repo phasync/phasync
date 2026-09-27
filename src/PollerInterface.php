@@ -5,12 +5,11 @@ namespace phasync;
 /**
  * Waits for streams on behalf of the event loop. Coroutines wait in readable() and writable();
  * the loop calls poll() when it has nothing else to do, and poll() unparks the waiters whose
- * streams are ready ({@see EventLoop::park()}).
+ * streams are ready ({@see EventLoop::park()}). phasync-ext's phasync\ext\Poller has the same
+ * methods; the loop uses it directly when the extension is loaded.
  */
 interface PollerInterface
 {
-    public function __construct(EventLoop $loop);
-
     /**
      * Wait up to $timeout seconds (0: don't wait) until a waited-for stream is ready, unpark
      * the waiters of those that are, and return. With nothing waited for, sleep $timeout. Ready:

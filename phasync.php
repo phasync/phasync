@@ -240,9 +240,7 @@ final class phasync
                 // and the park times out, the extension finishes the call the way PHP does.
                 \phasync\ext\manage(
                     $start,
-                    $driver->getSlot(...),
-                    $driver->park(...),
-                    $driver->unpark(...),
+                    $driver->getPoller(),
                     static fn (int $microseconds) => self::sleep($microseconds / 1_000_000),
                     TimeoutException::class,
                 );
