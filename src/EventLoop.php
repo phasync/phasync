@@ -541,8 +541,10 @@ final class EventLoop implements DriverInterface
 
     /**
      * Suspend the current coroutine in $slot until {@see self::unpark()} resumes it, or until
-     * it is cancelled or times out. A lighter wait than a flag, for trusted code (pollers,
-     * services) that owns its slots and always unparks what it parked.
+     * it is cancelled or times out. A lighter wait than a flag, for code that owns its slots
+     * (pollers, services, channels): what it parks, it must unpark, or the coroutine waits until
+     * its timeout. Unlike a flag, nothing notices a slot its owner forgot. Flags are for objects
+     * that other code holds; slots are for waits inside one component.
      *
      * @throws \LogicException  if a coroutine is parked in $slot already
      * @throws TimeoutException after $timeout seconds

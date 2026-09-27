@@ -5,17 +5,11 @@
  */
 
 use phasync\CancelledException;
-use phasync\EventLoop;
 use phasync\TimeoutException;
-
-function park_loop(): EventLoop
-{
-    return (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
-}
 
 test('unpark() resumes the coroutine parked in the slot', function () {
     expect(phasync::run(function () {
-        $loop   = park_loop();
+        $loop   = phasync::getLoop();
         $slot   = $loop->getSlot();
         $parked = phasync::go(function () use ($loop, $slot) {
             $loop->park($slot);
@@ -29,13 +23,19 @@ test('unpark() resumes the coroutine parked in the slot', function () {
 });
 
 test('getSlot() never hands out the same slot twice', function () {
-    $loop = park_loop();
-    expect($loop->getSlot())->not->toBe($loop->getSlot());
+    phasync::run(function () {
+        $loop = phasync::getLoop();
+        expect($loop->getSlot())->not->toBe($loop->getSlot());
+    });
+});
+
+test('getLoop() outside phasync::run() throws LogicException', function () {
+    expect(fn () => phasync::getLoop())->toThrow(LogicException::class);
 });
 
 test('park() in a slot that is taken throws LogicException', function () {
     phasync::run(function () {
-        $loop   = park_loop();
+        $loop   = phasync::getLoop();
         $slot   = $loop->getSlot();
         $parked = phasync::go(fn () => $loop->park($slot));
         expect(fn () => $loop->park($slot))->toThrow(LogicException::class);
@@ -46,7 +46,7 @@ test('park() in a slot that is taken throws LogicException', function () {
 
 test('unpark() of a vacant slot returns false, also when it was unparked already', function () {
     phasync::run(function () {
-        $loop = park_loop();
+        $loop = phasync::getLoop();
         $slot = $loop->getSlot();
         expect($loop->unpark($slot))->toBeFalse();
         $parked = phasync::go(fn () => $loop->park($slot));
@@ -58,7 +58,7 @@ test('unpark() of a vacant slot returns false, also when it was unparked already
 
 test('a parked coroutine times out, and its slot is vacated', function () {
     phasync::run(function () {
-        $loop = park_loop();
+        $loop = phasync::getLoop();
         $slot = $loop->getSlot();
         expect(fn () => $loop->park($slot, 0.05))->toThrow(TimeoutException::class);
         expect($loop->unpark($slot))->toBeFalse();
@@ -67,7 +67,7 @@ test('a parked coroutine times out, and its slot is vacated', function () {
 
 test('cancelling a parked coroutine vacates its slot at once', function () {
     phasync::run(function () {
-        $loop   = park_loop();
+        $loop   = phasync::getLoop();
         $slot   = $loop->getSlot();
         $parked = phasync::go(fn () => $loop->park($slot));
         phasync::cancel($parked);

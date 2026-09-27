@@ -800,6 +800,21 @@ final class phasync
     }
 
     /**
+     * The event loop, for code that waits with its low-level API ({@see EventLoop::park()}).
+     * It runs only inside phasync::run().
+     *
+     * @throws LogicException outside phasync::run()
+     */
+    public static function getLoop(): EventLoop
+    {
+        if (0 === self::$runDepth) {
+            throw ExceptionTool::popTrace(new LogicException('The event loop runs only inside phasync::run()'));
+        }
+
+        return self::getDriver();
+    }
+
+    /**
      * Get the currently running coroutine. If there is no currently
      * running coroutine, throws LogicException.
      *
