@@ -13,16 +13,26 @@ final class StreamSelectPoller implements PollerInterface
     private const EINTR = 4;
 
     /**
-     * The streams waited for and their flags, by direction (0: read, 1: write) and resource id.
+     * The streams waited for, and their flags, by resource id.
      *
-     * @var array{0: array<int, resource>, 1: array<int, resource>}
+     * @var array<int, resource>
      */
-    private array $streams = [[], []];
+    private array $readStreams = [];
 
     /**
-     * @var array{0: array<int, PollFlag>, 1: array<int, PollFlag>}
+     * @var array<int, resource>
      */
-    private array $flags = [[], []];
+    private array $writeStreams = [];
+
+    /**
+     * @var array<int, PollFlag>
+     */
+    private array $readFlags = [];
+
+    /**
+     * @var array<int, PollFlag>
+     */
+    private array $writeFlags = [];
 
     /**
      * Flags not in use: $spareFlags[0 .. $spareCount - 1]. Flags never leave the poller and the
@@ -45,7 +55,7 @@ final class StreamSelectPoller implements PollerInterface
 
     public function poll(float $timeout): void
     {
-        if (!$this->streams[0] && !$this->streams[1]) {
+        if (!$this->readStreams && !$this->writeStreams) {
             if ($timeout > 0) {
                 \usleep((int) ($timeout * 1000000));
             }
@@ -53,8 +63,9 @@ final class StreamSelectPoller implements PollerInterface
             return;
         }
 
-        [$reads, $writes] = $this->streams;
-        $excepts          = [];
+        $reads   = $this->readStreams;
+        $writes  = $this->writeStreams;
+        $excepts = [];
 
         $selectWarning = null;
         \set_error_handler(static function (int $code, string $message) use (&$selectWarning): bool {
@@ -70,23 +81,22 @@ final class StreamSelectPoller implements PollerInterface
                 : \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
         } catch (\TypeError|\ValueError $e) {
             // A stream was closed while waited for (ValueError when no open stream is left to
-            // select on). Rare, so only now look for it.
-            $closed = [];
-            foreach ($this->streams as $direction => $streams) {
-                foreach ($streams as $id => $stream) {
-                    if (!\is_resource($stream)) {
-                        $closed[] = [$direction, $id];
-                    }
+            // select on). Rare, so only now look for it: a closed stream is ready.
+            $reads = $writes = [];
+            foreach ($this->readStreams as $id => $stream) {
+                if (!\is_resource($stream)) {
+                    $reads[$id] = $stream;
                 }
             }
-            if (!$closed) {
+            foreach ($this->writeStreams as $id => $stream) {
+                if (!\is_resource($stream)) {
+                    $writes[$id] = $stream;
+                }
+            }
+            if (!$reads && !$writes) {
                 throw $e; // not a closed stream, for example one stream_select() can't wait on
             }
-            foreach ($closed as [$direction, $id]) {
-                $this->ready($direction, $id);
-            }
-
-            return;
+            $result = 1;
         } finally {
             \restore_error_handler();
         }
@@ -101,66 +111,79 @@ final class StreamSelectPoller implements PollerInterface
             // build). Every waiter must be told, loudly, or it would wait forever with no trace
             // of why.
             $exception = new IOException(
-                'stream_select() failed for ' . (\count($this->flags[0]) + \count($this->flags[1])) . ' watched stream(s): '
+                'stream_select() failed for ' . (\count($this->readFlags) + \count($this->writeFlags)) . ' watched stream(s): '
                 . ($selectWarning ?? 'no error was reported')
             );
-            foreach ($this->flags as $direction => $flags) {
-                foreach ($flags as $id => $flag) {
-                    $flag->error = $exception;
-                    $this->ready($direction, $id);
-                }
+            $reads  = $this->readFlags;
+            $writes = $this->writeFlags;
+            foreach ($reads as $flag) {
+                $flag->error = $exception;
             }
-
-            return;
+            foreach ($writes as $flag) {
+                $flag->error = $exception;
+            }
         }
 
+        $raiseFlag = $this->raiseFlag;
         foreach ($reads as $id => $_) {
-            $this->ready(0, $id);
+            $flag = $this->readFlags[$id];
+            unset($this->readStreams[$id], $this->readFlags[$id]);
+            $raiseFlag($flag);
         }
         foreach ($writes as $id => $_) {
-            $this->ready(1, $id);
+            $flag = $this->writeFlags[$id];
+            unset($this->writeStreams[$id], $this->writeFlags[$id]);
+            $raiseFlag($flag);
         }
     }
 
     public function readable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
     {
-        $this->wait(0, $stream, $timeout);
-    }
-
-    public function writable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
-    {
-        $this->wait(1, $stream, $timeout);
-    }
-
-    private function wait(int $direction, mixed $stream, float $timeout): void
-    {
         $id = \get_resource_id($stream);
-        if (isset($this->flags[$direction][$id])) {
-            throw new \LogicException('Another coroutine is already waiting to ' . ($direction ? 'write to' : 'read from') . ' this stream');
+        if (isset($this->readFlags[$id])) {
+            throw new \LogicException('Another coroutine is already waiting to read from this stream');
         }
-        $flag                           = $this->spareCount > 0 ? $this->spareFlags[--$this->spareCount] : new PollFlag();
-        $this->streams[$direction][$id] = $stream;
-        $this->flags[$direction][$id]   = $flag;
+        $flag                    = $this->spareCount > 0 ? $this->spareFlags[--$this->spareCount] : new PollFlag();
+        $this->readStreams[$id]  = $stream;
+        $this->readFlags[$id]    = $flag;
         try {
             ($this->awaitFlag)($flag, $timeout);
         } finally {
-            if (($this->flags[$direction][$id] ?? null) === $flag) {
+            if (($this->readFlags[$id] ?? null) === $flag) {
                 // Not raised: the wait was cancelled or timed out
-                unset($this->streams[$direction][$id], $this->flags[$direction][$id]);
+                unset($this->readStreams[$id], $this->readFlags[$id]);
             }
-            $error                                 = $flag->error;
-            $flag->error                           = null;
             $this->spareFlags[$this->spareCount++] = $flag;
         }
-        if ($error) {
+        if (null !== $flag->error) {
+            $error       = $flag->error;
+            $flag->error = null;
             throw $error;
         }
     }
 
-    private function ready(int $direction, int $id): void
+    public function writable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
     {
-        $flag = $this->flags[$direction][$id];
-        unset($this->streams[$direction][$id], $this->flags[$direction][$id]);
-        ($this->raiseFlag)($flag);
+        $id = \get_resource_id($stream);
+        if (isset($this->writeFlags[$id])) {
+            throw new \LogicException('Another coroutine is already waiting to write to this stream');
+        }
+        $flag                    = $this->spareCount > 0 ? $this->spareFlags[--$this->spareCount] : new PollFlag();
+        $this->writeStreams[$id] = $stream;
+        $this->writeFlags[$id]   = $flag;
+        try {
+            ($this->awaitFlag)($flag, $timeout);
+        } finally {
+            if (($this->writeFlags[$id] ?? null) === $flag) {
+                // Not raised: the wait was cancelled or timed out
+                unset($this->writeStreams[$id], $this->writeFlags[$id]);
+            }
+            $this->spareFlags[$this->spareCount++] = $flag;
+        }
+        if (null !== $flag->error) {
+            $error       = $flag->error;
+            $flag->error = null;
+            throw $error;
+        }
     }
 }
