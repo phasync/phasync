@@ -482,13 +482,35 @@ function runChild(string $name, int $runs): void
 }
 
 /**
+ * The -d options this process was started with (php -d extension=... bench.php), for the child
+ * processes: without them a benchmark "with phasync-ext" would measure without it.
+ *
+ * @return list<string>
+ */
+function php_ini_options(): array
+{
+    $args    = \explode("\0", \rtrim((string) @\file_get_contents('/proc/self/cmdline'), "\0"));
+    $options = [];
+    for ($i = 1; $i < \count($args) && $args[$i] !== $_SERVER['argv'][0]; ++$i) {
+        if ('-d' === $args[$i]) {
+            $options[] = '-d';
+            $options[] = $args[++$i];
+        } elseif (\str_starts_with($args[$i], '-d')) {
+            $options[] = $args[$i];
+        }
+    }
+
+    return $options;
+}
+
+/**
  * Parent mode: run a scenario in a fresh process and return its decoded results (or an error string).
  */
 function spawn(string $name, int $runs): array|string
 {
     $stderrFile = \tempnam(\sys_get_temp_dir(), 'bench');
     $proc = \proc_open(
-        [\PHP_BINARY, __FILE__, "--child=$name", "--runs=$runs"],
+        [\PHP_BINARY, ...php_ini_options(), __FILE__, "--child=$name", "--runs=$runs"],
         [1 => ['pipe', 'w'], 2 => ['file', $stderrFile, 'w']],
         $pipes
     );
@@ -559,6 +581,7 @@ if (\is_readable('/proc/cpuinfo') && \preg_match('/^model name\s*:\s*(.+)$/m', (
 $git = \trim((string) @\shell_exec('git -C ' . \escapeshellarg(__DIR__ . '/..') . ' rev-parse HEAD 2>/dev/null'));
 $meta = [
     'php'  => \PHP_VERSION,
+    'ext'  => \phpversion('phasync') ?: null,
     'os'   => \php_uname('s') . ' ' . \php_uname('r'),
     'cpu'  => $cpu,
     'date' => \date('c'),
@@ -592,7 +615,10 @@ foreach (scenarios() as $name => [$description]) {
 }
 \fwrite(\STDERR, \str_repeat(' ', 40) . "\r");
 
-echo \sprintf("phasync benchmarks, PHP %s, %s, %d run(s) per scenario\n", $meta['php'], $cpu, $runs);
+echo \sprintf("phasync benchmarks, PHP %s, phasync-ext %s, %s, %d run(s) per scenario\n", $meta['php'], $meta['ext'] ?? 'not loaded', $cpu, $runs);
+if (null !== $baseline && \array_key_exists('ext', $baseline['meta']) && $baseline['meta']['ext'] !== $meta['ext']) {
+    echo 'NOTE: the baseline was recorded with phasync-ext ' . ($baseline['meta']['ext'] ?? 'not loaded') . ".\n";
+}
 if (null !== $baseline && ($baseline['meta']['cpu'] ?? null) !== $cpu) {
     echo "WARNING: baseline was recorded on a different CPU (" . ($baseline['meta']['cpu'] ?? '?') . "); ratios are not meaningful.\n";
 }
