@@ -115,12 +115,20 @@ final class StreamSelectPoller implements PollerInterface
         foreach ($reads as $id => $_) {
             $slot = $this->readSlots[$id];
             unset($this->readStreams[$id], $this->readSlots[$id]);
-            $loop->unpark($slot);
+            try {
+                $loop->unpark($slot);
+            } catch (\LogicException) {
+                // Rare: its wait was cancelled or timed out in this tick, which resumed it
+            }
         }
         foreach ($writes as $id => $_) {
             $slot = $this->writeSlots[$id];
             unset($this->writeStreams[$id], $this->writeSlots[$id]);
-            $loop->unpark($slot);
+            try {
+                $loop->unpark($slot);
+            } catch (\LogicException) {
+                // Rare: its wait was cancelled or timed out in this tick, which resumed it
+            }
         }
     }
 

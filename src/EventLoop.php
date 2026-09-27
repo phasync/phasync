@@ -91,10 +91,9 @@ final class EventLoop implements DriverInterface
     private \WeakMap $flaggedFibers;
 
     /**
-     * The coroutine parked in each slot ({@see self::park()}); false once its wait was cancelled,
-     * until it leaves park().
+     * The coroutine parked in each slot ({@see self::park()}).
      *
-     * @var array<int, \Fiber|false>
+     * @var array<int, \Fiber>
      */
     private array $parked = [];
 
@@ -560,8 +559,6 @@ final class EventLoop implements DriverInterface
         try {
             \Fiber::suspend();
         } catch (\Throwable $e) {
-            // Cancelled or timed out: the slot was kept until now, see discard()
-            unset($this->parked[$slot]);
             // As phasync::suspend(): the exception gets a trace from here
             try {
                 $className = \get_class($e);
@@ -573,17 +570,14 @@ final class EventLoop implements DriverInterface
     }
 
     /**
-     * Resume the coroutine parked in $slot. Nothing happens if its wait was cancelled or timed
-     * out and it hasn't run since.
+     * Resume the coroutine parked in $slot.
      *
-     * @throws \LogicException if no coroutine is parked in $slot
+     * @throws \LogicException if no coroutine is parked in $slot, also when its wait was cancelled
+     *                         or timed out (which resumes it, and empties the slot)
      */
     public function unpark(int $slot): void
     {
         $fiber = $this->parked[$slot] ?? throw new \LogicException('No coroutine is parked in slot ' . $slot);
-        if (false === $fiber) {
-            return;
-        }
         unset($this->parked[$slot], $this->parkedSlots[\spl_object_id($fiber)]);
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
         $this->queue->enqueue($fiber);
@@ -648,12 +642,10 @@ final class EventLoop implements DriverInterface
 
         do {
             $cancelled = false;
-            // Parked: the slot stays taken until the coroutine leaves park(), so that an
-            // unpark() meanwhile (the poller finding the stream ready this tick) is harmless
+            // Parked: the slot is emptied
             $fiberId = \spl_object_id($fiber);
             if (isset($this->parkedSlots[$fiberId])) {
-                $this->parked[$this->parkedSlots[$fiberId]] = false;
-                unset($this->parkedSlots[$fiberId]);
+                unset($this->parked[$this->parkedSlots[$fiberId]], $this->parkedSlots[$fiberId]);
                 $cancelled = true;
                 break;
             }
