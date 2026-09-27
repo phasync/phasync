@@ -85,20 +85,6 @@ function iochar_with_file(string $content, Closure $test): void
 
 /* ------------------------------------------------------------------ IO-1 */
 
-test('IO-1: stream() returns the events that fired as a bitmask, and 0 for something that is not a stream', function () {
-    phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        expect(phasync::stream($a, phasync::WRITABLE))->toBe(phasync::WRITABLE);
-        expect(phasync::stream($a, phasync::READABLE | phasync::WRITABLE))->toBe(phasync::WRITABLE);
-
-        \fwrite($b, 'x');
-        expect(phasync::stream($a, phasync::READABLE | phasync::WRITABLE))->toBe(phasync::READABLE | phasync::WRITABLE);
-        expect(phasync::stream($a, phasync::READABLE))->toBe(phasync::READABLE);
-
-        expect(phasync::stream('not a stream'))->toBe(0);
-    });
-});
-
 test('IO-1: readable() and writable() return the same resource', function () {
     phasync::run(function () {
         [$a, $b] = iochar_pair();
@@ -174,29 +160,6 @@ test('IO-1: once the waiting coroutine has resumed, another coroutine may wait o
     expect($log)->toBe(['first: x', 'second: y']);
 });
 
-test('IO-1: waiting for both directions with stream() takes both, so neither a reader nor a writer may wait too', function () {
-    $log = phasync::run(function () {
-        [$a, $b] = iochar_pair();
-        $log     = [];
-        $both    = phasync::go(function () use ($a) {
-            phasync::stream($a, phasync::READABLE | phasync::WRITABLE);
-        });
-        foreach (['readable', 'writable'] as $wait) {
-            try {
-                phasync::$wait($a, 1);
-                $log[] = $wait . ': waited';
-            } catch (Throwable $e) {
-                $log[] = $wait . ': ' . $e::class;
-            }
-        }
-        phasync::await($both);
-
-        return $log;
-    });
-
-    expect($log)->toBe(['readable: ' . LogicException::class, 'writable: ' . LogicException::class]);
-});
-
 test('IO-1: a reader and a writer may wait on the same stream, and each is resumed only by its own event', function () {
     phasync::run(function () {
         [$a, $b] = iochar_pair();
@@ -265,13 +228,11 @@ test('IO-2: a resource closed while a coroutine waits on it throws IOException "
             }
         });
         phasync::sleep(0.02);
-        $streams = iochar_state()['streams'];
         $start   = \microtime(true);
         \fclose($a);
         phasync::await($waiter);
         expect($result)->toBe(IOException::class . ': Stream closed');
         expect(\microtime(true) - $start)->toBeLessThan(0.4);
-        expect(iochar_state()['streams'])->toBe($streams - 1);
     });
 });
 
@@ -298,11 +259,11 @@ test('IO-2: waiting on a php://memory stream makes phasync::run() throw ValueErr
     }
 })->group('surprise');
 
-test('IO-2: outside phasync::run() a blocking resource is reported ready at once, whatever the mode asks for', function () {
+test('IO-2: outside phasync::run() readable() and writable() return at once for a blocking resource', function () {
     [$a, $b] = iochar_pair();
     $start   = \microtime(true);
-    expect(phasync::stream($a, phasync::READABLE))->toBe(phasync::READABLE);
-    expect(phasync::stream($a, phasync::WRITABLE))->toBe(phasync::WRITABLE);
+    expect(phasync::readable($a))->toBe($a);
+    expect(phasync::writable($a))->toBe($a);
     expect(\microtime(true) - $start)->toBeLessThan(0.2);
 });
 
@@ -310,17 +271,16 @@ test('IO-2: outside phasync::run() a non-blocking resource with data is reported
     [$a, $b] = iochar_pair();
     \stream_set_blocking($a, false);
     \fwrite($b, 'x');
-    expect(phasync::stream($a, phasync::READABLE))->toBe(phasync::READABLE);
     expect(phasync::readable($a))->toBe($a);
 });
 
-test('IO-2: outside phasync::run() a non-blocking resource without data times out after about one second, ignoring the timeout argument', function () {
+test('IO-2: outside phasync::run() a non-blocking resource without data times out after the timeout', function () {
     [$a, $b] = iochar_pair();
     \stream_set_blocking($a, false);
     $start = \microtime(true);
-    expect(fn () => phasync::stream($a, phasync::READABLE, 5.0))->toThrow(TimeoutException::class);
-    expect(\microtime(true) - $start)->toBeGreaterThan(0.9)->toBeLessThan(2.0);
-})->group('surprise');
+    expect(fn () => phasync::readable($a, 0.3))->toThrow(TimeoutException::class);
+    expect(\microtime(true) - $start)->toBeGreaterThan(0.25)->toBeLessThan(1.0);
+});
 
 /* ------------------------------------------------------------------ IO-8 */
 
@@ -328,7 +288,7 @@ test('IO-2: outside phasync::run() a non-blocking resource without data times ou
 // decides what reads and writes do (PHP's own semantics, with or without phasync-ext): a
 // blocking fgets() waits for a whole line, a non-blocking one returns what is there.
 
-test('IO-8: readable(), writable() and stream() leave a stream in the blocking mode it had', function () {
+test('IO-8: readable() and writable() leave a stream in the blocking mode it had', function () {
     $modes = phasync::run(function () {
         $modes = [];
         foreach ([true, false] as $blocking) {
@@ -337,7 +297,6 @@ test('IO-8: readable(), writable() and stream() leave a stream in the blocking m
             \fwrite($b, 'x');
             phasync::readable($a);
             phasync::writable($a);
-            phasync::stream($a, phasync::READABLE | phasync::WRITABLE);
             $modes[] = \stream_get_meta_data($a)['blocked'];
         }
 

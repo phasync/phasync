@@ -617,27 +617,6 @@ test('PARITY: await() outside a coroutine rejects fibers that phasync did not cr
     expect(fn () => phasync::await(new stdClass()))->toThrow(LogicException::class);
 });
 
-test('PARITY: stream() on a blocking stream outside a coroutine returns at once with the requested mode', function () {
-    [$a, $b] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
-    $t       = \microtime(true);
-    expect(phasync::stream($a, phasync::READABLE, 5))->toBe(phasync::READABLE);
-    expect(\microtime(true) - $t)->toBeLessThan(0.05);
-});
-
-test('PARITY: stream() on a quiet non-blocking stream outside a coroutine throws TimeoutException after about 1 s, whatever the timeout [SURPRISE]', function () {
-    // Inside a coroutine the timeout argument is honoured. Outside, the wait loop polls
-    // in 1 s steps and its exit condition is inverted (`while ($stopTime < microtime(true))`),
-    // so a timeout of 5 s ends after the first 1 s poll. (A timeout shorter than 1 s would
-    // loop until data arrives; that case is deliberately not pinned here.)
-    [$a, $b] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
-    \stream_set_blocking($a, false);
-    $t = \microtime(true);
-    expect(fn () => phasync::stream($a, phasync::READABLE, 5))->toThrow(TimeoutException::class);
-    $elapsed = \microtime(true) - $t;
-    expect($elapsed)->toBeGreaterThan(0.9);
-    expect($elapsed)->toBeLessThan(2.0);
-})->group('surprise');
-
 test('PARITY: a nested run() inside a coroutine keeps sibling coroutines running', function () {
     $log = [];
     phasync::run(function () use (&$log) {

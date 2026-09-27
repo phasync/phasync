@@ -7,10 +7,6 @@ use phasync\Context\ContextInterface;
 
 interface DriverInterface extends \Countable
 {
-    public const STREAM_READ   = 1;
-    public const STREAM_WRITE  = 2;
-    public const STREAM_EXCEPT = 4;
-
     /**
      * When a fiber is suspended with this value `Fiber::suspend(DriverInterface::SUSPEND_TICK);`,
      * it will be scheduled to run on the next tick.
@@ -84,19 +80,9 @@ interface DriverInterface extends \Countable
     public function whenIdle(float $timeout, \Fiber $fiber): void;
 
     /**
-     * Activate the Fiber instance when the stream resource becomes readable, writable or receives out of band data.
-     *
-     * @param int    $mode    Bitmap of DriverInterface::STREAM_READ | DriverInterface::STREAM_WRITE | DriverInterface::STREAM_EXCEPTION
-     * @param float  $timeout The number of seconds to allow the fiber to be suspended. Will raise a TimeoutException.
-     * @param \Fiber $fiber   the fiber that will be resumed
+     * The poller that coroutines wait for streams with.
      */
-    public function whenResourceActivity(mixed $resource, int $mode, float $timeout, \Fiber $fiber): void;
-
-    /**
-     * Returns the last resource state result for a fiber that called {@see self::whenResourceActivity()}
-     * The result is a bitmap of DriverInterface::STREAM_* constants.
-     */
-    public function getLastResourceState(\Fiber $fiber): ?int;
+    public function getPoller(): \phasync\PollerInterface;
 
     /**
      * Schedule the Fiber instance to run after the specified number of seconds.

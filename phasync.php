@@ -29,13 +29,13 @@ use phasync\WriteChannelInterface;
  *
  * - {@see phasync::sleep()} to pause the coroutine and avoid wasting CPU cycles
  *   if there is nothing to do.
- * - {@see phasync::stream()} to pause the coroutine until a stream resource becomes
- *   readable, writable or both.
+ * - {@see phasync::readable()} and {@see phasync::writable()} to pause the coroutine
+ *   until a stream resource becomes readable or writable.
  * - {@see phasync::raiseFlag()} and {@see phasync::awaitFlag()} to pause the coroutine
  *   until an trigger occurs.
  *
  * It is bad practice for any advanced functionality to check for external events
- * on every tick, so it should use sleep(), stream() or raiseFlag()/awaitFlag() to
+ * on every tick, so it should use sleep(), readable(), writable() or raiseFlag()/awaitFlag() to
  * block between each poll.
  *
  * For example, to monitor curl handles using multi_curl, a separate coroutine would be
@@ -47,27 +47,6 @@ use phasync\WriteChannelInterface;
  */
 final class phasync
 {
-    /**
-     * Block the coroutine until the stream becomes readable.
-     * {@see phasync::stream()}.
-     */
-    public const READABLE = DriverInterface::STREAM_READ;
-
-    /**
-     * Block the coroutine until the stream becomes writable.
-     * {@see phasync::stream()}.
-     */
-    public const WRITABLE = DriverInterface::STREAM_WRITE;
-
-    /**
-     * Block the coroutine until the stream has an except state
-     * (out-of-band date etc) {@see \stream_select()} for more
-     * details.
-     *
-     * {@see phasync::stream()}
-     */
-    public const EXCEPT = DriverInterface::STREAM_EXCEPT;
-
     /**
      * The default timeout in seconds used throughout the library,
      * unless another timeout is configured via
@@ -552,7 +531,7 @@ final class phasync
      * Cancel a suspended coroutine. This will throw an exception inside the
      * coroutine. If the coroutine handles the exception, it has the opportunity
      * to clean up any resources it is using. The coroutine MUST be suspended
-     * using either {@see phasync::await()}, {@see phasync::sleep()}, {@see phasync::stream()}
+     * using either {@see phasync::await()}, {@see phasync::sleep()}, {@see phasync::readable()}
      * or {@see phasync::awaitFlag()}.
      *
      * @throws RuntimeException if the fiber is not currently blocked
@@ -677,123 +656,75 @@ final class phasync
     }
 
     /**
-     * Utility function to suspend the current fiber until a stream resource becomes readable,
-     * by wrapping `phasync::stream($resource, $timeout, phasync::READABLE)`.
+     * Suspend the coroutine until the stream can be read without blocking: data arrived, the
+     * peer finished, or the stream failed. Outside a coroutine it blocks the process until
+     * then, and returns at once for a blocking stream (the read will wait).
+     *
+     * One coroutine at a time may wait to read a stream, and one to write to it.
      *
      * @param resource $resource
      *
      * @return resource Returns the same resource for convenience
      *
-     * @throws FiberError
-     * @throws Throwable
+     * @throws IOException      if $resource is not an open stream, or is closed meanwhile
+     * @throws LogicException   if another coroutine is waiting to read $resource
+     * @throws TimeoutException
      */
     public static function readable(mixed $resource, ?float $timeout = null): mixed
     {
-        self::stream($resource, self::READABLE, $timeout);
-
-        if (!\is_resource($resource)) {
-            throw new IOException('Not a valid stream resource');
-        }
+        self::waitForStream($resource, false, $timeout ?? self::getDefaultTimeout());
 
         return $resource;
     }
 
     /**
-     * Utility function to suspend the current fiber until a stream resource becomes readable,
-     * by wrapping `phasync::stream($resource, $timeout, phasync::WRITABLE)`.
+     * Suspend the coroutine until the stream can be written without blocking, as
+     * {@see phasync::readable()} does for reading.
      *
      * @param resource $resource
      *
      * @return resource Returns the same resource for convenience
      *
-     * @throws FiberError
-     * @throws Throwable
+     * @throws IOException      if $resource is not an open stream, or is closed meanwhile
+     * @throws LogicException   if another coroutine is waiting to write to $resource
+     * @throws TimeoutException
      */
     public static function writable(mixed $resource, ?float $timeout = null): mixed
     {
-        self::stream($resource, self::WRITABLE, $timeout);
-
-        if (!\is_resource($resource)) {
-            throw new IOException('Not a valid stream resource');
-        }
+        self::waitForStream($resource, true, $timeout ?? self::getDefaultTimeout());
 
         return $resource;
     }
 
-    /**
-     * Block the coroutine until the stream resource becomes readable, writable or raises
-     * an exception or any combination of these.
-     *
-     * The bitmaps use self::READABLE, self::WRITABLE and self::EXCEPT.
-     *
-     * @param int $mode a bitmap indicating which events on the resource that should resume the coroutine
-     *
-     * @return int A bitmap indicating which events on the resource that was raised
-     */
-    public static function stream(mixed $resource, int $mode = self::READABLE | self::WRITABLE, ?float $timeout = null): int
+    private static function waitForStream(mixed $resource, bool $write, float $timeout): void
     {
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
-            return 0;
-        }
-
-        if (0 === self::$runDepth) {
-            $metadata = \stream_get_meta_data($resource);
-            if ($metadata['blocked'] ?? false) {
-                // No point in blocking here; instead the fwrite/fread call will block
-                return $mode & (self::READABLE | self::WRITABLE);
-            }
+            throw ExceptionTool::popTrace(new IOException('Not a valid stream resource'));
         }
 
         $driver = self::getDriver();
-        if ($fiber = $driver->getCurrentFiber()) {
-            // check using the event loop
-            $timeout = $timeout ?? self::getDefaultTimeout();
-            $result = null;
-            $pid = self::$pid;
-            $driver->whenResourceActivity($resource, $mode, $timeout, $fiber);
-            try {
-                self::suspend();
-
-                return $result = $driver->getLastResourceState($fiber);
-            } finally {
-                if ($result === null) {
-                    if ($pid === self::$pid) {
-                        $driver->getLastResourceState($fiber);
-                    }
-                }
+        if ($driver->getCurrentFiber()) {
+            $poller = $driver->getPoller();
+            if ($write) {
+                $poller->writable($resource, $timeout);
+            } else {
+                $poller->readable($resource, $timeout);
             }
-        } else {
-            // Not inside the event loop, so check directly
+            if (!\is_resource($resource)) {
+                throw ExceptionTool::popTrace(new IOException('Stream closed'));
+            }
 
-            // The functionality should work on non-blocking resources even outside of phasync
-            $stopTime = \microtime(true) + ($timeout ?? self::getDefaultTimeout());
-            do {
-                $r = $w = $e = [];
-                if ($mode & self::READABLE) {
-                    $r[] = $resource;
-                }
-                if ($mode & self::WRITABLE) {
-                    $w[] = $resource;
-                }
-                if ($mode & self::EXCEPT) {
-                    $e[] = $resource;
-                }
-                $count = \stream_select($r, $w, $e, 0, 1000000);
-                if (\is_int($count) && $count > 0) {
-                    $result = 0;
-                    if (!empty($r)) {
-                        $result |= self::READABLE;
-                    }
-                    if (!empty($w)) {
-                        $result |= self::WRITABLE;
-                    }
-                    if (!empty($e)) {
-                        $result |= self::EXCEPT;
-                    }
+            return;
+        }
 
-                    return $result;
-                }
-            } while ($stopTime < \microtime(true));
+        if (\stream_get_meta_data($resource)['blocked'] ?? true) {
+            return; // the read or write blocks instead (memory streams never wait)
+        }
+        $reads   = $write ? [] : [$resource];
+        $writes  = $write ? [$resource] : [];
+        $excepts = [];
+        $seconds = (int) \min($timeout, 2147483647);
+        if (!\stream_select($reads, $writes, $excepts, $seconds, (int) (($timeout - $seconds) * 1000000))) {
             throw ExceptionTool::popTrace(new TimeoutException('Timeout'));
         }
     }

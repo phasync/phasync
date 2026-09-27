@@ -12,7 +12,8 @@ use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
 use phasync\Internal\Scheduler;
-use phasync\IOException;
+use phasync\PollerInterface;
+use phasync\StreamSelectPoller;
 use phasync\TimeoutException;
 use WeakMap;
 
@@ -22,7 +23,6 @@ final class StreamSelectDriver implements DriverInterface
      * errno for a system call interrupted by a signal, as stream_select() reports it in its
      * warning ("Unable to select [4]: Interrupted system call").
      */
-    private const EINTR = 4;
 
     /**
      * Holds the queue of fibers that will be activated on the next
@@ -87,52 +87,6 @@ final class StreamSelectDriver implements DriverInterface
     private Scheduler $scheduler;
 
     /**
-     * All fibers suspended waiting for IO: the resource, the mode and the resource id.
-     *
-     * @var \WeakMap<\Fiber,array{0: resource, 1: int, 2: int}>
-     */
-    private \WeakMap $streams;
-
-    /**
-     * The fiber waiting to read (or for out of band data) and the fiber waiting to write,
-     * per resource id. A stream has at most one waiting fiber per direction, so these and
-     * the stream_select() arrays below are kept up to date as waits start and end, instead
-     * of being rebuilt from all waiting fibers on every tick.
-     *
-     * @var array<int, \Fiber>
-     */
-    private array $readWaiters = [];
-
-    /**
-     * @var array<int, \Fiber>
-     */
-    private array $writeWaiters = [];
-
-    /**
-     * The streams to pass to stream_select(), per resource id.
-     *
-     * @var array<int, resource>
-     */
-    private array $readSet = [];
-
-    /**
-     * @var array<int, resource>
-     */
-    private array $writeSet = [];
-
-    /**
-     * @var array<int, resource>
-     */
-    private array $exceptSet = [];
-
-    /**
-     * The most recent stream select result for a fiber.
-     *
-     * @var \WeakMap<\Fiber,int>
-     */
-    private \WeakMap $streamResults;
-
-    /**
      * Holds a reference to fibers that are waiting for a flag to be
      * raised. The Flag object will automatically resume all fibers
      * if the object is garbage collected.
@@ -192,14 +146,13 @@ final class StreamSelectDriver implements DriverInterface
      * same arguments as the native one but is not limited by FD_SETSIZE, which caps the
      * native one at file descriptor numbers below 1024 on a typical build.
      */
-    private bool $useExtSelect;
+    private PollerInterface $poller;
 
     /**
      * Create a new StreamSelectDriver instance.
      */
     public function __construct()
     {
-        $this->useExtSelect = \function_exists('phasync\ext\stream_select');
         $this->clear();
     }
 
@@ -229,8 +182,7 @@ final class StreamSelectDriver implements DriverInterface
         $this->idleFlag              = new \stdClass();
         $this->afterNextFlag         = new \stdClass();
         $this->serviceContext        = new ServiceContext();
-        $this->streams               = new \WeakMap();
-        $this->streamResults         = new \WeakMap();
+        $this->poller                = new StreamSelectPoller(\phasync::awaitFlag(...), $this->raiseFlag(...));
         $this->callbackQueue         = new \SplQueue();
         \gc_collect_cycles();
         $this->shouldGarbageCollect = true;
@@ -253,8 +205,6 @@ final class StreamSelectDriver implements DriverInterface
             'scheduler'             => $this->scheduler->count(),
             'flaggedFibers'         => $this->flaggedFibers->count(),
             'flagGraph'             => $this->flagGraph->count(),
-            'streams'               => $this->streams->count(),
-            'streamResults'         => $this->streamResults->count(),
         ];
 
         return $result;
@@ -313,14 +263,7 @@ final class StreamSelectDriver implements DriverInterface
         $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
         $idleCount      = isset($this->flaggedFibers[$this->idleFlag]) ? $this->flaggedFibers[$this->idleFlag]->count() : 0;
 
-        if ($maxSleepTime > 0 && $afterNextCount > 0 && 0 === $queue->count() && 0 === $this->streams->count() && $this->scheduler->isEmpty()) {
-            // echo "Setting sleep 0 (afterNextCount=$afterNextCount streams=" . $this->streams->count() . ")\n";
-            /*
-            foreach ($this->flaggedFibers as $flag => $fh) {
-                echo Debug::getDebugInfo($flag) . ":\n";
-                $fh->listFibers();
-            }
-            */
+        if ($maxSleepTime > 0 && $afterNextCount > 0 && 0 === $queue->count() && $this->scheduler->isEmpty()) {
             $maxSleepTime = 0;
         }
 
@@ -330,98 +273,7 @@ final class StreamSelectDriver implements DriverInterface
             $this->raiseFlag($this->idleFlag);
         }
 
-        /*
-         * Activate any Fibers waiting for stream activity
-         */
-        if (0 !== $this->streams->count()) {
-            $reads   = $this->readSet;
-            $writes  = $this->writeSet;
-            $excepts = $this->exceptSet;
-
-            $selectWarning = null;
-            \set_error_handler(static function (int $code, string $message) use (&$selectWarning): bool {
-                $selectWarning = $message;
-
-                return true;
-            });
-            try {
-                $seconds      = (int) $maxSleepTime;
-                $microseconds = (int) (($maxSleepTime - $seconds) * 1000000);
-                $result       = $this->useExtSelect
-                    ? \phasync\ext\stream_select($reads, $writes, $excepts, $seconds, $microseconds)
-                    : \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
-            } catch (\TypeError|\ValueError $e) {
-                // A stream was closed while a fiber waited on it (ValueError when no open
-                // stream is left to select on). Rare, so only now look for it.
-                $closed = [];
-                foreach ($this->streams as $fiber => [$resource]) {
-                    if (!\is_resource($resource)) {
-                        $closed[] = $fiber;
-                    }
-                }
-                if (!$closed) {
-                    throw $e; // not a closed stream, for example one stream_select() can't wait on
-                }
-                foreach ($closed as $fiber) {
-                    $this->endStreamWait($fiber);
-                    $this->streamResults[$fiber] = 0;
-                    $this->enqueueWithException($fiber, new IOException('Stream closed'));
-                }
-                $result = 0;
-            } finally {
-                \restore_error_handler();
-            }
-
-            if (false === $result && \str_contains($selectWarning ?? '', '[' . self::EINTR . ']')) {
-                // A signal interrupted the wait. Nothing is ready yet; the waiters keep waiting.
-                $result = 0;
-            }
-
-            if (false === $result) {
-                // stream_select() failed for the whole batch, not just one resource -- for
-                // example every watched stream has a file descriptor number >= FD_SETSIZE
-                // (1024 on a typical POSIX build). Every fiber that was waiting this tick
-                // must be told, loudly, or it would wait forever with no trace of why.
-                $exception = new IOException(
-                    'stream_select() failed for ' . $this->streams->count() . ' watched stream(s): '
-                    . ($selectWarning ?? 'no error was reported')
-                );
-                $failed = [];
-                foreach ($this->streams as $fiber => $_) {
-                    $failed[] = $fiber;
-                }
-                foreach ($failed as $fiber) {
-                    $this->endStreamWait($fiber);
-                    $this->enqueueWithException($fiber, $exception);
-                }
-            } elseif ($result > 0) {
-                $ready = [];
-                foreach ($reads as $id => $_) {
-                    $fiber                       = $this->readWaiters[$id];
-                    $this->streamResults[$fiber] |= DriverInterface::STREAM_READ;
-                    $ready[]                     = $fiber;
-                }
-                foreach ($excepts as $id => $_) {
-                    $fiber                       = $this->readWaiters[$id];
-                    $this->streamResults[$fiber] |= DriverInterface::STREAM_EXCEPT;
-                    $ready[]                     = $fiber;
-                }
-                foreach ($writes as $id => $_) {
-                    $fiber                       = $this->writeWaiters[$id];
-                    $this->streamResults[$fiber] |= DriverInterface::STREAM_WRITE;
-                    $ready[]                     = $fiber;
-                }
-                foreach ($ready as $fiber) {
-                    if (isset($this->streams[$fiber])) {
-                        $this->endStreamWait($fiber);
-                        $this->enqueue($fiber);
-                    }
-                }
-            }
-        } elseif ($maxSleepTime > 0) {
-            // There are no fibers waiting for afterNext, and the
-            \usleep((int) ($maxSleepTime * 1000000));
-        }
+        $this->poller->poll($maxSleepTime);
 
         /*
          * Ensure afterNext fibers are given an opportunity to run
@@ -561,14 +413,11 @@ final class StreamSelectDriver implements DriverInterface
             return 0;
         }
 
+        // Raising resumes every waiter, so the store is empty afterwards
         $fiberStore = $this->flaggedFibers[$flag];
-        $count      = $fiberStore->raiseFlag();
-
-        // Clean up empty Flag stores to prevent zombie references during GC
-        if (0 === $fiberStore->count()) {
-            unset($this->flaggedFibers[$flag]);
-            $fiberStore->returnToPool();
-        }
+        unset($this->flaggedFibers[$flag]);
+        $count = $fiberStore->raiseFlag();
+        $fiberStore->returnToPool();
 
         return $count;
     }
@@ -667,67 +516,9 @@ final class StreamSelectDriver implements DriverInterface
         $this->whenFlagged($this->idleFlag, $timeout, $fiber);
     }
 
-    public function whenResourceActivity(mixed $resource, int $mode, float $timeout, \Fiber $fiber): void
+    public function getPoller(): PollerInterface
     {
-        if (isset($this->pending[$fiber])) {
-            throw new \LogicException('Fiber is already pending in whenResourceActivity');
-        }
-        if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
-            throw new \InvalidArgumentException('Expecting a stream resource type');
-        }
-        // FiberState::for($fiber)->log('whenResourceActivity (mode=' . $mode . ' timeout=' . $timeout . ')');
-        $id    = \get_resource_id($resource);
-        $read  = 0 !== ($mode & (DriverInterface::STREAM_READ | DriverInterface::STREAM_EXCEPT));
-        $write = 0 !== ($mode & DriverInterface::STREAM_WRITE);
-        if ($read && isset($this->readWaiters[$id])) {
-            throw new \LogicException('Another coroutine is already waiting to read from this stream');
-        }
-        if ($write && isset($this->writeWaiters[$id])) {
-            throw new \LogicException('Another coroutine is already waiting to write to this stream');
-        }
-        if ($read) {
-            $this->readWaiters[$id] = $fiber;
-            if ($mode & DriverInterface::STREAM_READ) {
-                $this->readSet[$id] = $resource;
-            }
-            if ($mode & DriverInterface::STREAM_EXCEPT) {
-                $this->exceptSet[$id] = $resource;
-            }
-        }
-        if ($write) {
-            $this->writeWaiters[$id] = $fiber;
-            $this->writeSet[$id]     = $resource;
-        }
-        $this->streams[$fiber]       = [$resource, $mode, $id];
-        $this->streamResults[$fiber] = 0;
-        $this->pending[$fiber]       = \microtime(true) + $timeout;
-    }
-
-    /**
-     * End a fiber's wait for stream activity.
-     */
-    private function endStreamWait(\Fiber $fiber): void
-    {
-        [, $mode, $id] = $this->streams[$fiber];
-        unset($this->streams[$fiber]);
-        if ($mode & (DriverInterface::STREAM_READ | DriverInterface::STREAM_EXCEPT)) {
-            unset($this->readWaiters[$id], $this->readSet[$id], $this->exceptSet[$id]);
-        }
-        if ($mode & DriverInterface::STREAM_WRITE) {
-            unset($this->writeWaiters[$id], $this->writeSet[$id]);
-        }
-    }
-
-    public function getLastResourceState(\Fiber $fiber): ?int
-    {
-        // FiberState::for($fiber)->log('getLastResourceState');
-        if (!isset($this->streamResults[$fiber])) {
-            throw ExceptionTool::popTrace(new \RuntimeException('No resource state available for ' . Debug::getDebugInfo($fiber)), __FILE__);
-        }
-
-        $result = $this->streamResults[$fiber];
-
-        return $result;
+        return $this->poller;
     }
 
     public function whenTimeElapsed(float $seconds, \Fiber $fiber): void
@@ -784,13 +575,6 @@ final class StreamSelectDriver implements DriverInterface
 
         do {
             $cancelled = false;
-            // May be waiting for IO
-            if (isset($this->streams[$fiber])) {
-                $cancelled = true;
-                $this->endStreamWait($fiber);
-                break;
-            }
-
             // Search for fibers that are delayed
             if ($this->scheduler->contains($fiber)) {
                 $this->scheduler->cancel($fiber);
@@ -938,7 +722,7 @@ final class StreamSelectDriver implements DriverInterface
         $context = $this->contexts[$fiber];
         $this->raiseFlag($fiber);
         unset($this->contexts[$fiber]->getFibers()[$fiber]);
-        unset($this->contexts[$fiber], $this->parentFibers[$fiber], $this->streamResults[$fiber]);
+        unset($this->contexts[$fiber], $this->parentFibers[$fiber]);
         $this->shouldGarbageCollect = true;
 
         if (0 === $context->getFibers()->count() && ($e = $this->getException($fiber))) {

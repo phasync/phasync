@@ -120,7 +120,7 @@ test('TMO-1: awaitFlag, await, channel read and sleep ignore the default timeout
     ]);
 });
 
-test('TMO-1: readable() and stream() apply the default timeout when none is given [DIVERGENCE]', function () {
+test('TMO-1: readable() and writable() apply the default timeout when none is given [DIVERGENCE]', function () {
     // The contract (TMO-1) says every operation waits forever unless the caller passes a
     // timeout. Decision D6 is open.
     $results = tmoWithDefaultTimeout(0.2, static function () {
@@ -130,14 +130,19 @@ test('TMO-1: readable() and stream() apply the default timeout when none is give
 
             return [
                 'readable' => tmoTimed(static fn () => phasync::readable($a))[0],
-                'stream'   => tmoTimed(static fn () => phasync::stream($c, phasync::READABLE))[0],
+                'writable' => tmoTimed(static function () use ($c) {
+                    \stream_set_blocking($c, false);
+                    while (true) {
+                        \fwrite(phasync::writable($c), \str_repeat('x', 65536));
+                    }
+                })[0],
             ];
         });
     });
 
     expect($results)->toBe([
         'readable' => TimeoutException::class,
-        'stream'   => TimeoutException::class,
+        'writable' => TimeoutException::class,
     ]);
 })->group('divergence');
 
