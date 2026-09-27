@@ -104,7 +104,7 @@ namespace phasync {
          * Suspend the current fiber until the event loop becomes empty or will sleeps while
          * waiting for future events.
          */
-        public static function idle(?float $timeout=null): void;
+        public static function idle(float $timeout = PHP_FLOAT_MAX): void;
 
         /**
          * Make any stream resource context switch between coroutines when
@@ -125,7 +125,7 @@ namespace phasync {
          *
          * @return resource Returns the same resource for convenience
          */
-        public static function readable(mixed $resource, ?float $timeout=null): mixed;
+        public static function readable(mixed $resource, float $timeout = PHP_FLOAT_MAX): mixed;
 
         /**
          * Suspend the coroutine until the stream can be written without blocking. One coroutine at
@@ -138,7 +138,7 @@ namespace phasync {
          *
          * @return resource Returns the same resource for convenience
          */
-        public static function writable(mixed $resource, ?float $timeout=null): mixed;
+        public static function writable(mixed $resource, float $timeout = PHP_FLOAT_MAX): mixed;
 
         /**
          * The event loop, for code that parks coroutines ({@see EventLoop::park()}): getSlot(),
@@ -241,19 +241,6 @@ namespace phasync {
          * on the function signature.
          */
         public static function getPromiseHandler(): Closure;
-
-        /**
-         * Set the default timeout for coroutine blocking operations. When
-         * a coroutine blocking operation times out, a TimeoutException
-         * is thrown.
-         */
-        public static function setDefaultTimeout(float $timeout): void;
-
-        /**
-         * Get the configured default timeout, which is used by all coroutine
-         * blocking functions unless a custom timeout is specified.
-         */
-        public static function getDefaultTimeout(): float;
     }
     class io
     {

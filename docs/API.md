@@ -88,7 +88,7 @@ Parameters:
 Yield execution of the current coroutine. This function causes the coroutine to resume at the end of the next tick, and it does not affect the sleep-time between each tick. Yielding should be used whenever you are waiting for some event to occur inside other coroutines, unless `phasync::await()` or `phasync::awaitFlag()` can be used.
 
 
-### `phasync::idle(?float $timeout=null): void`
+### `phasync::idle(float $timeout = PHP_FLOAT_MAX): void`
 
 Pause the execution of the current coroutine until the timeout is reached, or until there are no coroutines that are about to run immediately.
 
@@ -97,7 +97,7 @@ Parameters:
  * $timeout: The maximum number of seconds to wait.
 
 
-### `phasync::readable(mixed $resource, ?float $timeout=null): void`
+### `phasync::readable(mixed $resource, float $timeout = PHP_FLOAT_MAX): mixed`
 
 Suspends the coroutine until the stream resource becomes readable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. One coroutine at a time may wait to read a stream; a second one gets LogicException.
 
@@ -107,7 +107,7 @@ Parameters:
  * $timeout: The max number of seconds to remain suspended.
 
 
-### `phasync::writable(mixed $resource, ?float $timeout=null): void`
+### `phasync::writable(mixed $resource, float $timeout = PHP_FLOAT_MAX): mixed`
 
 Suspends the coroutine until the stream resource becomes writable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. One coroutine at a time may wait to write to a stream; a reader may wait meanwhile.
 
@@ -165,21 +165,7 @@ Parameters:
  * $promiseHandlerFunction: The new promise handler function to use.
 
 
-### `phasync::setDefaultTimeout(float $timeout): void`
-
-Sets the default timeout for all coroutine blocking operations. When a timeout occurs in any suspended coroutine, a `TimeoutException` is thrown for all `phasync::*` functions that have a return value.
-
-Parameters:
-
- * $timeout: Timeout in seconds.
-
-
 ## Utility Functions
-
-### `phasync::getDefaultTimeout(): float`
-
-Returns the currently configured default timeout for blocking operations.
-
 
 ### `phasync::getPromiseHandler(): Closure`
 

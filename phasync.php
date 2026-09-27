@@ -47,16 +47,6 @@ use phasync\WriteChannelInterface;
 final class phasync
 {
     /**
-     * The default timeout in seconds used throughout the library,
-     * unless another timeout is configured via
-     * {@see phasync::setDefaultTimeout()}. Note that the default
-     * timeout only apply for operations that involve external
-     * resources or network operations. Other APIs like
-     * {@see phasync::awaitFlag()} default to a timeout of infinity.
-     */
-    public const DEFAULT_TIMEOUT = 30.0;
-
-    /**
      * This is the number of microseconds that a coroutine can run
      * before it is *volunteeringly* preempted by invoking the
      * {@see phasync::preempt()} function. When the coroutine has
@@ -73,11 +63,6 @@ final class phasync
      * The recursion depth of run statements that are active.
      */
     private static int $runDepth = 0;
-
-    /**
-     * The currently configured timeout in seconds.
-     */
-    private static float $timeout = 30;
 
     /**
      * The currently set driver.
@@ -400,7 +385,6 @@ final class phasync
      */
     public static function await(object $fiberOrPromise, float $timeout = PHP_FLOAT_MAX): mixed
     {
-        $timeout = $timeout ?? self::getDefaultTimeout();
         $startTime = \microtime(true);
         $driver = self::getDriver();
         $currentFiber = $driver->getCurrentFiber();
@@ -625,16 +609,15 @@ final class phasync
     /**
      * Suspend the current fiber until the event loop becomes empty or will sleeps while
      * waiting for future events. The timeout does not raise an exception and instead
-     * resumes the coroutine normally. The default timeout is used.
+     * resumes the coroutine normally.
      */
-    public static function idle(?float $timeout = null): void
+    public static function idle(float $timeout = \PHP_FLOAT_MAX): void
     {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
             return;
         }
-        $timeout = $timeout ?? self::getDefaultTimeout();
         $driver->whenIdle($timeout, $fiber);
         self::suspend();
     }
@@ -669,9 +652,9 @@ final class phasync
      * @throws LogicException   if another coroutine is waiting to read $resource
      * @throws TimeoutException
      */
-    public static function readable(mixed $resource, ?float $timeout = null): mixed
+    public static function readable(mixed $resource, float $timeout = \PHP_FLOAT_MAX): mixed
     {
-        self::waitForStream($resource, false, $timeout ?? self::getDefaultTimeout());
+        self::waitForStream($resource, false, $timeout);
 
         return $resource;
     }
@@ -688,9 +671,9 @@ final class phasync
      * @throws LogicException   if another coroutine is waiting to write to $resource
      * @throws TimeoutException
      */
-    public static function writable(mixed $resource, ?float $timeout = null): mixed
+    public static function writable(mixed $resource, float $timeout = \PHP_FLOAT_MAX): mixed
     {
-        self::waitForStream($resource, true, $timeout ?? self::getDefaultTimeout());
+        self::waitForStream($resource, true, $timeout);
 
         return $resource;
     }
@@ -722,8 +705,8 @@ final class phasync
         $reads   = $write ? [] : [$resource];
         $writes  = $write ? [$resource] : [];
         $excepts = [];
-        $seconds = (int) \min($timeout, 2147483647);
-        if (!\stream_select($reads, $writes, $excepts, $seconds, (int) (($timeout - $seconds) * 1000000))) {
+        $seconds = $timeout < 2147483647 ? (int) $timeout : null; // null: until ready
+        if (!\stream_select($reads, $writes, $excepts, $seconds, null === $seconds ? 0 : (int) (($timeout - $seconds) * 1000000))) {
             throw ExceptionTool::popTrace(new TimeoutException('Timeout'));
         }
     }
@@ -962,29 +945,6 @@ final class phasync
         }
 
         return self::$promiseHandlerFunction;
-    }
-
-    /**
-     * Set the default timeout for coroutine blocking operations. When
-     * a coroutine blocking operation times out, a TimeoutException
-     * is thrown. Note that this timeout applies to operations that:
-     *
-     *  - Involve external resources or network operations
-     *  - Have unpredictable completion times
-     *  - Could potentially block indefinitely due to external factors
-     */
-    public static function setDefaultTimeout(float $timeout): void
-    {
-        self::$timeout = $timeout;
-    }
-
-    /**
-     * Get the configured default timeout, which is used by all coroutine
-     * blocking functions unless a custom timeout is specified.
-     */
-    public static function getDefaultTimeout(): float
-    {
-        return self::$timeout;
     }
 
     /**

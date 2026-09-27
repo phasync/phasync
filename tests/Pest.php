@@ -30,7 +30,6 @@ if (!\function_exists('phasyncResetProcessState')) {
         $set('phasync', 'onEnterCallbacks', []);
         $set('phasync', 'onExitCallbacks', []);
         $set('phasync', 'promiseHandlerFunction', null);
-        phasync::setDefaultTimeout(phasync::DEFAULT_TIMEOUT);
 
         $set('phasync\Internal\Channel', 'blockedCount', 0);
 

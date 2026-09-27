@@ -2,8 +2,6 @@
 
 use phasync\Util\RateLimiter;
 
-phasync::setDefaultTimeout(10);
-
 test('test basic rate limiter functionality', function () {
     expect(function () {
         phasync::run(function () {

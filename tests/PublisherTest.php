@@ -2,8 +2,6 @@
 
 use phasync\Util\WaitGroup;
 
-phasync::setDefaultTimeout(3);
-
 test('the coroutine that created a publisher can subscribe to it and receive what it publishes', function () {
     expect(
         phasync::run(function () {

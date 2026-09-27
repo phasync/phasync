@@ -200,7 +200,7 @@ purpose. (D12)
 ## 6. Timeouts
 
 **TMO-1. No implicit timeouts.** Every blocking operation waits forever unless the caller
-passes a timeout. ⚠️ Commit 8669da8 says IO operations are an exception (D6).
+passes a timeout, IO operations included (D6).
 
 **TMO-2. A timeout throws `TimeoutException` from that operation** and leaves the object
 it was waiting on in a consistent state (same guarantee as CAN-6). ⚠️
@@ -550,7 +550,7 @@ fail on purpose and is reported before it is accepted.
 | CAN-10 *new* | Cancelling twice before the child resumes delivers only the second exception; the first escapes from `run()` even when the child caught the second | Every cancel is handled once, none escapes |
 | TMO-6 *new* | `checkTimeouts()` skips about half of the expired waiters per pass: ten simultaneous 0.2 s timeouts fire at 0.5, 1.0, 1.5 and 2.0 s, and equal timeouts wake in the order 0, 2, 1, 3. Plain PHP shows `SplObjectStorage` skipping every other entry when entries are removed during `foreach`, which matches. Verified in a scratch copy: iterating a snapshot of `pending` makes all ten fire in the same pass. The loop is unchanged since the first release, and nothing in the history says the skipping is deliberate | **Fixed:** all expired waiters fire in the same pass, in registration order |
 | TMO-7 *new* | A zero or negative timeout waits for the next timeout check, so its delay depends on when the last check ran (0 to about 0.5 s) | Fires promptly |
-| TMO-1 | `readable()` and `stream()` apply the default timeout | Infinite unless given (D6) |
+| TMO-1 | `readable()` and `stream()` apply the default timeout | **Fixed:** infinite unless given; the default timeout and `setDefaultTimeout()` are gone (D6) |
 | DLK-1 | Creator-fiber heuristic (100 ms) and an extra `sleep()` in `Channel::read()` and `write()` | Removed |
 | DLK-3 | A global stall is not detected | `DeadlockException` |
 | CHN-1 | An unbuffered `write()` returns before any reader has read, and its timeout is ignored; `isReadyForWrite()` looks inverted | Rendezvous |
@@ -584,7 +584,7 @@ through the public API.
 | D3 | Shape of multiple failures in one scope | first only (Go's `errgroup`); `AggregateException` holding all | `AggregateException`, with the first failure as the primary |
 | D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer):** `ContextInterface` and its storage go. A context is any object, optional on `run()`/`go()`. Callers keep their own `WeakMap<context, service>`, so `getContext()` is the only lookup needed |
 | D5 | Cancellation delivery | once per request (edge); every suspension while cancelled (level, as in Trio) | **Decided (maintainer):** cancellation is one exception thrown into the coroutine. Cleanup is done by catching it. No shielding |
-| D6 | Default timeout for IO operations | infinite everywhere; keep a finite default for IO | Infinite, stated in one place. A finite default is a hidden timer |
+| D6 | Default timeout for IO operations | infinite everywhere; keep a finite default for IO | **Decided (maintainer) and done:** infinite everywhere. `setDefaultTimeout()`, `getDefaultTimeout()` and `DEFAULT_TIMEOUT` are removed. A finite default is a hidden timer |
 | D7 | Choice order when several selectables are ready | argument order; random like Go | **Moot (2.0.0):** `select()` was removed, not fixed; see section 8 |
 | D8 | `RateLimiter` semantics | token bucket; leaky bucket; something else | Write down what it does today, then test it |
 | D9 | `StringBuffer` readers | one reader, enforced; several allowed | One reader, enforced by a cheap check |

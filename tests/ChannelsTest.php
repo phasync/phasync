@@ -2,8 +2,6 @@
 
 use phasync\ChannelException;
 
-phasync::setDefaultTimeout(1);
-
 test('basic deadlock protection in phasync', function () {
     expect(function () {
         phasync::run(function () {

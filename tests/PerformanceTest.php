@@ -1,7 +1,5 @@
 <?php
 
-phasync::setDefaultTimeout(4);
-
 test('performance and scalability', function () {
     $startTime = \microtime(true);
 

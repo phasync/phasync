@@ -2,8 +2,6 @@
 
 use phasync\Services\CurlMulti;
 
-phasync::setDefaultTimeout(10);
-
 test('test basic curl multi functionality', function () {
     expect(function () {
         phasync::run(function () {

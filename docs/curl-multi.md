@@ -28,9 +28,6 @@ To run asynchronous cURL requests using `CurlMulti`, you need to use the `CurlMu
 
 use phasync\Services\CurlMulti;
 
-// Set the default timeout for phasync operations
-phasync::setDefaultTimeout(10);
-
 // Run the example within a phasync context
 phasync::run(function () {
     // Create a coroutine for the first cURL request

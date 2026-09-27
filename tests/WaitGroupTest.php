@@ -2,8 +2,6 @@
 
 use phasync\Util\WaitGroup;
 
-phasync::setDefaultTimeout(10);
-
 test('test WaitGroup add and done functionality', function () {
     expect(function () {
         phasync::run(function () {

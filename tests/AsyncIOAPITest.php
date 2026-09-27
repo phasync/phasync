@@ -1,7 +1,5 @@
 <?php
 
-phasync::setDefaultTimeout(10);
-
 test('test readable stream within coroutine', function () {
     expect(function () {
         phasync::run(function () {

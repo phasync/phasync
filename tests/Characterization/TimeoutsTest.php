@@ -39,77 +39,52 @@ if (!\function_exists('tmoPair')) {
 
         return [$outcome, \microtime(true) - $start];
     }
-
-    /** Set the default timeout for the duration of $fn, restoring it afterwards. */
-    function tmoWithDefaultTimeout(float $timeout, Closure $fn): mixed
-    {
-        $original = phasync::getDefaultTimeout();
-        phasync::setDefaultTimeout($timeout);
-        try {
-            return $fn();
-        } finally {
-            phasync::setDefaultTimeout($original);
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // TMO-1: implicit timeouts
 // ---------------------------------------------------------------------------
 
-test('TMO-1: the default timeout is 30 seconds', function () {
-    expect(phasync::DEFAULT_TIMEOUT)->toBe(30.0);
-    // Other test files change the ambient default while loading, so read the pristine value
-    // in a fresh process.
-    $autoload = \dirname(__DIR__, 2) . '/vendor/autoload.php';
-    $initial  = \trim((string) \shell_exec(
-        \escapeshellarg(\PHP_BINARY) . ' -r ' . \escapeshellarg('require ' . \var_export($autoload, true) . '; echo phasync::getDefaultTimeout();')
-    ));
-    expect((float) $initial)->toBe(30.0);
-});
+test('TMO-1: without a timeout, awaitFlag, await, channel read and sleep wait until done', function () {
+    $results = phasync::run(static function () {
+        $flag = new stdClass();
+        phasync::channel($r, $w);
+        $sleeper = phasync::go(static fn () => phasync::sleep(0.6));
 
-test('TMO-1: awaitFlag, await, channel read and sleep ignore the default timeout', function () {
-    $results = tmoWithDefaultTimeout(0.2, static function () {
-        return phasync::run(static function () {
-            $flag = new stdClass();
-            phasync::channel($r, $w);
-            $sleeper = phasync::go(static fn () => phasync::sleep(0.6));
+        $waiters = [
+            'awaitFlag'    => phasync::go(static function () use ($flag) {
+                phasync::awaitFlag($flag);
 
-            $waiters = [
-                'awaitFlag'    => phasync::go(static function () use ($flag) {
-                    phasync::awaitFlag($flag);
+                return 'ok';
+            }),
+            'await'        => phasync::go(static function () use ($sleeper) {
+                phasync::await($sleeper);
 
-                    return 'ok';
-                }),
-                'await'        => phasync::go(static function () use ($sleeper) {
-                    phasync::await($sleeper);
-
-                    return 'ok';
-                }),
-                'channel read' => phasync::go(static fn () => $r->read()),
-                'sleep'        => phasync::go(static function () {
-                    phasync::sleep(0.6);
-
-                    return 'ok';
-                }),
-            ];
-            phasync::go(static function () use ($flag, $w) {
+                return 'ok';
+            }),
+            'channel read' => phasync::go(static fn () => $r->read()),
+            'sleep'        => phasync::go(static function () {
                 phasync::sleep(0.6);
-                phasync::raiseFlag($flag);
-                $w->write('late');
-            });
 
-            $results = [];
-            foreach ($waiters as $name => $fiber) {
-                try {
-                    $results[$name] = phasync::await($fiber);
-                } catch (Throwable $e) {
-                    $results[$name] = $e::class;
-                }
-            }
-
-            return $results;
+                return 'ok';
+            }),
+        ];
+        phasync::go(static function () use ($flag, $w) {
+            phasync::sleep(0.6);
+            phasync::raiseFlag($flag);
+            $w->write('late');
         });
+
+        $results = [];
+        foreach ($waiters as $name => $fiber) {
+            try {
+                $results[$name] = phasync::await($fiber);
+            } catch (Throwable $e) {
+                $results[$name] = $e::class;
+            }
+        }
+
+        return $results;
     });
 
     expect($results)->toBe([
@@ -120,31 +95,31 @@ test('TMO-1: awaitFlag, await, channel read and sleep ignore the default timeout
     ]);
 });
 
-test('TMO-1: readable() and writable() apply the default timeout when none is given [DIVERGENCE]', function () {
-    // The contract (TMO-1) says every operation waits forever unless the caller passes a
-    // timeout. Decision D6 is open.
-    $results = tmoWithDefaultTimeout(0.2, static function () {
-        return phasync::run(static function () {
-            [$a, $keepA] = tmoPair();
-            [$c, $keepC] = tmoPair();
-
-            return [
-                'readable' => tmoTimed(static fn () => phasync::readable($a))[0],
-                'writable' => tmoTimed(static function () use ($c) {
-                    \stream_set_blocking($c, false);
-                    while (true) {
-                        \fwrite(phasync::writable($c), \str_repeat('x', 65536));
-                    }
-                })[0],
-            ];
+test('TMO-1: without a timeout, readable() and writable() wait until the stream is ready', function () {
+    $results = phasync::run(static function () {
+        [$a, $b] = tmoPair();
+        [$c, $d] = tmoPair();
+        \stream_set_blocking($c, false);
+        while (\fwrite($c, \str_repeat('x', 65536)) > 0) {
+            // fill the socket buffer, so that $c is not writable
+        }
+        phasync::go(static function () use ($b, $d) {
+            phasync::sleep(0.6);
+            \fwrite($b, 'late');
+            \stream_set_blocking($d, false);
+            while ('' !== (string) \fread($d, 65536)) {
+                // drain, so that $c is writable again
+            }
         });
+
+        return [
+            'readable' => tmoTimed(static fn () => phasync::readable($a))[0],
+            'writable' => tmoTimed(static fn () => phasync::writable($c))[0],
+        ];
     });
 
-    expect($results)->toBe([
-        'readable' => TimeoutException::class,
-        'writable' => TimeoutException::class,
-    ]);
-})->group('divergence');
+    expect($results)->toBe(['readable' => 'ok', 'writable' => 'ok']);
+});
 
 // ---------------------------------------------------------------------------
 // TMO-2: a timeout throws TimeoutException and leaves things consistent
