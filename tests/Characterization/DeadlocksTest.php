@@ -262,7 +262,7 @@ test('DLK-2: a three-coroutine await cycle throws LogicException in the last cor
 
 test('DLK-2: a two-channel cross deadlock (A fills X waiting for B, B fills Y waiting for A) is not detected [DIVERGENCE]', function () {
     // The contract (DLK-2) says await cycles are detected "when they form". That is true
-    // for phasync::await($fiber) chains (StreamSelectDriver's flagGraph, which only tracks
+    // for phasync::await($fiber) chains (EventLoop's flagGraph, which only tracks
     // \Fiber-typed flags), but Channel blocks on its own private \stdClass flag -- never a
     // \Fiber -- so a cycle mediated entirely through channels is invisible to that detector.
     // Nor does the creator-fiber heuristic (DLK-1) catch it: neither A nor B is the channel's

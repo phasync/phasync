@@ -1,32 +1,27 @@
 <?php
 
-namespace phasync\Drivers;
+namespace phasync;
 
 use Fiber;
-use phasync\CancelledException;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
 use phasync\Context\ServiceContext;
-use phasync\Debug;
+use phasync\Drivers\DriverInterface;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
 use phasync\Internal\Scheduler;
-use phasync\PollerInterface;
-use phasync\StreamSelectPoller;
-use phasync\TimeoutException;
 use WeakMap;
 
-final class StreamSelectDriver implements DriverInterface
+/**
+ * phasync's event loop: runs coroutines, and waits for timers, flags and (through its poller)
+ * streams.
+ */
+final class EventLoop implements DriverInterface
 {
     /**
-     * errno for a system call interrupted by a signal, as stream_select() reports it in its
-     * warning ("Unable to select [4]: Interrupted system call").
-     */
-
-    /**
      * Holds the queue of fibers that will be activated on the next
-     * invocation of {@see StreamSelectDriver::tick()}.
+     * invocation of {@see EventLoop::tick()}.
      *
      * @var \SplQueue<\Fiber>
      */
@@ -163,7 +158,7 @@ final class StreamSelectDriver implements DriverInterface
     private PollerInterface $poller;
 
     /**
-     * Create a new StreamSelectDriver instance.
+     * Create a new EventLoop instance.
      */
     public function __construct()
     {

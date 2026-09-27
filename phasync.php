@@ -5,7 +5,7 @@ use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
 use phasync\Debug;
 use phasync\Drivers\DriverInterface;
-use phasync\Drivers\StreamSelectDriver;
+use phasync\EventLoop;
 use phasync\Internal\AsyncStream;
 use phasync\Internal\Channel;
 use phasync\Internal\ExceptionTool;
@@ -1058,7 +1058,7 @@ final class phasync
     private static function getDriver(): DriverInterface
     {
         if (null === self::$driver) {
-            self::$driver = new StreamSelectDriver();
+            self::$driver = new EventLoop();
             self::$pid = posix_getpid();
         }
 
