@@ -96,6 +96,20 @@ final class StreamSelectDriver implements DriverInterface
     private \WeakMap $flaggedFibers;
 
     /**
+     * The coroutine waiting for each poller flag, by the flag's object id, and the reverse. The
+     * poller's flags never reach other code and outlive their waits, so they need none of the
+     * bookkeeping of userland flags ({@see self::$flaggedFibers}).
+     *
+     * @var array<int, \Fiber>
+     */
+    private array $pollWaiters = [];
+
+    /**
+     * @var array<int, int>
+     */
+    private array $pollWaiterFlags = [];
+
+    /**
      * The time of the last timeout check iteration. This value is used
      * because checking for timeouts involves a scan through all blocked
      * fibers and is slightly expensive.
@@ -182,7 +196,9 @@ final class StreamSelectDriver implements DriverInterface
         $this->idleFlag              = new \stdClass();
         $this->afterNextFlag         = new \stdClass();
         $this->serviceContext        = new ServiceContext();
-        $this->poller                = new StreamSelectPoller(\phasync::awaitFlag(...), $this->raiseFlag(...));
+        $this->poller                = new StreamSelectPoller($this->awaitPollFlag(...), $this->raisePollFlag(...));
+        $this->pollWaiters           = [];
+        $this->pollWaiterFlags       = [];
         $this->callbackQueue         = new \SplQueue();
         \gc_collect_cycles();
         $this->shouldGarbageCollect = true;
@@ -205,6 +221,7 @@ final class StreamSelectDriver implements DriverInterface
             'scheduler'             => $this->scheduler->count(),
             'flaggedFibers'         => $this->flaggedFibers->count(),
             'flagGraph'             => $this->flagGraph->count(),
+            'pollWaiters'           => \count($this->pollWaiters),
         ];
 
         return $result;
@@ -516,6 +533,47 @@ final class StreamSelectDriver implements DriverInterface
         $this->whenFlagged($this->idleFlag, $timeout, $fiber);
     }
 
+    /**
+     * Suspend the current coroutine until the poller raises $flag.
+     */
+    private function awaitPollFlag(object $flag, float $timeout): void
+    {
+        $fiber                                            = $this->currentFiber;
+        $flagId                                           = \spl_object_id($flag);
+        $this->pollWaiters[$flagId]                       = $fiber;
+        $this->pollWaiterFlags[\spl_object_id($fiber)]    = $flagId;
+        $this->pending[$fiber]                            = \microtime(true) + $timeout;
+        try {
+            \Fiber::suspend();
+        } catch (\Throwable $e) {
+            // As phasync::suspend(): the exception gets a trace from here
+            try {
+                $className = \get_class($e);
+                throw new $className($e->getMessage(), $e->getCode(), $e);
+            } catch (\Throwable) {
+                throw $e;
+            }
+        }
+    }
+
+    /**
+     * Resume the coroutine waiting for $flag, if any: its wait may have been cancelled or timed
+     * out in this tick, before the poller saw the stream ready.
+     */
+    private function raisePollFlag(object $flag): int
+    {
+        $flagId = \spl_object_id($flag);
+        if (!isset($this->pollWaiters[$flagId])) {
+            return 0;
+        }
+        $fiber = $this->pollWaiters[$flagId];
+        unset($this->pollWaiters[$flagId], $this->pollWaiterFlags[\spl_object_id($fiber)]);
+        $this->pending[$fiber] = \PHP_FLOAT_MAX;
+        $this->queue->enqueue($fiber);
+
+        return 1;
+    }
+
     public function getPoller(): PollerInterface
     {
         return $this->poller;
@@ -575,6 +633,14 @@ final class StreamSelectDriver implements DriverInterface
 
         do {
             $cancelled = false;
+            // Waiting for the poller
+            $fiberId = \spl_object_id($fiber);
+            if (isset($this->pollWaiterFlags[$fiberId])) {
+                unset($this->pollWaiters[$this->pollWaiterFlags[$fiberId]], $this->pollWaiterFlags[$fiberId]);
+                $cancelled = true;
+                break;
+            }
+
             // Search for fibers that are delayed
             if ($this->scheduler->contains($fiber)) {
                 $this->scheduler->cancel($fiber);

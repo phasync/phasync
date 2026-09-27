@@ -36,21 +36,22 @@ final class StreamSelectPoller implements PollerInterface
 
     /**
      * Flags not in use: $spareFlags[0 .. $spareCount - 1]. Flags never leave the poller and the
-     * event loop, so they are reused, and slots are overwritten, never unset: as many flags as
-     * were needed once may be needed again.
+     * event loop, so they are reused. Slots from $spareCount up are stale and never read; they
+     * are overwritten, not unset.
      *
      * @var list<PollFlag>
      */
     private array $spareFlags = [];
     private int $spareCount   = 0;
 
-    private readonly bool $useExtSelect;
+    /** stream_select(), or phasync-ext's when loaded */
+    private readonly \Closure $select;
 
     public function __construct(
         private readonly \Closure $awaitFlag,
         private readonly \Closure $raiseFlag,
     ) {
-        $this->useExtSelect = \function_exists('phasync\ext\stream_select');
+        $this->select = \function_exists('phasync\ext\stream_select') ? \phasync\ext\stream_select(...) : \stream_select(...);
     }
 
     public function poll(float $timeout): void
@@ -76,9 +77,7 @@ final class StreamSelectPoller implements PollerInterface
         try {
             $seconds      = (int) $timeout;
             $microseconds = (int) (($timeout - $seconds) * 1000000);
-            $result       = $this->useExtSelect
-                ? \phasync\ext\stream_select($reads, $writes, $excepts, $seconds, $microseconds)
-                : \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
+            $result       = ($this->select)($reads, $writes, $excepts, $seconds, $microseconds);
         } catch (\TypeError|\ValueError $e) {
             // A stream was closed while waited for (ValueError when no open stream is left to
             // select on). Rare, so only now look for it: a closed stream is ready.
