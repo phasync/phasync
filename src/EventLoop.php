@@ -6,7 +6,6 @@ use Fiber;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
 use phasync\Context\ServiceContext;
-use phasync\Drivers\DriverInterface;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
@@ -17,7 +16,7 @@ use WeakMap;
  * phasync's event loop: runs coroutines, and waits for timers, flags and (through its poller)
  * streams.
  */
-final class EventLoop implements DriverInterface
+final class EventLoop implements \Countable
 {
     /**
      * Holds the queue of fibers that will be activated on the next
@@ -168,6 +167,9 @@ final class EventLoop implements DriverInterface
         $this->clear();
     }
 
+    /**
+     * Clear the event loop driver, removing any scheduled fibers etc.
+     */
     public function clear(): void
     {
         if ($fiber = $this->getCurrentFiber()) {
@@ -230,6 +232,9 @@ final class EventLoop implements DriverInterface
         return $this->pending->count();
     }
 
+    /**
+     * Run the fibers that are ready to resume work.
+     */
     public function tick(): void
     {
         $now   = \microtime(true);
@@ -361,12 +366,24 @@ final class EventLoop implements DriverInterface
         }
     }
 
+    /**
+     * Create a coroutine that will run independently of contexts. It will run in the event
+     * loop until it completes its work. The intended use case is to provide services for
+     * many other fibers, such as curl_multi_exec() invocations.
+     */
     public function runService(\Closure $closure): void
     {
         $fiber = $this->create(closure: $closure, context: $this->serviceContext);
         unset($this->parentFibers[$fiber]);
     }
 
+    /**
+     * Create a coroutine. If no `$context` is provided, the new Fiber will inherit the
+     * context of the current coroutine, or receive a new DefaultContext instance.
+     *
+     * This function must not throw exceptions; the exception must be associated with the
+     * returned Fiber, and be thrown when the coroutine is awaited.
+     */
     public function create(\Closure $closure, array $args = [], ?ContextInterface $context = null): \Fiber
     {
         if (null !== $context) {
@@ -417,11 +434,18 @@ final class EventLoop implements DriverInterface
         }
     }
 
+    /**
+     * Returns the ContextInterface instance associated with the current fiber.
+     */
     public function getContext(\Fiber $fiber): ?ContextInterface
     {
         return $this->contexts[$fiber] ?? null;
     }
 
+    /**
+     * Raise a flag to enable any fiber that is scheduled to activate on
+     * this flag via {@see self::whenFlagged()}.
+     */
     public function raiseFlag(object $flag): int
     {
         if (!isset($this->flaggedFibers[$flag])) {
@@ -437,6 +461,9 @@ final class EventLoop implements DriverInterface
         return $count;
     }
 
+    /**
+     * Add a Fiber to the event loop.
+     */
     public function enqueue(\Fiber $fiber): void
     {
         if ($fiber->isTerminated()) {
@@ -447,6 +474,13 @@ final class EventLoop implements DriverInterface
         $this->queue->enqueue($fiber);
     }
 
+    /**
+     * Add a Fiber to the event loop with an exception to be thrown.
+     *
+     * @internal
+     *
+     * @param \Throwable|null $exception
+     */
     public function enqueueWithException(\Fiber $fiber, \Throwable $exception): void
     {
         if ($fiber->isTerminated()) {
@@ -457,6 +491,11 @@ final class EventLoop implements DriverInterface
         $this->enqueue($fiber);
     }
 
+    /**
+     * Activate the Fiber immediately after the next tick. This will
+     * not affect the system sleep interval and is useful for reacting
+     * to activity that may have occurred in other Fiber instances.
+     */
     public function afterNext(\Fiber $fiber): void
     {
         if (isset($this->pending[$fiber])) {
@@ -466,6 +505,12 @@ final class EventLoop implements DriverInterface
         $this->whenFlagged($this->afterNextFlag, \PHP_FLOAT_MAX, $fiber);
     }
 
+    /**
+     * Schedule the Fiber instance to run when the object is flagged
+     * {@see self::raiseFlag()}
+     *
+     * @param float $timeout The number of seconds to allow the fiber to be suspended. Will raise a TimeoutException.
+     */
     public function whenFlagged(object $flag, float $timeout, \Fiber $fiber): void
     {
         if (isset($this->pending[$fiber])) {
@@ -517,11 +562,21 @@ final class EventLoop implements DriverInterface
         return false;
     }
 
+    /**
+     * Schedule a callback to be invoked after the current (or next) tick, outside of the fiber.
+     */
     public function defer(\Closure $callback): void
     {
         $this->callbackQueue->enqueue($callback);
     }
 
+    /**
+     * Activate the Fiber when there is no immediately pending activity or when the timeout has
+     * occurred whichever comes first. The timeout should not throw a TimeoutException in the
+     * coroutine.
+     *
+     * @param float $timeout The number of seconds to allow the fiber to be suspended. Will raise a TimeoutException.
+     */
     public function whenIdle(float $timeout, \Fiber $fiber): void
     {
         if (isset($this->pending[$fiber])) {
@@ -589,11 +644,17 @@ final class EventLoop implements DriverInterface
         return true;
     }
 
+    /**
+     * The poller that coroutines wait for streams with.
+     */
     public function getPoller(): PollerInterface
     {
         return $this->poller;
     }
 
+    /**
+     * Schedule the Fiber instance to run after the specified number of seconds.
+     */
     public function whenTimeElapsed(float $seconds, \Fiber $fiber): void
     {
         if (isset($this->pending[$fiber])) {
@@ -706,10 +767,7 @@ final class EventLoop implements DriverInterface
     }
 
     /**
-     * Gets the exception for a terminated fiber and returns the ExceptionHolder instance
-     * to the pool for reuse.
-     *
-     * {@inheritdoc}
+     * Returns the unhandled exception thrown by a Fiber.
      */
     public function getException(\Fiber $fiber): ?\Throwable
     {

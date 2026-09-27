@@ -4,10 +4,6 @@ The *phasync* framework is a fiber based coroutine library for PHP, that facilit
 namespace phasync {
     final class phasync
     {
-        public const READABLE = 1;
-        public const WRITABLE = 2;
-        public const EXCEPT   = 4;
-
         /**
          * Register a coroutine/Fiber to run in the event loop and await the result.
          * Running a coroutine this way also ensures that the event loop will run
@@ -65,7 +61,7 @@ namespace phasync {
          * Cancel a suspended coroutine. This will throw an exception inside the
          * coroutine. If the coroutine handles the exception, it has the opportunity
          * to clean up any resources it is using. The coroutine MUST be suspended
-         * using either {@see phasync::await()}, {@see phasync::sleep()}, {@see phasync::stream()}
+         * using either {@see phasync::await()}, {@see phasync::sleep()}, {@see phasync::readable()}
          * or {@see phasync::awaitFlag()}.
          *
          * @throws RuntimeException if the fiber is not currently blocked
@@ -119,8 +115,8 @@ namespace phasync {
         public static function io($resource);
 
         /**
-         * Utility function to suspend the current fiber until a stream resource becomes readable,
-         * by wrapping `phasync::stream($resource, $timeout, phasync::READABLE)`.
+         * Suspend the coroutine until the stream can be read without blocking. One coroutine at a
+         * time may wait to read a stream.
          *
          * @param resource $resource
          *
@@ -132,8 +128,8 @@ namespace phasync {
         public static function readable(mixed $resource, ?float $timeout=null): mixed;
 
         /**
-         * Utility function to suspend the current fiber until a stream resource becomes readable,
-         * by wrapping `phasync::stream($resource, $timeout, phasync::WRITABLE)`.
+         * Suspend the coroutine until the stream can be written without blocking. One coroutine at
+         * a time may wait to write to a stream.
          *
          * @param resource $resource
          *
@@ -145,16 +141,12 @@ namespace phasync {
         public static function writable(mixed $resource, ?float $timeout=null): mixed;
 
         /**
-         * Block the coroutine until the stream resource becomes readable, writable or raises
-         * an exception or any combination of these.
+         * The event loop, for code that parks coroutines ({@see EventLoop::park()}): getSlot(),
+         * park($slot, $timeout), unpark($slot): bool. What is parked must be unparked.
          *
-         * The bitmaps use self::READABLE, self::WRITABLE and self::EXCEPT.
-         *
-         * @param int $mode a bitmap indicating which events on the resource that should resume the coroutine
-         *
-         * @return int A bitmap indicating which events on the resource that was raised
+         * @throws LogicException outside phasync::run()
          */
-        public static function stream(mixed $resource, int $mode = self::READABLE | self::WRITABLE, ?float $timeout=null): int;
+        public static function getLoop(): EventLoop;
 
         /**
          * Creates a channel pair which can be used to communicate between multiple
@@ -249,15 +241,6 @@ namespace phasync {
          * on the function signature.
          */
         public static function getPromiseHandler(): Closure;
-
-        /**
-         * Set the driver implementation for the event loop. This must be
-         * configured before this API is used and will throw a LogicException
-         * if the driver has been implicitly set.
-         *
-         * @throws LogicException
-         */
-        public static function setDriver(DriverInterface $driver): void;
 
         /**
          * Set the default timeout for coroutine blocking operations. When

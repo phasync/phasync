@@ -5,7 +5,7 @@ namespace phasync\Internal;
 use Fiber;
 use phasync\CancelledException;
 use phasync\Debug;
-use phasync\Drivers\DriverInterface;
+use phasync\EventLoop;
 use WeakMap;
 
 /**
@@ -23,9 +23,9 @@ final class Flag implements ObjectPoolInterface, \Countable
 
     private static array $allFibers = [];
     private int $id;
-    private DriverInterface $driver;
+    private EventLoop $driver;
 
-    public static function create(DriverInterface $driver): Flag
+    public static function create(EventLoop $driver): Flag
     {
         $instance = self::popInstance();
         if ($instance) {
@@ -37,7 +37,7 @@ final class Flag implements ObjectPoolInterface, \Countable
         return new Flag($driver);
     }
 
-    private function __construct(DriverInterface $driver)
+    private function __construct(EventLoop $driver)
     {
         $this->id                   = \spl_object_id($this);
         $this->driver               = $driver;

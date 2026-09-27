@@ -30,7 +30,7 @@ pipes, and `StringBuffer`.
 Out of scope, and expected to live in other packages: worker pools and cross-process
 proxies, serialization, PSR-7 implementations, FastCGI and WebSocket protocol code,
 database drivers, HTTP servers. Windows support is deferred, not excluded: the seams
-that keep it possible are `DriverInterface` and `Process::run()`.
+that keep it possible are `PollerInterface` and `Process::run()`.
 
 `StringBuffer` is in core on purpose. It is a protocol-level byte buffer that must stay
 as fast as PHP allows, and it may later use shortcuts that a decoupled package could not

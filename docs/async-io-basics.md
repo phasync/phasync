@@ -2,7 +2,7 @@
 
 [Back to README.md](../README.md)
 
-The `phasync` framework provides robust support for asynchronous I/O operations, enabling efficient handling of streams within coroutines and across the entire application. This document explains how asynchronous I/O is managed in `phasync`, detailing the use of `phasync::readable()`, `phasync::writable()`, and `phasync::stream()` functions.
+The `phasync` framework provides robust support for asynchronous I/O operations, enabling efficient handling of streams within coroutines and across the entire application. This document explains how asynchronous I/O is managed in `phasync`, detailing the use of the `phasync::readable()` and `phasync::writable()` functions.
 
 ## Functions Overview
 
@@ -56,39 +56,6 @@ phasync::run(function () {
 
     $data = phasync::go(function () use ($fp) {
         rewind($fp);
-        return fread($fp, 1024);
-    });
-
-    $result = phasync::await($data);
-    echo $result; // Outputs: test data
-
-    fclose($fp);
-});
-```
-
-### `phasync::stream(resource $stream, int $mode = phasync::READABLE | phasync::WRITABLE, ?float $timeout = DEFAULT_TIMEOUT): int`
-
-This function enables monitoring of streams for `phasync::READABLE`, `phasync::WRITABLE`, and `phasync::EXCEPT` states. Any number of coroutines can monitor the same resource, but only one coroutine can perform the actual read or write operation.
-
-**Parameters:**
-- `resource $stream`: The stream resource to monitor.
-- `int $mode`: The mode to monitor (`phasync::READABLE`, `phasync::WRITABLE`, `phasync::EXCEPT`).
-- `float $timeout`: Optional timeout for the operation.
-
-**Example:**
-
-```php
-<?php
-
-use phasync;
-
-phasync::run(function () {
-    $fp = fopen('php://temp', 'w+');
-    fwrite($fp, 'test data');
-    rewind($fp);
-
-    $data = phasync::go(function () use ($fp) {
-        phasync::stream($fp, phasync::READABLE);
         return fread($fp, 1024);
     });
 
@@ -239,4 +206,4 @@ By leveraging `phasync::readable()` and `phasync::writable()` in existing applic
 
 ## Conclusion
 
-The `phasync` framework provides powerful asynchronous I/O capabilities through its `phasync::readable()`, `phasync::writable()`, and `phasync::stream()` functions. These functions allow you to efficiently manage I/O operations within coroutines, ensuring non-blocking behavior and robust handling of streams. By integrating these functions into existing applications, developers can build support for concurrency with minimal impact on the overall operation of the application. Understanding and utilizing these functions is key to building highly responsive and scalable applications.
+The `phasync` framework provides powerful asynchronous I/O capabilities through its `phasync::readable()` and `phasync::writable()` functions. These functions allow you to efficiently manage I/O operations within coroutines, ensuring non-blocking behavior and robust handling of streams. By integrating these functions into existing applications, developers can build support for concurrency with minimal impact on the overall operation of the application. Understanding and utilizing these functions is key to building highly responsive and scalable applications.

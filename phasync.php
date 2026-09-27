@@ -4,7 +4,6 @@ use phasync\CancelledException;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
 use phasync\Debug;
-use phasync\Drivers\DriverInterface;
 use phasync\EventLoop;
 use phasync\Internal\AsyncStream;
 use phasync\Internal\Channel;
@@ -83,7 +82,7 @@ final class phasync
     /**
      * The currently set driver.
      */
-    private static ?DriverInterface $driver = null;
+    private static ?EventLoop $driver = null;
 
     private static ?int $pid = null;
 
@@ -966,22 +965,6 @@ final class phasync
     }
 
     /**
-     * Set the driver implementation for the event loop. This must be
-     * configured before this API is used and will throw a LogicException
-     * if the driver has been implicitly set.
-     *
-     * @throws LogicException
-     */
-    public static function setDriver(DriverInterface $driver): void
-    {
-        if (null !== self::$driver) {
-            throw new LogicException('The driver must be set before any async functionality is used');
-        }
-
-        self::$driver = $driver;
-    }
-
-    /**
      * Set the default timeout for coroutine blocking operations. When
      * a coroutine blocking operation times out, a TimeoutException
      * is thrown. Note that this timeout applies to operations that:
@@ -1068,9 +1051,9 @@ final class phasync
     }
 
     /**
-     * Returns the driver instance for the application.
+     * The event loop, made at first use.
      */
-    private static function getDriver(): DriverInterface
+    private static function getDriver(): EventLoop
     {
         if (null === self::$driver) {
             self::$driver = new EventLoop();

@@ -8,7 +8,7 @@ The phasync library provides a comprehensive API for building and managing async
 
  * Fibers: Lightweight threads that allow for non-blocking execution.
  * ContextInterface: Manages groups of related fibers, providing a mechanism to group and control coroutine behavior collectively.
- * DriverInterface: The backend mechanism that handles the scheduling and execution of fibers.
+ * EventLoop: runs coroutines, and waits for timers, flags and (through its poller) streams.
 
 ## Core Functions
 
@@ -99,7 +99,7 @@ Parameters:
 
 ### `phasync::readable(mixed $resource, ?float $timeout=null): void`
 
-Suspends the coroutine until the stream resource becomes readable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. This is equivalent to using `phasync::stream($resource, $timeout, phasync::READABLE)`.
+Suspends the coroutine until the stream resource becomes readable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. One coroutine at a time may wait to read a stream; a second one gets LogicException.
 
 Parameters:
 
@@ -109,23 +109,12 @@ Parameters:
 
 ### `phasync::writable(mixed $resource, ?float $timeout=null): void`
 
-Suspends the coroutine until the stream resource becomes writable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. This is equivalent to using `phasync::stream($resource, $timeout, phasync::WRITABLE)`.
+Suspends the coroutine until the stream resource becomes writable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. One coroutine at a time may wait to write to a stream; a reader may wait meanwhile.
 
 Parameters:
 
  * $resource: The stream resource to monitor
  * $timeout: The max number of seconds to remain suspended.
-
-
-### `phasync::stream(mixed $resource, int $mode, float $timeout = null): void`
-
-Suspends the coroutine until the specified stream resource becomes available for reading, writing, or until an exception occurs on the stream.
-
-Parameters:
-
- * $resource: The stream resource to monitor.
- * $mode: The type of IO-event to await (phasync::READABLE, phasync::WRITABLE, or phasync::EXCEPT).
- * $timeout: Timeout in seconds.
 
 
 ### `phasync::raiseFlag(object $signal): int`
@@ -145,15 +134,20 @@ Parameters:
  * $signal: The flag object to wait for.
  * $timeout: Timeout in seconds.
 
+### `phasync::getLoop(): EventLoop`
+
+The event loop, inside `phasync::run()` (LogicException outside it). Its low-level wait is for code that owns its waits (pollers, services, channels), and is lighter than a flag:
+
+```php
+$loop = phasync::getLoop();
+$slot = $loop->getSlot();        // a slot number no one else has
+$loop->park($slot, $timeout);    // suspend until unparked; TimeoutException, or CancelledException
+$loop->unpark($slot);            // from elsewhere: true if it resumed a coroutine, false if the slot was vacant
+```
+
+What is parked must be unparked, or it waits until its timeout: nothing notices a forgotten slot, as the garbage collector notices a forgotten flag. Flags are for objects other code holds; slots are for waits inside one component.
+
 ## Configuration Functions
-
-### `phasync::setDriver(DriverInterface $driver): void`
-
-Sets the driver that powers the event loop and task scheduling. This must be set before any asynchronous operations are performed.
-
-Parameters:
-
- * $driver: The driver to set.
 
 
 ### `phasync::setPromiseHandler(Closure $promiseHandlerFunction): void`
@@ -198,4 +192,4 @@ The API is designed to be used with PHP's native Fiber class available from PHP 
 
 Exception handling is crucial, especially in asynchronous operations, to ensure that all errors are managed and do not lead to unhandled exceptions or resource leaks.
 
-This API provides a robust framework for building efficient and scalable asynchronous PHP applications, allowing developers to handle complex asynchronous workflows with ease.
+This API provides a robust framework for building efficient and scalable asynchronous PHP applications, allowing developers to handle complex asynchronous workflows with ease.
