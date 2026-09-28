@@ -2,6 +2,10 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha14 (2026-09-28)
+
+- The Io\\Poll poller selection, which slipped into alpha13 unreleased, is taken out again.
+
 ## 2.0.0-alpha13 (2026-09-28)
 
 ### Fixed
