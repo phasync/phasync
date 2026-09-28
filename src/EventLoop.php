@@ -651,6 +651,28 @@ final class EventLoop implements \Countable
     }
 
     /**
+     * Run $fn in the current coroutine as a coroutine of $context: while $fn runs, $context is the
+     * coroutine's context and counts it among its coroutines; afterwards the coroutine has its own
+     * context again. Coroutines $fn starts belong to $context and keep running after $fn returns.
+     */
+    public function withContext(\Closure $fn, ContextInterface $context): mixed
+    {
+        $fiber = $this->currentFiber;
+        $context->activate();
+        $previous                     = $this->contexts[$fiber];
+        $this->contexts[$fiber]       = $context;
+        $this->currentContext         = $context;
+        $context->getFibers()[$fiber] = true;
+        try {
+            return $fn();
+        } finally {
+            unset($context->getFibers()[$fiber]);
+            $this->contexts[$fiber] = $previous;
+            $this->currentContext   = $previous;
+        }
+    }
+
+    /**
      * The poller that coroutines wait for streams with.
      */
     public function getPoller(): PollerInterface|ext\Poller

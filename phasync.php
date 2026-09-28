@@ -780,6 +780,26 @@ final class phasync
     }
 
     /**
+     * Run $fn in the current coroutine as if it were a coroutine of $context, without starting a
+     * coroutine: coroutines $fn starts belong to $context and keep running after $fn returns.
+     * Returns what $fn returns. Unlike phasync::run(), it does not wait for them; unlike
+     * phasync::go(), it costs no coroutine of its own. A server gives each request a context of its
+     * own this way.
+     *
+     * @throws LogicException       outside a coroutine
+     * @throws \phasync\ContextUsedException if $context was used before
+     */
+    public static function withContext(Closure $fn, ContextInterface $context): mixed
+    {
+        $driver = self::getDriver();
+        if (null === $driver->getCurrentFiber()) {
+            throw ExceptionTool::popTrace(new LogicException('withContext() runs only inside a coroutine'));
+        }
+
+        return $driver->withContext($fn, $context);
+    }
+
+    /**
      * The event loop, for code that waits with its low-level API ({@see EventLoop::park()}).
      * It runs only inside phasync::run().
      *
