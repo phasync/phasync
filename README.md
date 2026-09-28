@@ -42,6 +42,9 @@ ordinary function (below); nothing else in the application changes.
 - **Legacy code joins in.** With phasync-ext loaded, the code you already have (MySQL through PDO or
   mysqli, curl and Guzzle, `file_get_contents()`, `http://` streams, DNS lookups, `sleep()`) waits
   cooperatively inside coroutines instead of blocking the process. No rewrite.
+- **Yours to own.** MIT, and no dependencies beyond PHP and PSR interfaces: small enough for you,
+  or your coding agent, to read whole and maintain for a decade. See
+  [the Ennerd philosophy](PHILOSOPHY.md).
 
 ## One library, two ways to run it
 
