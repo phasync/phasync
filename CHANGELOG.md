@@ -2,6 +2,13 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- `phasync\Util\LruCache`: a bounded in-memory cache, by entry count and bytes, with per-entry TTL.
+  Every operation is O(1).
+
 ## 2.0.0-alpha11 (2026-09-28)
 
 One event loop, pluggable waiting, and a much faster path with phasync-ext 0.5. Measured with
