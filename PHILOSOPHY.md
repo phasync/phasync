@@ -3,10 +3,9 @@
 Software you depend on for a decade should be software you can own.
 
 - **No external dependencies.** Beyond PHP itself and standard interfaces (PSR), phasync,
-  phasync-ext, swerve, Tether and phasync/net depend only on each other (and swerve on
-  charm/terminal, by the same author); Mini adds only Symfony's polyfills for PHP's intl
-  extension. There is no dependency tree to audit, no upstream to wait for, and no churn you did
-  not choose.
+  phasync-ext, swerve, Tether, phasync/net and Mini depend only on each other (and swerve on
+  charm/terminal, by the same author). There is no dependency tree to audit, no upstream to wait
+  for, and no churn you did not choose.
 - **Small enough to own whole.** phasync and swerve are about 9,500 lines of PHP each, Tether and
   phasync/net under 2,000, phasync-ext about 5,800 lines of C, and Mini, a full framework, about
   70,000. Behaviour is pinned by tests and written down, so a developer, or a coding agent such as
