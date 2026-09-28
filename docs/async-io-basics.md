@@ -66,54 +66,42 @@ phasync::run(function () {
 });
 ```
 
-## Blocking State Side Effects
+## Blocking mode
 
-Using `phasync::readable()` or `phasync::writable()` within a coroutine will set the stream resource to non-blocking mode. The assumption is that the stream resource will continue to be monitored using the `phasync` API inside the coroutine for asynchronous I/O operations.
+phasync never changes a stream's blocking mode. The mode is yours, and it decides what a read or
+write does after `readable()` or `writable()` returned:
+
+- **Non-blocking stream (recommended):** `fread()` returns what has arrived, and `fwrite()` writes
+  what the stream takes, without ever blocking. Wait with `readable()` / `writable()` before each
+  call.
+- **Blocking stream:** `readable()` still waits in the coroutine, but a read that wants more than
+  has arrived (`fgets()` wanting a whole line, `fread()` of an exact size) blocks the process until
+  it gets it. With [phasync-ext](https://github.com/phasync/phasync-ext) loaded, that blocking read
+  waits as a coroutine instead.
+- **Outside a coroutine,** `readable()` returns at once for a blocking stream (the read itself will
+  wait), and for a non-blocking one waits, blocking the process, until the stream is ready or the
+  timeout passes.
+
+Only streams backed by the operating system can be waited on: sockets, pipes, files. Streams that
+live in PHP's memory (`php://memory`, `php://temp`) have no descriptor; don't wait on them, just
+read them.
 
 **Example:**
 
 ```php
 <?php
-
-use phasync;
 
 phasync::run(function () {
-    $fp = fopen('php://temp', 'w+');
-    fwrite($fp, 'test data');
-    rewind($fp);
+    [$client, $server] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+    stream_set_blocking($server, false);
 
-    $data = phasync::go(function () use ($fp) {
-        $readableStream = phasync::readable($fp);
-        return fread($readableStream, 1024);
+    phasync::go(function () use ($client) {
+        phasync::sleep(0.1);
+        fwrite($client, 'test data');
     });
 
-    $result = phasync::await($data);
-    echo $result; // Outputs: test data
-
-    fclose($fp);
+    echo fread(phasync::readable($server), 1024); // Outputs: test data, after 0.1 s
 });
-```
-
-If these functions are invoked from outside a coroutine, the stream must explicitly have been set as non-blocking. Otherwise, the function will immediately return, and the subsequent `fread`/`fwrite` call will block the process.
-
-**Example:**
-
-```php
-<?php
-
-use phasync;
-
-$fp = fopen('php://temp', 'w+');
-fwrite($fp, 'test data');
-rewind($fp);
-stream_set_blocking($fp, false);
-
-$readableStream = phasync::readable($fp);
-$result = fread($readableStream, 1024);
-
-echo $result; // Outputs: test data
-
-fclose($fp);
 ```
 
 ## Integration in Existing Applications

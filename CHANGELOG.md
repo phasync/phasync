@@ -2,6 +2,43 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha11 (2026-09-28)
+
+One event loop, pluggable waiting, and a much faster path with phasync-ext 0.5. Measured with
+swerve on 56 cores: 4 times the requests per second at 50,000 connections, and twice the
+throughput per worker from dropping the coroutine per request.
+
+### Added
+
+- `phasync\EventLoop`, the one event loop, and `phasync::getLoop()` (inside `phasync::run()`).
+- `PollerInterface`: how the loop waits for streams. `StreamSelectPoller` without the extension;
+  with phasync-ext 0.5 the loop uses the extension's `phasync\ext\Poller` (epoll).
+- `EventLoop::getSlot()` / `park()` / `unpark()`: a lightweight wait for code that owns its
+  waits (pollers, services). `unpark()` returns false for a vacant slot.
+- `phasync::withContext($fn, $context)`: run a closure in the current coroutine as a coroutine
+  of a context, without starting a coroutine. Coroutines it starts belong to the context and keep
+  running. A server gives each request a context this way.
+- phasync-ext 0.5 integration: `run()` hands the extension the loop's poller.
+
+### Changed
+
+- Every wait defaults to waiting forever, `readable()`, `writable()` and `idle()` included.
+- `readable()` / `writable()` outside a coroutine honour their timeout on a non-blocking stream.
+
+### Removed
+
+- `phasync::stream()` and `phasync::READABLE`, `WRITABLE`, `EXCEPT`: one coroutine waits per
+  direction with `readable()` / `writable()`.
+- `phasync::setDefaultTimeout()`, `getDefaultTimeout()` and `DEFAULT_TIMEOUT`.
+- `DriverInterface` and `phasync::setDriver()`: `EventLoop` is the only loop; what varies is the
+  poller.
+- phasync-ext 0.4 is no longer supported; use 0.5.
+
+### Fixed
+
+- The benchmark runner started its scenarios without the parent's `-d extension=`, so results
+  "with phasync-ext" measured without it.
+
 ## 2.0.0-alpha10 (2026-09-27)
 
 ### Fixed

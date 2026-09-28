@@ -7,595 +7,260 @@
 [![PHP Version Require](https://img.shields.io/packagist/dependency-v/phasync/phasync/php)](https://img.shields.io/packagist/dependency-v/phasync/phasync/php)
 [![codecov](https://codecov.io/gh/phasync/phasync/graph/badge.svg?token=UUB02FXQH4)](https://codecov.io/gh/phasync/phasync)
 
-Asynchronous programming should not be difficult. This is a new microframework for doing asynchronous programming in PHP. It tries to do for PHP, what the `asyncio` package does for Python, and what Go does by default. For some background from what makes *phasync* different from other asynchronous big libraries like *reactphp* and *amphp* is that *phasync* does not attempt to redesign how you program. *phasync* can be used in a single function, somewhere in your big application, just where you want to speed up some task by doing it in parallel.
+**Async PHP that is still just PHP.** phasync runs thousands of coroutines in one PHP process,
+on PHP's own fibers. No promises, no `->then()`, no special runtime to install: a function
+that waits on the network reads top to bottom, returns a value and throws exceptions like any
+other. Use it in one function of an existing PHP-FPM application, or as the engine of a
+server that holds tens of thousands of connections.
 
-> [What benefits can it bring to my existing codebase?](docs/benefits.md)
+```php
+// In any controller, under PHP-FPM or anywhere else: three HTTP calls at once, not one after another
+[$user, $orders, $recommendations] = phasync::run(fn () => array_map(phasync::await(...), [
+    phasync::go(fn () => fetch("https://api.example.com/users/$id")),
+    phasync::go(fn () => fetch("https://api.example.com/users/$id/orders")),
+    phasync::go(fn () => fetch("https://api.example.com/users/$id/recommendations")),
+]));
+```
 
+The request takes as long as the slowest of the three calls, not their sum. `fetch()` is an
+ordinary function (below); nothing else in the application changes.
 
-## Installation
+## Why phasync
 
-The only requirement for phasync is PHP >= 8.2. It runs well inside php-fpm and on the command line. Install it using composer, or download it from github.
+- **No colored functions.** A coroutine is a plain closure. Code that waits looks exactly like
+  code that doesn't, so async stays an implementation detail of the function that needs it,
+  instead of spreading `Promise` return types through your codebase.
+- **Structured, not fire-and-forget.** `phasync::run()` returns only when every coroutine it
+  started has finished. An exception in a coroutine surfaces where you wait for it. Cancellation
+  and timeouts are exceptions thrown into the coroutine, so `finally` blocks run.
+- **Starts small.** One `phasync::run()` in one function is a complete phasync program. There is
+  no application-wide event loop to adopt first, no framework to switch to.
+- **Built for load.** One event loop per process, with waiting built on PHP streams:
+  `stream_select()` out of the box, epoll with [phasync-ext](https://github.com/phasync/phasync-ext).
+  Waits on sockets cost no objects of their own, pools (`phasync\Util\Pool`) reuse database
+  connections across coroutines, and hot paths leave nothing for the garbage collector.
+- **Legacy code joins in.** With phasync-ext loaded, the code you already have (PDO and mysqli,
+  curl and Guzzle, `file_get_contents()`, `http://` streams, DNS lookups, `sleep()`) waits
+  cooperatively inside coroutines instead of blocking the process. No rewrite.
+
+## One library, two ways to run it
+
+**Under PHP-FPM or any SAPI: concurrency inside a request.** FPM stays exactly as it is, one
+request per process. Inside the request, `phasync::run()` overlaps independent work: API calls,
+queries on separate connections, file and DNS work. The response goes out when the slowest part
+is done, not when the sum of them is.
+
+**Under [swerve](https://github.com/phasync/swerve): an asynchronous server, end to end.** Your
+PSR-15 application stays loaded, and every worker serves thousands of requests at once, each in
+a phasync context of its own. The same code that overlapped three API calls under FPM now also
+overlaps requests, WebSocket connections and background work.
+
+## The path from PHP-FPM to real-time
+
+Each step is useful on its own, and none requires the next.
+
+| Step | Add | What you get |
+|---|---|---|
+| 1 | `phasync/phasync` | Concurrent I/O inside one request, on your existing FPM setup. Wait with phasync's APIs: `phasync::readable()`, `CurlMulti`, `MySQLiPoll`. |
+| 2 | [`phasync/phasync-ext`](https://github.com/phasync/phasync-ext) | Libraries you did not write (PDO, mysqli, Guzzle, `curl_exec()`, files, `http://` streams, DNS) cooperate inside coroutines, unchanged. Epoll instead of `stream_select()`. |
+| 3 | [`phasync/swerve`](https://github.com/phasync/swerve) | A long-running PSR-15 server: the app boots once, each worker serves thousands of connections, streaming bodies, Server-Sent Events, WebSockets. Slim, mini and other PSR-15 frameworks run as they are. |
+| 4 | [`phasync/tether`](https://github.com/phasync/tether) | Live server-side components over one WebSocket per tab, in the style of Blazor Server and Phoenix LiveView. PHP 8.3. |
+
+For your own protocols, [`phasync/net`](https://github.com/phasync/net) has TCP, UDP and Unix
+socket servers and clients on the same loop.
+
+### How far that goes
+
+On one 56-core server, a hello-world PSR-15 app on swerve with phasync-ext served 193,000
+requests per second at 64 connections and 131,000 at 50,000 connections, ahead of Node's http
+module (132,000 and 100,000) and Go's net/http at every connection count we measured. With Slim
+on top it lost 3–7%.
+
+## Getting started
 
 ```bash
 composer require phasync/phasync
 ```
 
-## Documentation
-
-We have started to work more on documentation. The code is also well documented. The INTRO document gives you everything you need to get started.
-
- * [INTRO: `phasync::run() and phasync::go()`](docs/run-and-go.md)
- * [Basic example and implementation](docs/basic-example.md)
- * [Asynchronous IO core functionality](docs/async-io-basics.md)
- * [Using phasync in existing projects](docs/use-in-existing-projects.md)
- * [Perform concurrent HTTP requests with CurlMulti](docs/curl-multi.md)
- * [Using the RateLimiter class to throttle](docs/rate-limiter.md)
- * [Using WaitGroup to coordinate multiple tasks](docs/wait-group.md)
- * [Ensure CPU bound code does not block the entire application with `phasync::preempt()`](docs/preempt.md)
- * [Write a basic web server](docs/build-async-server.md)
-
-
-## About phasync
-
-> The article [What color is your function?](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/) explains some of the approaches that have been used to do async programming in languages not designed for it. With Fibers, PHP 8.1 has native asynchronous IO built in. This library simplifies working with them, and is highly optimized for doing so.
-
-*phasync* brings Go-inspired concurrency to PHP, utilizing native and ultra-fast coroutines to manage thousands of simultaneous operations efficiently. By leveraging modern PHP features like fibers, *phasync* simplifies asynchronous programming, allowing for clean, maintainable code that performs multiple tasks simultaneously with minimal overhead.
-
-## Making your code coroutine friendly
-
-*phasync* does not take over your application and force you to restructure it. It is simply an efficient tool to run functions simultaneously in a limited context. Exceptions are thrown as you would expect - but *WITHOUT* the dreaded `->then()` and `->catch()` stuff.
-
-For example by sending multiple HTTP requests concurrently makes this is twice as fast:
+phasync needs PHP 8.2 or later and nothing else. It runs under PHP-FPM, Apache's mod_php, the
+CLI, and long-running servers.
 
 ```php
-function do_some_requesting() {
-    return phasync::run(function() {
-        $httpClient = new phasync\HttpClient\HttpClient();
-        return [
-            // These use an internal coroutine via phasync::go()
-            $httpClient->get('https://www.vg.no/'),
-            $httpClient->get('https://github.com/')
-        ];
-    });
+use phasync\Services\CurlMulti;
+
+function fetch(string $url): string
+{
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+    // Inside a coroutine this waits without blocking the others; outside, it just runs
+    return CurlMulti::await($ch);
 }
+
+$pages = phasync::run(function () {
+    $a = phasync::go(fn () => fetch('https://www.php.net/'));
+    $b = phasync::go(fn () => fetch('https://getcomposer.org/'));
+
+    return [phasync::await($a), phasync::await($b)];
+});
 ```
 
-You can even parallelize much more complex flows:
+- `phasync::run($fn)` runs `$fn` as a coroutine, and returns its result once it and every
+  coroutine it started have finished. Called inside a coroutine, it is a nested scope.
+- `phasync::go($fn)` starts a coroutine and returns it at once; `phasync::await($coroutine)`
+  waits for its result, or throws its exception.
+- `phasync::sleep($seconds)` pauses only the current coroutine; `phasync::sleep()` lets the others
+  run for a moment.
+- `phasync::cancel($coroutine)` throws a `CancelledException` into it; every wait accepts a
+  timeout and throws a `TimeoutException` when it runs out. Without one, a wait waits for as long
+  as it takes.
+
+## Making your own I/O cooperative
+
+Without the extension, a coroutine waits on a stream by asking phasync first:
 
 ```php
-function crawl_for_urls(string $baseUrl) {
-    return phasync::run(function() {
-        phasync::channel($reader, $writer);
-        $client = new HttpClient;
-        $queue = new SplQueue;
-        $queue->enqueue($baseUrl);
+stream_set_blocking($socket, false);
 
-        // Launch 3 parallel workers, each waiting for messages from
-        // the `$reader` channel.
-        for ($i = 0; $i < 3; $i++) {
-            phasync::go(function() use ($reader, $client, $queue) {
-                while ($url = $reader->read()) {
-                    $body = (string) $client->get($url)->getBody();
-                    foreach (extract_urls_from_body($body) as $foundUrl) {
-                        $queue->enqueue($foundUrl);
-                    }
-                }
-            });
-        }
-        $alreadyCrawled = [];
-        while (!$queue->isEmpty()) {
-            $nextUrl = $queue->dequeue();
-            if (in_array($alreadyCrawled)) {
-                continue;
-            }
-            $alreadyCrawled[] = $nextUrl;
-            $writer->write($nextUrl);
-        }
-    });
-}
+$data  = fread(phasync::readable($socket), 65536);       // waits until there is something to read
+$wrote = fwrite(phasync::writable($socket), $response);  // waits until the socket takes more
 ```
 
-## Easily make any existing code *phasync* aware
+Both work outside coroutines too, so a library written this way runs in any PHP program. One
+coroutine at a time may wait to read a given stream, and one to write to it.
 
-Transform how your applications handle IO-bound and CPU-intensive operations with non-blocking execution patterns. Whether building high-traffic web apps, data processing systems, or real-time APIs, *phasync* equips you with the tools to scale operations smoothly and reliably.
+For HTTP, `phasync\Services\CurlMulti::await($ch)` runs a curl handle cooperatively. For MySQL,
+`phasync\Services\MySQLiPoll` does the same for mysqli's asynchronous queries.
 
-To make disk IO operations asynchronous, transparently within coroutines you can use:
+CPU-bound loops can let other coroutines in with `phasync::preempt()`, which yields only when
+the coroutine has run for a while, and costs almost nothing otherwise.
 
-```bash
-composer require phasync/file-streamwrapper
-```
+## phasync-ext: existing code joins in
 
-This makes even loading of classes not block other coroutines and you can continue using functions like `file_get_contents()`, `file_put_contents()` etc.
-
-If you wish to make network sockets asynchronous, you can follow the recipes below. You can safely use these methods outside of coroutines as well. They should not interfere with how your software works, but when the functions are used inside coroutines they will be using asynchronous IO to allow other coroutines work concurrently.
-
-### Reading network or file streams
-
-```php
-// Instead of:
-$chunk = fread($fp, 4096);
-
-// Do this:
-phasync::readable($fp);
-$chunk = fread($fp, 4096);
-```
-
-### Writing files or network streams:
-
-```php
-// Instead of:
-$chunk = fwrite($fp, "Some data");
-
-// Do this:
-phasync::writable($fp);
-$chunk = fwrite($fp, "Some data");
-```
-
-### Waiting for network requests:
-
-```php
-// Instead of:
-$resource = stream_socket_accept($socket);
-
-// Do this:
-phasync::readable($socket);
-$resource = stream_socket_accept($socket);
-```
-
-### Performing an expensive blocking operation:
-
-*NOTE!* the `phasync::idle()` only sleeps if there is NOTHING else that could be done. Effectively it will wait until your application has nothing else to do before running your slow function. Most of the time it will not sleep at all.
-
-```php
-// Instead of:
-$n = fibonacci(32);
-
-// Do this:
-phasync::idle(0.1); // Wait at most 0.1 seconds for the application to become idle
-$n = fibonacci(32);
-
-// Instead of:
-$files = glob("*.txt");
-
-// Do this:
-phasync::idle(0.1);
-$files = glob("*.txt");
-```
-
-### The phasync extension
-
-[phasync-ext](https://github.com/phasync/phasync-ext) is an optional PHP extension that makes
-code which was not written for phasync, such as packages from Packagist, cooperate with it:
+[phasync-ext](https://github.com/phasync/phasync-ext) is an optional PHP extension. Inside
+`phasync::run()`, blocking I/O in code that knows nothing about phasync suspends the coroutine
+instead of the process, and returns exactly what PHP would have returned, timeouts and warnings
+included. That covers sockets and TLS, mysqli and PDO over the network, curl and Guzzle, pipes
+and child processes, `sleep()`, DNS lookups, files and filesystem calls, and more; the
+extension's README has the full list.
 
 ```bash
 composer require phasync/phasync-ext
 ```
 
 ```php
-phasync\try_enable_ext(); // first line of your script; may restart the process once
+phasync\try_enable_ext(); // first line of a CLI script: loads the bundled binary, restarting once
 ```
 
-It installs from composer with prebuilt binaries for PHP 8.3 to 8.5 on Linux, and loads itself
-on the command line. For php-fpm, enable it in php.ini.
+Under PHP-FPM, add `extension=phasync` to `php.ini` instead. Prebuilt binaries cover PHP 8.2 to
+8.5 on Linux (x86-64 and ARM64, glibc and musl). The extension also replaces `stream_select()`
+with epoll, so a process can watch any number of sockets: without it, PHP's `stream_select()`
+cannot use file descriptors numbered 1024 and up.
 
-The rules become:
+phasync behaves the same with and without the extension. The extension only lets more code wait
+cooperatively and makes waiting cheaper.
 
-1. **Code that is not phasync-aware just works.** Inside `phasync::run()`, `fread()` /
-   `fwrite()` / `fgets()` on blocking streams, file reads, DNS lookups and `usleep()`
-   suspend the coroutine instead of blocking the process, and return exactly what PHP
-   returns, socket timeouts included. I/O outside PHP's streams, such as curl or a database
-   client library, still blocks, and so does CPU-bound code.
-2. **Your own code should still be phasync-aware.** Make your streams non-blocking
-   (`stream_set_blocking($fp, false)`; phasync leaves a stream's mode alone) and wait with
-   `phasync::readable()` / `phasync::writable()` and `phasync::sleep()`. That code behaves
-   the same with and without the extension, and it is the fastest option for
-   request/response servers: waiting explicitly avoids a read attempt that would fail
-   first.
+## Coordinating coroutines
 
-Either way, a stream can have one coroutine reading and one writing at a time. A second
-coroutine waiting to read (or write) the same stream gets a `LogicException`.
-
-The extension also lets phasync wait on file descriptors numbered 1024 and higher, which
-PHP's own `stream_select()` cannot handle. Without it, a process with more than roughly
-1,000 open streams fails.
-
-
-## Utilities
-
-### Channels
-
-Channels are used to communicate between coroutines. Channels are special primitives which are created with `phasync::channel($readableChannel, $writableChannel, $bufferSize=0)`. The readable channel has a `read()` method which will return a value written to the writable channel. If there is no data available, the coroutine will be suspended until a writer writes to the channel. The writable channel similarly has a `write(Serializable|scalar $value)` method which will suspend the coroutine if the buffer is full or if there is no reader that is waiting for data. The buffer size allows you to enqueue values inside the channel.
-
-Channels are highly optimized and are able to immediately resume coroutines, so they can be used for efficient scheduling of work between coroutines. They automatically close the other channel whenever it is garbage collected, or if one side calls `$channel->close()`. The readable channel will return `null` when the channel is closed.
-
-For example if you have one coroutine designed to write to the disk or to update the database, and 10 coroutines crawling a website you can do this:
+**Channels** pass values between coroutines. A read waits for a writer, and a write into a full
+channel waits for a reader:
 
 ```php
-phasync::run(function() {
-    phasync::channel($reader, $writer);
+phasync::run(function () {
+    phasync::channel($reader, $writer, 10);
 
-    // The logger coroutine
-    phasync::go(function() use ($reader) {
-        $fp = fopen('some-log.txt', 'a');
-        while (null !== ($line = $reader->read())) {
-            // this is non-blocking if you install phasync/file-streamwrapper
-            fwrite($fp, trim($line) . "\n");
+    phasync::go(function () use ($writer) {
+        foreach (['a.txt', 'b.txt', 'c.txt'] as $file) {
+            $writer->write($file);
         }
-        fclose($fp);
+        $writer->close();
     });
 
-    $writerNumber = 1;
-    phasync::go(concurrent: 5, fn: function() use ($writer, $writerNumber) {
-        $number = $writerNumber++;
-        for ($i = 0; $i < 10; $i++) {
-            $writer->write("From writer $writerNumber: This is message $i");
-        }
-    });
-});
-```
-
-### WaitGroups
-
-WaitGroups provides a small utility for allowing multiple different coroutines to complete their work. For example if you issue 10 simultaneous HTTP requests, you can use a WaitGroup to make sure all the 10 coroutines have completed their task.
-
-Example:
-
-```php
-phasync::run(function() {
-    $wg = new WaitGroup();
-
-    phasync::go(concurrent: 5, fn: function() use ($wg) {
-        $wg->add(); // Inform the WaitGroup that this coroutine will be performing some work
-        try {
-            // Do the work
-            phasync::sleep(0.5);
-        } finally {
-            $wg->done();
-        }
-    });
-
-    // Wait until the 5 coroutines have finished their work
-    $wg->wait();
-});
-```
-
-### Publisher
-
-To guarantee delivery of messages and events to multiple coroutines, even if a coroutine is blocked, you can use a publisher. The publisher is an implementation of the publisher/subscriber, so any message written to the publisher will be received in order by all subscribers. Similar to channels, these are phasync primitives that you create with `phasync::publisher($delivery, $publisher)`.
-
-Example:
-
-```php
-phasync::run(function() {
-    phasync::publisher($source, $writeChannel);
-
-    // Launch 10 subscribers:
-    phasync::go(concurrent: 10, fn: function() use ($source) {
-        $readChannel = $delivery->subscribe();
-        while ($line = $readChannel->read()) {
-            echo "Subscriber got " . trim($line) . "\n";
-        }
-    });
-
-    $writeChannel->write("First");
-    $writeChannel->write("Second");
-});
-```
-
-## Work in progress
-
-phasync is being narrowed down to what it does best: single process concurrency with coroutines, channels, wait groups, publishers and non-blocking stream IO. [docs/SEMANTICS.md](docs/SEMANTICS.md) describes the intended behaviour of each part, and the tests in `tests/Characterization` pin how it behaves today.
-
-Servers and clients built on phasync live in separate packages, for example [phasync/server](https://github.com/phasync/server) for TCP and UDP servers.
-
-Contributions are welcome, especially:
-
- * Windows support for `phasync\Process\Process`. PHP cannot poll a child process's pipes on Windows, so it needs a small helper program that connects the pipes to sockets. `Process::run()` throws a `LogicException` on Windows until that exists. Planned for 2.0.0; see [docs/roadmap-2.0.md](docs/roadmap-2.0.md).
-
- * More tests for the behaviour described in [docs/SEMANTICS.md](docs/SEMANTICS.md).
-
- * A `http://`, `https://` and `file://` stream wrapper that makes them non-blocking.
-
-
-### Example: Asynchronous File Processing in a Web Controller
-
-```php
-<?php
-require '../vendor/autoload.php';
-use phasync\{run, go, file_get_contents};
-
-class MyController {
-
-    #[Route("/", "index")]
-    public function index() {
-        // Initiate the event loop within your existing controller method
-        phasync::run(function() {
-            // Process each text file asynchronously
-            foreach (glob('/some/path/*.txt') as $file) {
-                phasync::go(function() use ($file) {
-                    $data = file_get_contents($file);  // Non-blocking file read
-                    do_something($data);  // Replace with your processing logic
-                });
-            }
-        });
-        // The run function will wait here until all file operations are complete
+    foreach ($reader as $file) { // ends when the writer closes
+        echo "processing $file\n";
     }
-}
+});
 ```
 
-### Benefits
-
- > *Non-intrusive*: Integrate asynchronous features without disrupting the structure of your existing PHP projects.
- > *Enhanced Performance*: Utilize non-blocking IO to handle file operations, database queries, and network calls more efficiently.
- > *Easy Adoption*: With minimal changes to how functions are called, you can transform synchronous tasks into asynchronous ones.
-
-This approach not only preserves your application's existing architecture but also enhances responsiveness and scalability by offloading heavy IO operations to *phasync*'s non-blocking routines. Ideal for applications requiring improvements in handling large volumes of data or high levels of user interaction without a complete rewrite.
-
-
-## Testers, Documentors and Contributors Wanted!
-
-While *phasync* is faster and simpler, especially with rational and understandable exception handling compared to Promise-based implementations like reactphp or amphp, it is still evolving. We invite testers and contributors to help expand its capabilities and ecosystem.
-
-
-<<<<<<< Updated upstream
-=======
-## Example
-
-This comprehensive example documents many of the features of *phasync*. The script is
-available in the `examples/` folder of this project.
+**WaitGroup** waits for a set of coroutines to finish:
 
 ```php
-<?php
-require '../vendor/autoload.php';
+use phasync\Util\WaitGroup;
 
-/**
- * Channel is an efficient method for coordinating coroutines.
- * The writer will pause after writing, allowing the reader to
- * read the message. When the reader becomes blocked again (for
- * example waiting for the next message, or because it tries to
- * read a file, the write resumes and can add a new message).
- *
- * The Channel class supports multiple readers and multiple writers,
- * but messages will only be read once by the first available reader.
- *
- * A channel can be buffered (via the buffer argument in the constructor),
- * which allows messages to be temporarily held allowing the writer to
- * resume working. This can be leveraged to design a queue system.
- */
-use phasync\Channel;
-
-/**
- * Publisher is similar to Channel, but it is always buffered, and
- * any message will be delivered in order to all of the readers.
- *
- * This can be used to "multicast" the same data to many clients,
- * or as an event dispatcher. The readers will block whenever there
- * are no events pending. The read operation will return a null value
- * if the publisher goes away.
- */
-use phasync\Publisher;
-
-/**
- * WaitGroup is a mechanism to simplify waiting for many simultaneous
- * processes to complete. It is analogous to Promise.all([]) known from
- * promise based designs. Each process will invoke the $waitGroup->add()
- * method, and finally they must invoke $waitGroup->done() when they are
- * finished.
- *
- * While all the simultaneous processes perform their task, you can call
- * $waitGroup->wait() to pause until the all coroutines have invoked
- * $waitGroup->done().
- *
- * WARNING! You must ensure that the $waitGroup->done() method is invoked,
- * or the $waitGroup->wait() method will block forever.
- */
-use phasync\WaitGroup;
-
-/**
- * The library is primarily used via functions defined in the `phasync\`
- * namespace:
- */
-
-use function phasync\run;
-/**
- * `run(Closure $coroutine, mixed ...$args): mixed`
- *
- * This function will launch the coroutine and wait for it
- * to either throw an exception or return with a value.
- * When this function is used from inside another run()
- * coroutine, it will block until all the coroutines that
- * were launched inside it are done.
- */
-
-use function phasync\go;
-/**
- * `go(Closure $coroutine, mixed ...$args): Fiber`
- *
- * This function will launch a coroutine and return a value
- * that may be resolved in the future. You can wait for a
- * fiber to finish by using {@see phasync\await()}, which
- * effectively is identical to using `run()`.
- */
-
-use function phasync\await;
-/**
- * `await(Fiber $coroutine): mixed`
- *
- * This function will block the calling fiber until the
- * provided $coroutine either fails and throws an exception,
- * or returns a value.
- */
-
-use function phasync\defer;
-/**
- * `defer(Closure $cleanupFunction): void`
- *
- * This is a method for scheduling cleanup or other tasks to
- * run after the coroutine completes. The deferred functions
- * will run in reverse order of when they were scheduled. The
- * functions will run immediately after the coroutine finishes,
- * unless an exception occurs and then they will be run when
- * the coroutine is garbage collected.
- */
-
-use function phasync\sleep;
-/**
- * `sleep(float $seconds=0): void`
- *
- * This method will pause the coroutine for a number of seconds.
- * By invoking `sleep()` without arguments, your coroutine will
- * yield to allow other coroutines to work, but resume immediately.
- */
-
-use function phasync\wait_idle;
-/**
- * `wait_idle(): void`
- *
- * This function will pause the coroutine and allow it to resume only
- * when there is nothing else to do immediately.
- */
-
-use function phasync\file_get_contents;
-/**
- * `file_get_contents(string $filename): string|false`
- *
- * This function will use non-blocking file operations to read the entire
- * file from disk. While the application is waiting for the disk to provide
- * data, other coroutines are allowed to continue working.
- */
-
- use function phasync\file_put_contents;
- /**
-  * `file_put_contents(string $filename, mixed $data, int $flags = 0): void`
-  *
-  * This function is also non-blocking but has an API identical to the native
-  * `file_put_contents()` function in PHP.
-  */
-
-/**
- * Other functions not documented here, but which are designed after the native
- * PHP standard library while being non-blocking. The functions *behave* as if
- * they are blocking, but will allow other coroutines to work in the time they
- * block.
- *
- * `stream_get_contents($stream, ?int $maxLength = null, int $offset = 0): string|false`
- * `fread($stream, int $length): string|false`
- * `fgets($stream, ?int $length = null): string|false`
- * `fgetc($stream): string|false`
- * `fgetcsv($stream, ?int $length = null, string $separator = ",", string $enclosure = "\"", string $escape = "\\"): array|false`
- * `fwrite($stream, string $data): int|false`
- * `ftruncate($stream, int $size): int|false`
- * `flock($stream, int $operation, int &$would_block = null): bool`
- */
-
-
-// Launch your asynchronous application:
-try {
-    run(function() {
-
-        $keep_running = true;
-        $maintenance_events = new Publisher();
-
-        // launch a background task
-        $count = go(function() use (&$keep_running, $maintenance_events) {
-            $count = 0;
-
-            while ($keep_running) {
-                // do some maintenance work
-                $data = file_get_contents(__FILE__); // this is asynchronous
-                $maintenance_events->write(md5($data) . " step $count");
-                $count++;
-                // wait a while before repeating
-                sleep(0.7); // allows other tasks to do some work
+phasync::run(function () {
+    $group = new WaitGroup();
+    foreach (range(1, 5) as $i) {
+        $group->add();
+        phasync::go(function () use ($group, $i) {
+            try {
+                phasync::sleep(0.1 * $i);
+            } finally {
+                $group->done();
             }
-
-            return $count;
         });
-
-        $wait_group = new WaitGroup();
-        [$reader, $writer] = Channel::create(0);
-
-        go(function() use ($reader) {
-            echo "Waiting for completion messages\n";
-            while ($message = $reader->read()) {
-                echo "Completed: " . $message . "\n";
-            }
-            echo "No more completion messages\n";
-        });
-
-        $futureWithException = go(function() {
-            throw new Exception("Just an exception");
-        });
-
-        // launch various workers
-        for ($i = 0; $i < 3; $i++) {
-            // Create a subscription for the events
-            $subscription = $maintenance_events->subscribe();
-            go(function() use ($i, $subscription, $wait_group, $writer) {
-                // Register with the $waitGroup
-                $wait_group->add();
-                defer(function() use ($wait_group) {
-                    $wait_group->done();
-                });
-
-                echo "Worker $i waiting for events...\n";
-
-                // This worker will handle at most 10 events
-                for ($count = 0; $count < 4; $count++) {
-                    sleep(1 * $i);
-                    $writer->write("Worker $i received: {$subscription->read()}");
-                }
-
-                /**
-                 * If an exception is thrown here, it will appear to have been
-                 * thrown from the outer coroutine while the $waitGroup->wait()
-                 * function is blocking.
-                 */
-
-                echo "Worker $i done\n";
-
-            });
-        }
-
-        echo "Waitgroup waiting\n";
-
-        // wait for all workers to complete
-        $wait_group->wait();
-        echo "Waitgroup done\n";
-
-
-        // stop the background maintenance
-        $keep_running = false;
-
-        echo "A total of " . await($count) . " maintenance steps were completed\n";
-
-        echo "Trying to resolve the error value:\n";
-        try {
-            await($futureWithException);
-        } catch (Throwable $e) {
-            echo "Could not resolve the value: \n$e\n";
-        }
-
-    });
-} catch (Throwable $e) {
-    echo "I successfully caught the missed exception in Worker 1:\n";
-    echo " " . $e->getMessage() . "\n";
-}
+    }
+    $group->await();
+});
 ```
 
-## Getting Started
+**Publishers** deliver every message to every subscriber, in order:
 
-Install phasync via Composer and start enhancing your PHP applications with powerful asynchronous capabilities:
+```php
+phasync::run(function () {
+    phasync::publisher($subscribers, $publisher);
 
-```bash
-composer require phasync/phasync
+    foreach (range(1, 3) as $i) {
+        $subscription = $subscribers->subscribe();
+        phasync::go(function () use ($subscription, $i) {
+            foreach ($subscription as $event) {
+                echo "subscriber $i got $event\n";
+            }
+        });
+    }
+    $publisher->write('deployed');
+    $publisher->close();
+});
 ```
 
-## Compatibility
+**Pool** lends interchangeable resources, such as database connections, to one coroutine at a
+time, up to a limit:
 
-| Repository Branch | PHP Compatibility | Status                     | Docs                        |
-|-------------------|-------------------|----------------------------|-----------------------------|
-| `1.x`             | `^8.2`            | New features and bug fixes | [Documentation 1.x](./docs) |
+```php
+use phasync\Util\Pool;
+
+$db   = new Pool(fn () => new PDO($dsn, $user, $password), 10);
+$rows = $db->use(fn (PDO $pdo) => $pdo->query('SELECT 1')->fetchAll());
+```
+
+Also in `phasync\Util`: `RateLimiter`, `Synchronized` (a lock per coroutine) and `StringBuffer`
+(a fast byte buffer for protocol parsers).
+
+## Documentation
+
+- [INTRO: `phasync::run()` and `phasync::go()`](docs/run-and-go.md)
+- [Using phasync in existing projects](docs/use-in-existing-projects.md)
+- [Asynchronous I/O](docs/async-io-basics.md)
+- [Concurrent HTTP requests with CurlMulti](docs/curl-multi.md)
+- [WaitGroup](docs/wait-group.md) · [RateLimiter](docs/rate-limiter.md) · [`phasync::preempt()`](docs/preempt.md)
+- [Write a basic web server](docs/build-async-server.md)
+- [API reference](docs/API.md)
+- [Semantics: how each part behaves, exactly](docs/SEMANTICS.md)
+
+## Compared with other async PHP
+
+- **Swoole and OpenSwoole** are PHP extensions with their own server and runtime model; many of
+  their features require it. phasync is a Composer library on standard PHP; phasync-ext is
+  optional, and an application written for phasync runs the same with or without it.
+- **ReactPHP and AMPHP** are async-first ecosystems: code that waits uses their APIs (ReactPHP's
+  promises; AMPHP's futures, which read sequentially on fibers) and their own libraries, such as
+  an async HTTP client or MySQL driver in place of curl or PDO. phasync is closer to Go's model:
+  plain functions, and with phasync-ext the libraries you already use wait cooperatively.
+
+## Contributing
+
+phasync is in active development toward 2.0. [docs/SEMANTICS.md](docs/SEMANTICS.md) describes
+how every part is meant to behave, and the tests in `tests/Characterization` pin how it behaves
+today. Tests, documentation and bug reports are welcome.
 
 ## License
 
