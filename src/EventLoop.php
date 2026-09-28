@@ -170,7 +170,7 @@ final class EventLoop implements \Countable
      */
     /**
      * phasync-ext's poller when the extension is loaded (epoll, and its worker threads' waiters),
-     * else PHP's own Io\Poll where PHP has it, else stream_select().
+     * else stream_select().
      */
     private PollerInterface|ext\Poller $poller;
 
@@ -213,7 +213,7 @@ final class EventLoop implements \Countable
         $this->serviceContext        = new ServiceContext();
         $this->poller                = \class_exists(ext\Poller::class, false)
             ? new ext\Poller($this->getSlot(...), $this->park(...), $this->unpark(...))
-            : (\class_exists(\Io\Poll\Context::class) ? new IoPollPoller($this) : new StreamSelectPoller($this));
+            : new StreamSelectPoller($this);
         $this->parked                = [];
         $this->parkedSlots           = [];
         $this->callbackQueue         = new \SplQueue();
