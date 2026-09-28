@@ -23,7 +23,7 @@
         "psr/http-factory-implementation": "1.1"
     },
     "suggest": {
-        "phasync/phasync-ext": "Optional C extension: transparent async I/O hooks and a growable stream_select() with no FD_SETSIZE limit, CLI only. phasync works fully without it."
+        "phasync/phasync-ext": "Optional C extension: blocking I/O in existing code waits cooperatively, and epoll instead of stream_select(). Loads itself on the CLI; enable it in php.ini for PHP-FPM. phasync works fully without it."
     },
     "minimum-stability": "stable",
     "autoload": {

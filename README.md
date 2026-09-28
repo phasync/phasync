@@ -39,8 +39,8 @@ ordinary function (below); nothing else in the application changes.
   `stream_select()` out of the box, epoll with [phasync-ext](https://github.com/phasync/phasync-ext).
   Waits on sockets cost no objects of their own, pools (`phasync\Util\Pool`) reuse database
   connections across coroutines, and hot paths leave nothing for the garbage collector.
-- **Legacy code joins in.** With phasync-ext loaded, the code you already have (PDO and mysqli,
-  curl and Guzzle, `file_get_contents()`, `http://` streams, DNS lookups, `sleep()`) waits
+- **Legacy code joins in.** With phasync-ext loaded, the code you already have (MySQL through PDO or
+  mysqli, curl and Guzzle, `file_get_contents()`, `http://` streams, DNS lookups, `sleep()`) waits
   cooperatively inside coroutines instead of blocking the process. No rewrite.
 
 ## One library, two ways to run it
@@ -62,7 +62,7 @@ Each step is useful on its own, and none requires the next.
 | Step | Add | What you get |
 |---|---|---|
 | 1 | `phasync/phasync` | Concurrent I/O inside one request, on your existing FPM setup. Wait with phasync's APIs: `phasync::readable()`, `CurlMulti`, `MySQLiPoll`. |
-| 2 | [`phasync/phasync-ext`](https://github.com/phasync/phasync-ext) | Libraries you did not write (PDO, mysqli, Guzzle, `curl_exec()`, files, `http://` streams, DNS) cooperate inside coroutines, unchanged. Epoll instead of `stream_select()`. |
+| 2 | [`phasync/phasync-ext`](https://github.com/phasync/phasync-ext) | Libraries you did not write (MySQL through PDO or mysqli, Guzzle, `curl_exec()`, files, `http://` streams, DNS) cooperate inside coroutines, unchanged. Epoll instead of `stream_select()`. |
 | 3 | [`phasync/swerve`](https://github.com/phasync/swerve) | A long-running PSR-15 server: the app boots once, each worker serves thousands of connections, streaming bodies, Server-Sent Events, WebSockets. Slim, mini and other PSR-15 frameworks run as they are. |
 | 4 | [`phasync/tether`](https://github.com/phasync/tether) | Live server-side components over one WebSocket per tab, in the style of Blazor Server and Phoenix LiveView. PHP 8.3. |
 
@@ -71,10 +71,11 @@ socket servers and clients on the same loop.
 
 ### How far that goes
 
-On one 56-core server, a hello-world PSR-15 app on swerve with phasync-ext served 193,000
-requests per second at 64 connections and 131,000 at 50,000 connections, ahead of Node's http
-module (132,000 and 100,000) and Go's net/http at every connection count we measured. With Slim
-on top it lost 3–7%.
+On one 56-thread server, each at its fastest worker count, a hello-world PSR-15 app on swerve
+served 157,000 to 285,000 requests per second from 64 to about 28,000 connections: in the same
+range as Go's net/http (162,000 to 317,000) and Node's http module (135,000 to 246,000), and
+ahead of both at 10,000 connections. A Slim app on swerve served 2 to 3 times what an Express
+app served on Node. [Method and raw results](https://github.com/phasync/swerve/tree/main/benchmarks).
 
 ## Getting started
 
@@ -140,9 +141,10 @@ the coroutine has run for a while, and costs almost nothing otherwise.
 [phasync-ext](https://github.com/phasync/phasync-ext) is an optional PHP extension. Inside
 `phasync::run()`, blocking I/O in code that knows nothing about phasync suspends the coroutine
 instead of the process, and returns exactly what PHP would have returned, timeouts and warnings
-included. That covers sockets and TLS, mysqli and PDO over the network, curl and Guzzle, pipes
+included. That covers sockets and TLS, MySQL through mysqli or PDO, curl and Guzzle, pipes
 and child processes, `sleep()`, DNS lookups, files and filesystem calls, and more; the
-extension's README has the full list.
+extension's README has the full list. Clients with their own network code, such as PostgreSQL's
+libpq and phpredis, still block.
 
 ```bash
 composer require phasync/phasync-ext
