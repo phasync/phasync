@@ -49,7 +49,8 @@ propagation and cancellation work the same everywhere.
 **P3. Rely on refcounting; treat cycle collection as bounded cleanup.** Destructors that
 run when the last reference is dropped are immediate and deterministic, and may be relied
 on (channel ends, flag objects and the primitives' own objects, see FLG-1). Cyclic garbage is freed by the event loop's own
-periodic collection, at most every 0.5 s after some coroutine has terminated (RT-1).
+collection: at most every 0.5 s after some coroutine has terminated, and whenever 10,000
+possible cycles have gathered, counted every 50 ms (RT-1).
 Correct behaviour must not depend on cyclic garbage being freed at a particular moment.
 ❌ See ERR-3.
 
@@ -439,11 +440,12 @@ true when a read would not block, when the buffer has ended, or when it has fail
 
 **RT-1. Inside `run()` the loop controls GC, and the caller's setting is restored.**
 `gc_disable()` while `run()` is active is deliberate (D10): refcount frees are immediate,
-and the loop collects cycles at most every 0.5 s after a coroutine has terminated (P3).
+and the loop collects cycles between coroutines: at most every 0.5 s after a coroutine has
+terminated, and whenever 10,000 possible cycles (PHP's own threshold, `gc_status()['roots']`)
+have gathered, counted every 50 ms, so long-lived coroutines that make garbage while none ends
+(a server's connections) are collected too. ✅ RuntimeTest
 Leaving `run()` must restore the previous state and never enable what the user disabled.
-❌ Today `gc_enable()` is unconditional. Known limit: a long-lived coroutine that creates
-cycles while no other coroutine terminates is never collected. In a test, 300 000 cyclic
-objects grew memory by 119 MB inside `run()`.
+❌ Today `gc_enable()` is unconditional.
 
 **RT-2. No error or exception handlers are installed.**  ⚠️
 
@@ -588,7 +590,7 @@ through the public API.
 | D7 | Choice order when several selectables are ready | argument order; random like Go | **Moot (2.0.0):** `select()` was removed, not fixed; see section 8 |
 | D8 | `RateLimiter` semantics | token bucket; leaky bucket; something else | Write down what it does today, then test it |
 | D9 | `StringBuffer` readers | one reader, enforced; several allowed | One reader, enforced by a cheap check |
-| D10 | GC handling in `run()` | leave GC on; keep manual control but restore state | **Decided (maintainer):** keep manual control, it is deliberate design. Still open: restore the user's previous GC state on exit, and whether a long-lived coroutine that never ends needs a collection trigger |
+| D10 | GC handling in `run()` | leave GC on; keep manual control but restore state | **Decided (maintainer):** keep manual control, it is deliberate design. Still open: restore the user's previous GC state on exit. A long-lived coroutine is collected by the roots threshold (2026-09-28: without it a swerve CakePHP worker grew to 1.2 GB) |
 | D13 | Should there be a guard helper for coroutines that own helpers? | none; a small `phasync::guard(Fiber ...$fibers)` object | **Decided (maintainer): no.** A guard would be a symptom of channels and other primitives not guarding their dependants. Teardown comes from channel ends closing (CHN-8) |
 | D17 | `readFixed($n, $timeout)` returns `null` on timeout, and also `null` at end-of-stream with too little data. `read()` now throws `TimeoutException` | keep `null`; throw `TimeoutException` like `read()`; distinguish the two cases | **Decided (maintainer) and done:** throws `TimeoutException` on a real timeout, matching `read()`. Matches `read()`'s other rule too: `$timeout` of exactly `0` is a non-blocking poll and never throws, only a real positive timeout that expires does. Only the genuine "buffer ended with too little data" case (`$this->ended`, no timeout involved) still returns `null` |
 | D16 | Should `StringBuffer` get an optional maximum length? | none; opt-in `?int $maxLength = null` that makes `write()` throw when the unread bytes would exceed it | **Deferred to 2.0.0 (maintainer).** Opt-in, throwing, default unbounded remains the shape if it happens |

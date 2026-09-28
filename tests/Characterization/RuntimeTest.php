@@ -12,6 +12,29 @@ use phasync\ContextUsedException;
 uses()->group('characterization');
 
 // ---------------------------------------------------------------------------
+// RT-1: cyclic garbage is collected also while no coroutine terminates
+
+test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine ends, is collected', function () {
+    $growth = phasync::run(static function () {
+        $before = \memory_get_usage();
+        $until  = \microtime(true) + 1.0;
+        while (\microtime(true) < $until) {
+            for ($i = 0; $i < 1000; ++$i) {
+                $a    = new stdClass();
+                $b    = new stdClass();
+                $a->b = $b;
+                $b->a = $a; // a cycle only the collector frees
+            }
+            phasync::sleep(); // let the loop run, as a server's connection coroutine does
+        }
+        phasync::sleep(0.1); // the loop counts the possible cycles every 50 ms,
+        phasync::sleep();    // by the time a tick starts, so one more tick after the wait
+
+        return \memory_get_usage() - $before;
+    });
+    expect($growth)->toBeLessThan(8 << 20); // uncollected, a second of this is about 200 MB
+});
+
 // RT-1: garbage collection state
 // ---------------------------------------------------------------------------
 

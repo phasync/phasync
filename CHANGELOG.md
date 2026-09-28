@@ -2,6 +2,15 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha13 (2026-09-28)
+
+### Fixed
+
+- Cyclic garbage is collected also while no coroutine ends: the loop counts the possible cycles
+  every 50 ms and collects at PHP's own threshold (10,000 roots), raising it while collections
+  find nothing (#52). Before, a server whose connections' coroutines live on collected almost
+  never; a swerve worker running CakePHP grew to 1.2 GB.
+
 ## 2.0.0-alpha12 (2026-09-28)
 
 ### Added

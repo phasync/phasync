@@ -144,6 +144,17 @@ final class EventLoop implements \Countable
      */
     private float $lastGarbageCollect = 0;
 
+    /** When the loop last counted the possible cycles, see tick(). */
+    private float $lastGarbageCheck = 0;
+
+    /** How often the loop counts the possible cycles, and how many make it collect: PHP's own threshold. */
+    private const GC_CHECK_INTERVAL = 0.05;
+    private const GC_ROOTS          = 10_000;
+    private const GC_ROOTS_MAX      = 1_000_000;
+
+    /** The possible cycles that make the loop collect now: GC_ROOTS, raised while collections find nothing. */
+    private int $gcRoots = self::GC_ROOTS;
+
     private ServiceContext $serviceContext;
 
     private \stdClass $idleFlag;
@@ -159,7 +170,7 @@ final class EventLoop implements \Countable
      */
     /**
      * phasync-ext's poller when the extension is loaded (epoll, and its worker threads' waiters),
-     * else stream_select().
+     * else PHP's own Io\Poll where PHP has it, else stream_select().
      */
     private PollerInterface|ext\Poller $poller;
 
@@ -202,7 +213,7 @@ final class EventLoop implements \Countable
         $this->serviceContext        = new ServiceContext();
         $this->poller                = \class_exists(ext\Poller::class, false)
             ? new ext\Poller($this->getSlot(...), $this->park(...), $this->unpark(...))
-            : new StreamSelectPoller($this);
+            : (\class_exists(\Io\Poll\Context::class) ? new IoPollPoller($this) : new StreamSelectPoller($this));
         $this->parked                = [];
         $this->parkedSlots           = [];
         $this->callbackQueue         = new \SplQueue();
@@ -364,6 +375,18 @@ final class EventLoop implements \Countable
             \gc_collect_cycles();
             $this->lastGarbageCollect   = $now;
             $this->shouldGarbageCollect = false;
+        } elseif ($now - $this->lastGarbageCheck > self::GC_CHECK_INTERVAL) {
+            // Coroutines that live on (a server's connections) make garbage while none ends:
+            // collect, between coroutines as always, once as many possible cycles gathered as make
+            // PHP's own collector run
+            $this->lastGarbageCheck = $now;
+            if (\gc_status()['roots'] >= $this->gcRoots) {
+                // As PHP's collector adapts: a collection that finds (almost) nothing makes the next
+                // wait for more possible cycles, one that finds garbage brings the threshold back
+                $this->gcRoots              = \gc_collect_cycles() < 100 ? \min($this->gcRoots * 2, self::GC_ROOTS_MAX) : self::GC_ROOTS;
+                $this->lastGarbageCollect   = $now;
+                $this->shouldGarbageCollect = false;
+            }
         }
 
         while (!$this->callbackQueue->isEmpty()) {
