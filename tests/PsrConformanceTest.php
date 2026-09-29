@@ -44,6 +44,18 @@ test('withHeader/withAddedHeader/withoutHeader/withBody/withProtocolVersion retu
     expect($r6->getProtocolVersion())->toBe('2.0');
 });
 
+test('with*() shares the same body stream instance across the returned message (phasync#63; swerve streams a response as it is produced)', function () {
+    $body = StreamFactory::create('hello');
+    $r    = (new Response(200, [], $body))->withHeader('X-A', '1')->withStatus(201);
+    expect($r->getBody())->toBe($body);
+
+    $req = (new Request('GET', '/', $body))->withHeader('X-A', '1')->withMethod('POST');
+    expect($req->getBody())->toBe($body);
+
+    $sr = (new ServerRequest('GET', '/', $body))->withAttribute('a', 1)->withHeader('X-A', '1');
+    expect($sr->getBody())->toBe($body);
+});
+
 test('withProtocolVersion() works on a Response too (phasync#58)', function () {
     $response = (new Response())->withProtocolVersion('2.0');
     expect($response->getProtocolVersion())->toBe('2.0');

@@ -49,7 +49,7 @@ class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryIn
 
     public function createResponse(int $code = 200, string $reasonPhrase = ''): ResponseInterface
     {
-        return new Response(null, [], $code, $reasonPhrase);
+        return new Response($code, [], null, '1.1', $reasonPhrase);
     }
 
     public function createUri(string $uri = ''): UriInterface

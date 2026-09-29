@@ -41,9 +41,6 @@ class Request implements RequestInterface
         if (null !== $this->uriOverride) {
             $this->uriOverride = clone $this->uriOverride;
         }
-        if (\is_object($this->body)) {
-            $this->body = clone $this->body;
-        }
     }
 
     /**

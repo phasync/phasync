@@ -25,13 +25,13 @@ class Response implements ResponseInterface
     protected string $reasonPhrase = '';
 
     /**
-     * @param mixed   $body            body, see {@see StreamFactory::create()}
-     * @param array   $headers         array of header names => values
      * @param int     $statusCode      HTTP status code
-     * @param ?string $reasonPhrase    the HTTP reason phrase; defaults to the standard phrase for $statusCode
+     * @param array   $headers         array of header names => values
+     * @param mixed   $body            body, see {@see StreamFactory::create()}
      * @param string  $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     * @param ?string $reasonPhrase    the HTTP reason phrase; defaults to the standard phrase for $statusCode
      */
-    public function __construct(mixed $body = null, array $headers = [], int $statusCode = 200, ?string $reasonPhrase = null, string $protocolVersion = '1.1')
+    public function __construct(int $statusCode = 200, array $headers = [], mixed $body = null, string $protocolVersion = '1.1', ?string $reasonPhrase = null)
     {
         $this->statusCode   = $statusCode;
         $this->reasonPhrase = null !== $reasonPhrase && '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$statusCode] ?? '');

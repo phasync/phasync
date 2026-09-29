@@ -24,13 +24,6 @@ trait MessageTrait
     protected array $headers     = [];
     protected array $headerCases = [];
 
-    public function __clone()
-    {
-        if (\is_object($this->body)) {
-            $this->body = clone $this->body;
-        }
-    }
-
     /**
      * Configure the message trait.
      *
