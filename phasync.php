@@ -145,7 +145,7 @@ final class phasync
                 throw $exception;
             }
 
-            if ([] !== ($failures = $driver->endRun($context))) {
+            if ([] !== ($failures = $driver->endRun($context, $fiber))) {
                 // A failure no handler took failed the run: its coroutines were dropped by the
                 // loop, and are destroyed as their last references go (their finally blocks run)
                 if ($fiber->isTerminated() && null !== ($e = $driver->getException($fiber))) {

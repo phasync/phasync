@@ -164,8 +164,10 @@ coroutine, the failure is not additionally reported to the scope. ⚠️
 
 **ERR-3. An un-awaited failure reaches a handler or its run (SCO-3).**
 It is known when the failed coroutine's `Fiber` object is released (anyone holding it may
-still await it). Released after its `run()` has ended, the failure is thrown where the last
-reference goes. ✅ ErrorsTest
+still await it), and at the latest when its `run()` ends: a `run()` owns its coroutines, so a
+`Fiber` still referenced then (by the application, or by a debugger such as Xdebug) doesn't keep
+the failure from failing it. Such a coroutine can't be awaited afterwards (`LogicException`).
+✅ ErrorsTest
 
 **ERR-4. No failure is dropped silently.** If a scope sees more than one failure, `run()`
 throws an `AggregateException` with all of them, the first as its previous exception (D3),
@@ -596,7 +598,7 @@ fail on purpose and is reported before it is accepted.
 | SCO-3 | An un-awaited child failure does not cancel siblings or interrupt the parent. `run()` throws at the end and the parent's return value is lost | **Changed (maintainer, 2026-09-29):** a handler takes it, or it fails the run, which drops its coroutines (hard teardown) and throws. Done |
 | SCO-5 | Cancelling a coroutine blocked in a nested `run()` does not cancel the nested children | No cascade (decided). Already matches |
 | SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | Removed with `ContextInterface` (D4). Done |
-| ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | A retained `Fiber`'s failure is thrown when it is released. Done |
+| ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | A retained `Fiber`'s failure fails its `run()` when it ends. Done |
 | ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | None dropped: `AggregateException`. Done |
 | CAN-2, CAN-3 | Cancelling a running coroutine throws `RuntimeException`; a finished one throws `InvalidArgumentException` | Recorded, or no-op |
 | CAN-5 | There is no way to cancel a whole context | `cancel($context)` (D14). Done |

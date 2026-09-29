@@ -1266,6 +1266,9 @@ final class EventLoop implements \Countable
             // Exception is stored in an exception holder, which can
             // now be returned to the pool
             $eh        = $this->fiberExceptionHolders[$fiber];
+            if ($eh->ended) {
+                throw new \LogicException("Can't await a coroutine whose failure ended its run()");
+            }
             $exception = $eh->get();
             $eh->returnToPool();
             unset($this->fiberExceptionHolders[$fiber], $eh);
@@ -1367,7 +1370,7 @@ final class EventLoop implements \Countable
         return FiberExceptionHolder::create($exception, $fiber, function (\Throwable $exception, \WeakReference $fiberRef) use ($context) {
             // Nobody took the failure: it goes to the context's handler, or fails its run()
             $this->unhandled($context, $exception);
-        });
+        }, $context);
     }
 
     /**
@@ -1424,8 +1427,16 @@ final class EventLoop implements \Countable
      *
      * @return list<\Throwable>
      */
-    public function endRun(object $context): array
+    public function endRun(object $context, ?\Fiber $main = null): array
     {
+        // A failure nobody took is this run's, also while something still holds its coroutine;
+        // run() takes its main coroutine's itself
+        foreach ($this->fiberExceptionHolders as $fiber => $holder) {
+            if ($fiber !== $main && !$holder->isHandled() && $this->within($holder->context, $context)) {
+                $holder->ended = true;
+                $holder->handleException();
+            }
+        }
         $failures = $this->runContexts[$context] ?? [];
         unset($this->runContexts[$context], $this->rootContexts[$context]);
         if ($context === $this->rootRunContext) {
@@ -1433,6 +1444,18 @@ final class EventLoop implements \Countable
         }
 
         return $failures;
+    }
+
+    /** Whether $context is $outer or nested in it. */
+    private function within(?object $context, object $outer): bool
+    {
+        for ($c = $context; null !== $c; $c = $this->outerContexts[$c] ?? null) {
+            if ($c === $outer) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

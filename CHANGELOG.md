@@ -4,6 +4,13 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Changed
+
+- A `run()` owns its coroutines: a failure nobody took fails it when it ends, also while the
+  failed coroutine's `Fiber` is still referenced (by the application, or by Xdebug's develop mode,
+  which kept it, so `run()` returned normally and the exception surfaced later). Such a
+  coroutine can't be awaited after its `run()` (`LogicException`) (ERR-3, #69).
+
 ### Removed
 
 - `phasync::fork()`, until it has a design of its own. A forked child could run the parent's

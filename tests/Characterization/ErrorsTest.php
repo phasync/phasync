@@ -228,7 +228,7 @@ test('ERR-3: awaiting some other coroutine is interrupted by an un-awaited failu
     expect($outcome)->toBe('threw RuntimeException: u2');
 });
 
-test('ERR-3: a failed coroutine whose Fiber object is kept past its run() is thrown where the last reference goes', function () {
+test('ERR-3: a failed coroutine whose Fiber object is kept past its run() fails that run(), and can not be awaited after it', function () {
     $keep    = null;
     $outcome = errOutcome(function () use (&$keep) {
         $keep = phasync::go(function () {
@@ -238,10 +238,9 @@ test('ERR-3: a failed coroutine whose Fiber object is kept past its run() is thr
 
         return 'ret';
     });
-    expect($outcome)->toBe("ok:'ret'"); // nobody could tell it failed yet: someone may await it
-    expect(function () use (&$keep) {
-        $keep = null;
-    })->toThrow(RuntimeException::class, 'retained');
+    expect($outcome)->toBe('threw RuntimeException: retained'); // the run owns its coroutines' failures
+    expect(fn () => phasync::await($keep))->toThrow(LogicException::class, "Can't await a coroutine whose failure ended its run()");
+    $keep = null; // nothing more is thrown when it goes
 });
 
 test('ERR-3: the same failure is delivered when the Fiber object is not retained', function () {
