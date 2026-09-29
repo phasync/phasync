@@ -282,6 +282,12 @@ final class EventLoop implements \Countable
      */
     public function __construct()
     {
+        // What a failure needs, loaded now: without file descriptors left, it can't be autoloaded
+        foreach ([AggregateException::class, CancelledException::class, ChannelException::class, ContextUsedException::class,
+            DeadmanException::class, IOException::class, TimeoutException::class, Debug::class,
+            ExceptionTool::class, FiberExceptionHolder::class] as $class) {
+            \class_exists($class);
+        }
         $this->clear();
     }
 
