@@ -87,7 +87,22 @@ which they became runnable. ⚠️
 
 **SCH-5. Operations are atomic between suspension points.** Because scheduling is
 cooperative, a sequence of statements that does not suspend cannot be interleaved with
-another coroutine. Every rule below relies on this. ⚠️
+another coroutine of its root context. Every rule below relies on this. ⚠️
+
+**SCH-6. Preemption (with phasync-ext) switches only between root contexts, and only between
+loop iterations.** A coroutine that runs a whole `EventLoop::PREEMPT_INTERVAL` (10 ms) in a PHP
+loop yields, so that timers, I/O and other requests get their turn. It is never preempted:
+- at any point other than between two iterations of a PHP loop;
+- in PHP code called by a C function (callbacks, handlers, destructors), or in
+  `#[\phasync\Uninterruptible]` code or what it calls;
+- in phasync's or swerve's own code.
+
+Its root context (a request) stays frozen until it resumes: none of that root's other
+coroutines run before it, so from inside a request, SCH-5 holds unchanged. Coroutines of that
+root that became ready meanwhile run right after it, unless it was preempted again. Across roots,
+a sequence of statements without a loop and without a suspension point is atomic: code can build
+its own atomic operations (test-and-set, compare-and-swap) in plain PHP. Without phasync-ext
+there is no preemption. ✅ PreemptionTest
 
 
 ## 3. Scopes (structured concurrency)

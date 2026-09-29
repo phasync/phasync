@@ -207,6 +207,13 @@ final class phasync
                 }
             };
 
+            // With phasync-ext, a coroutine that runs a whole interval in a PHP loop yields to
+            // other requests (EventLoop::preempt())
+            $preempting = 0 === $runDepth && \function_exists('phasync\ext\set_preempt_function');
+            if ($preempting) {
+                $previousPreempt = \phasync\ext\set_preempt_function($driver->preempt(...), EventLoop::PREEMPT_INTERVAL);
+            }
+
             if (0 === $runDepth && \function_exists('phasync\ext\manage')) {
                 // With phasync-ext, blocking I/O and sleeps inside coroutines park them in the
                 // event loop instead of blocking the process. When PHP's own call has a timeout
@@ -250,6 +257,9 @@ final class phasync
 
             return phasync::await($fiber);
         } finally {
+            if (isset($preempting) && $preempting) {
+                \phasync\ext\set_preempt_function($previousPreempt);
+            }
             if (0 === --self::$runDepth) {
                 \gc_enable();
                 // Run hooks when async context is enabled

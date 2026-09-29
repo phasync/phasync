@@ -70,6 +70,31 @@ final class EventLoop implements \Countable
     private \WeakMap $rootContexts;
 
     /**
+     * Preemption (with phasync-ext's set_preempt_function()): the root contexts frozen because
+     * one of their coroutines was preempted, each with that coroutine; none of a frozen root's
+     * other coroutines runs before it resumes.
+     *
+     * @var \WeakMap<object, \Fiber>
+     */
+    private \WeakMap $frozen;
+
+    /**
+     * The coroutines of each frozen root that became ready meanwhile, in order: they run right
+     * after the preempted one resumes.
+     *
+     * @var \WeakMap<object, list<\Fiber>>
+     */
+    private \WeakMap $held;
+
+    /** How many roots are frozen: 0 keeps every check off the loop's path. */
+    private int $preempted = 0;
+
+    /** Ticks so far, and the coroutine and tick the preempt function saw last. */
+    private int $ticks            = 0;
+    private ?\Fiber $preemptFiber = null;
+    private int $preemptTick      = -1;
+
+    /**
      * Contexts used already: a context is used once.
      *
      * @var \WeakMap<object, true>
@@ -213,6 +238,9 @@ final class EventLoop implements \Countable
     /** When the loop last counted the possible cycles, see tick(). */
     private float $lastGarbageCheck = 0;
 
+    /** How long a coroutine runs in a PHP loop before it yields to other requests (phasync-ext). */
+    public const PREEMPT_INTERVAL = 0.01;
+
     /** How often the loop counts the possible cycles, and how many make it collect: PHP's own threshold. */
     private const GC_CHECK_INTERVAL = 0.05;
     private const GC_ROOTS          = 10_000;
@@ -267,6 +295,9 @@ final class EventLoop implements \Countable
         $this->outerContexts     = new \WeakMap();
         $this->usedContexts      = new \WeakMap();
         $this->rootContexts      = new \WeakMap();
+        $this->frozen            = new \WeakMap();
+        $this->held              = new \WeakMap();
+        $this->preempted         = 0;
         $this->runContexts       = new \WeakMap();
         if ($fiber = $this->getCurrentFiber()) {
             // The current fiber stays, alone in its context
@@ -405,10 +436,15 @@ final class EventLoop implements \Countable
          */
         $this->raiseFlag($this->afterNextFlag);
 
-        /**
+        /*
          * Run enqueued fibers.
          */
+        ++$this->ticks;
         $fiberCount            = $queue->count();
+        if (0 !== $this->preempted) {
+            $this->runFrozen($fiberCount);
+            $fiberCount = 0;
+        }
         $fiberExceptionHolders = $this->fiberExceptionHolders;
         $contexts              = $this->contexts;
         for ($i = 0; $i < $fiberCount && !$queue->isEmpty(); ++$i) {
@@ -449,6 +485,11 @@ final class EventLoop implements \Countable
             if ($fiber->isTerminated()) {
                 $this->handleTerminatedFiber($fiber);
             }
+            if (0 !== $this->preempted) {
+                // A coroutine was preempted: the rest of this tick respects its frozen root
+                $this->runFrozen($fiberCount - $i - 1);
+                break;
+            }
         }
         $this->currentFiber   = null;
         $this->currentContext = null;
@@ -475,6 +516,116 @@ final class EventLoop implements \Countable
             $callback = $this->callbackQueue->dequeue();
             $callback();
         }
+    }
+
+    /**
+     * The queue loop of tick() while roots are frozen: up to $count coroutines, those of a frozen
+     * root held back until its preempted coroutine resumes, then run right after it.
+     */
+    private function runFrozen(int $count): void
+    {
+        $queue = $this->queue;
+        for ($i = 0; $i < $count && !$queue->isEmpty(); ++$i) {
+            $fiber = $queue->dequeue();
+            unset($this->pending[$fiber]);
+            $root  = $this->rootContexts[$this->contexts[$fiber]];
+            $p     = $this->frozen[$root] ?? null;
+            if (null === $p) {
+                $this->resume($fiber);
+            } elseif ($p !== $fiber) {
+                $this->pending[$fiber] = \PHP_FLOAT_MAX; // still ready, held
+                $this->held[$root][]   = $fiber;
+            } else {
+                $held = $this->thaw($root);
+                $this->resume($fiber);
+                if (($this->frozen[$root] ?? null) === $fiber) {
+                    // Preempted again in its turn: the others wait on (as they would for a loop
+                    // that never yields without preemption)
+                    \array_push($held, ...($this->held[$root] ?? []));
+                    $this->held[$root] = $held;
+                } else {
+                    foreach ($held as $f) {
+                        unset($this->pending[$f]);
+                        $this->resume($f);
+                    }
+                }
+            }
+        }
+    }
+
+    /** $root's preempted coroutine resumes (or is gone): the coroutines held for it. */
+    private function thaw(object $root): array
+    {
+        $held = $this->held[$root] ?? [];
+        unset($this->frozen[$root], $this->held[$root]);
+        --$this->preempted;
+
+        return $held;
+    }
+
+    /** One coroutine's turn: as in tick()'s own loop. */
+    private function resume(\Fiber $fiber): void
+    {
+        try {
+            $this->currentFiber   = $fiber;
+            $this->currentContext = $this->contexts[$fiber];
+            if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
+                $this->makeLive($this->currentContext);
+            }
+            if (isset($this->fiberExceptionHolders[$fiber])) {
+                $eh = $this->fiberExceptionHolders[$fiber];
+                unset($this->fiberExceptionHolders[$fiber]);
+                $exception = $eh->get();
+                $eh->returnToPool();
+                $fiber->throw($exception);
+            } else {
+                $fiber->resume();
+            }
+        } catch (\Throwable $e) {
+            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+        }
+        if ($fiber->isTerminated()) {
+            $this->handleTerminatedFiber($fiber);
+        }
+        $this->currentFiber   = null;
+        $this->currentContext = null;
+    }
+
+    /**
+     * phasync-ext's preempt function (set_preempt_function()): called between iterations of a
+     * PHP loop, about every PREEMPT_INTERVAL seconds. The running coroutine yields when it has
+     * run a whole interval and isn't in phasync's or swerve's own code, so that timers, I/O and
+     * other requests get their turn (whether any is ready is only known after the loop has
+     * polled); its root context stays frozen until it resumes.
+     *
+     * @internal phasync::run()
+     */
+    public function preempt(): void
+    {
+        $fiber = $this->currentFiber;
+        if (null === $fiber) {
+            return;
+        }
+        if ($fiber !== $this->preemptFiber || $this->ticks !== $this->preemptTick) {
+            // Not running a whole interval yet: the next call decides
+            $this->preemptFiber = $fiber;
+            $this->preemptTick  = $this->ticks;
+
+            return;
+        }
+        $caller = \debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1]['class'] ?? '';
+        if (\str_starts_with($caller, 'phasync\\') || 'phasync' === $caller || \str_starts_with($caller, 'Swerve\\')) {
+            return; // never inside the runtime's own code
+        }
+        $root = $this->rootContexts[$this->contexts[$fiber]];
+        if (isset($this->frozen[$root])) {
+            return; // its root is frozen already (another coroutine of it was preempted)
+        }
+        $this->frozen[$root] = $fiber;
+        ++$this->preempted;
+        $this->preemptFiber = null;
+        $this->enqueue($fiber);
+        \Fiber::suspend();
     }
 
     /**
@@ -1296,6 +1447,9 @@ final class EventLoop implements \Countable
             }
             $this->discard($fiber);
             $context = $this->contexts[$fiber];
+            if (0 !== $this->preempted && ($this->frozen[$root = $this->rootContexts[$context]] ?? null) === $fiber) {
+                $this->thaw($root); // its held coroutines share its root: they go with this run too
+            }
             unset($this->contextFibers[$context][$fiber]);
             $this->leftContext($context);
             unset($this->contexts[$fiber], $this->parentFibers[$fiber], $this->flagGraph[$fiber], $this->fiberExceptionHolders[$fiber]);
