@@ -1,8 +1,7 @@
 <?php
 
+use phasync\AggregateException;
 use phasync\CancelledException;
-use phasync\Context\ContextInterface;
-use phasync\Context\DefaultContext;
 use phasync\Debug;
 use phasync\EventLoop;
 use phasync\Internal\AsyncStream;
@@ -195,7 +194,7 @@ final class phasync
      * @throws FiberError
      * @throws Throwable
      */
-    public static function run(Closure $fn, ?array $args = [], ?ContextInterface $context = null): mixed
+    public static function run(Closure $fn, ?array $args = [], ?object $context = null): mixed
     {
         $driver = self::getDriver();
         try {
@@ -209,9 +208,9 @@ final class phasync
                 }
             }
 
-            if (null === $context) {
-                $context = new DefaultContext();
-            }
+            // Any object: the coroutines of this run belong to it
+            $context ??= new \stdClass();
+            $driver->beginRun($context, 0 === $runDepth);
 
             $exception = null;
 
@@ -228,7 +227,7 @@ final class phasync
                         $driver->tick();
                     }
                 } else {
-                    while ($context->getFibers()->count() > 0) {
+                    while ([] !== $driver->getFibers($context)) {
                         self::yield();
                     }
                 }
@@ -252,25 +251,30 @@ final class phasync
                 throw $exception;
             }
 
-            $result = self::await($fiber);
+            if ([] !== ($failures = $driver->endRun($context))) {
+                // A failure no handler took failed the run: its coroutines were dropped by the
+                // loop, and are destroyed as their last references go (their finally blocks run)
+                if ($fiber->isTerminated() && null !== ($e = $driver->getException($fiber))) {
+                    \array_unshift($failures, $e);
+                }
+                $fiber = $start = null;
+                try {
+                    \gc_collect_cycles();
+                } catch (Throwable $e) {
+                    $failures[] = $e; // thrown while a coroutine unwound
+                }
 
-            if ($exception = $context->getContextException()) {
-                throw $exception;
+                throw 1 === \count($failures) ? $failures[0] : new AggregateException($failures);
             }
 
-            return $result;
+            return self::await($fiber);
         } catch (CancelledException $e) {
-            if ($fiber->isTerminated()) {
-                throw $e;
+            if (null === $fiber || $fiber->isTerminated()) {
+                throw $e; // a failure of the run (null: its coroutines were dropped), or the main coroutine's own
             }
             phasync::cancel($fiber);
-            $result = phasync::await($fiber);
 
-            if ($exception = $context->getContextException()) {
-                throw $exception;
-            }
-
-            return $result;
+            return phasync::await($fiber);
         } finally {
             if (0 === --self::$runDepth) {
                 \gc_enable();
@@ -293,12 +297,12 @@ final class phasync
      * @param Closure               $fn         The function to run as a coroutine
      * @param array                 $args       The arguments to pass to the function
      * @param int                   $concurrent Run the coroutine multiple times
-     * @param ContextInterface|null $context    Set a new context interface
+     * @param object|null           $context    A context of its own: any object, used once
      * @param bool                  $run        If true, the coroutine will be run in an event loop context
      *
      * @throws LogicException
      */
-    public static function go(Closure $fn, array $args = [], int $concurrent = 1, ?ContextInterface $context = null, bool $run = false): Fiber
+    public static function go(Closure $fn, array $args = [], int $concurrent = 1, ?object $context = null, bool $run = false): Fiber
     {
         if ($concurrent > 1) {
             if (null !== $context && 0 === self::$runDepth) {
@@ -524,10 +528,18 @@ final class phasync
      * using either {@see phasync::await()}, {@see phasync::sleep()}, {@see phasync::readable()}
      * or {@see phasync::awaitFlag()}.
      *
+     * Given a context, cancels every waiting coroutine of it and of the contexts nested in it,
+     * the deepest first, except the calling coroutine.
+     *
      * @throws RuntimeException if the fiber is not currently blocked
      */
-    public static function cancel(Fiber $fiber, ?Throwable $exception = null): void
+    public static function cancel(object $fiber, ?Throwable $exception = null): void
     {
+        if (!$fiber instanceof Fiber) {
+            self::getDriver()->cancelContext($fiber, $exception);
+
+            return;
+        }
         if ($fiber->isTerminated()) {
             throw new InvalidArgumentException('Fiber is already terminated');
         }
@@ -798,7 +810,7 @@ final class phasync
      * @throws LogicException       outside a coroutine
      * @throws \phasync\ContextUsedException if $context was used before
      */
-    public static function withContext(Closure $fn, ContextInterface $context): mixed
+    public static function withContext(Closure $fn, object $context): mixed
     {
         $driver = self::getDriver();
         if (null === $driver->getCurrentFiber()) {
@@ -840,12 +852,12 @@ final class phasync
     }
 
     /**
-     * Get the context of the currently running coroutine. The there is no
-     * currently running coroutine, throws LogicException.
+     * The context of the running coroutine: the object given to run(), go() or withContext(), or
+     * the one it inherited. Outside a coroutine, throws LogicException.
      *
      * @throws LogicException
      */
-    public static function getContext(): ContextInterface
+    public static function getContext(): object
     {
         $context = self::getDriver()->getContext(self::getFiber());
         if (!$context) {
@@ -1022,20 +1034,6 @@ final class phasync
         self::getDriver()->enqueue($fiber);
     }
 
-    /**
-     * There should be no unhandled exceptions. However, in certain scenarios
-     * there exists a possibility for unhandled exceptions to occur. This method
-     * ensures that the exception will be logged or thrown out of the event loop
-     * from the `phasync::run()` function.
-     *
-     * @deprecated this function will be removed when it is certain that phasync handles all edge cases
-     *
-     * @internal
-     */
-    public static function logUnhandledException(Throwable $exception): void
-    {
-        \error_log("UNHANDLED EXCEPTION:\n" . $exception->__toString() . "\nLogged from:" . (new Exception())->getTraceAsString(), $exception->getCode());
-    }
 
     /**
      * The event loop, made at first use.

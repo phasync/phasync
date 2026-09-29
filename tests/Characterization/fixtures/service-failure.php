@@ -2,7 +2,7 @@
 
 /*
  * Fixture for ScopesTest (SCO-6): a service coroutine that throws. Run as a separate
- * process because the runtime reports service failures by writing to STDERR.
+ * process: the failure ends the run, services and all.
  */
 
 require __DIR__ . '/../../../vendor/autoload.php';

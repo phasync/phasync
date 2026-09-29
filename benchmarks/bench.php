@@ -107,8 +107,8 @@ function scenarios(): array
                         \phasync::sleep(0);
                     }
                 };
-                $a = \phasync::go($body, context: new \phasync\Context\DefaultContext());
-                $b = \phasync::go($body, context: new \phasync\Context\DefaultContext());
+                $a = \phasync::go($body, context: new \stdClass());
+                $b = \phasync::go($body, context: new \stdClass());
                 \phasync::await($a);
                 \phasync::await($b);
             });
@@ -124,9 +124,7 @@ function scenarios(): array
                         \phasync::sleep(0);
                     }
                 };
-                $context = static fn (string $value) => new class($value) implements \phasync\Context\ContextInterface, \phasync\Context\SwitchAwareInterface {
-                    use \phasync\Context\ContextTrait;
-
+                $context = static fn (string $value) => new class($value) implements \phasync\Context\SwitchAwareInterface {
                     public static ?string $live = null;
 
                     public function __construct(private string $value)

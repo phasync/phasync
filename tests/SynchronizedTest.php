@@ -36,7 +36,7 @@ test('coroutines of different contexts take turns too', function () {
                     phasync::sleep(0.01);
                     $log[] = "$name out";
                 });
-            }, context: new phasync\Context\DefaultContext());
+            }, context: new stdClass());
         }
         foreach ($fs as $f) {
             phasync::await($f);

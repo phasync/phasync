@@ -100,34 +100,37 @@ created by `go()` joins the creator's scope. ✅ RunTest
 **SCO-2. A scope does not exit until all its coroutines have finished.** `run()` returns
 or throws only after every coroutine in its scope has terminated. ✅ RunTest
 
-**SCO-3. A failure cancels nothing by itself.** Most requests are one coroutine running
-synchronous code, so a server handles failures in the request's own coroutine
-(`try`/`catch`/`finally` around `handle()`, log, send a 500, close). An exception nobody
-handles propagates up the coroutine tree (ERR-3) and ends the program if it reaches the
-top. Stopping related coroutines is the developer's job: catch and cancel them, or let
-channel ends close (CHN-8). ✅ Today's "does not cancel siblings" already matches; delivery timing is
-ERR-3.
+**SCO-3. An unhandled failure goes to a handler, or fails its run.** A failure no coroutine
+takes (nobody awaits the failed coroutine) goes outward through the contexts: its own, then
+the one that was entered from. The first implementing `ExceptionHandlerInterface` takes it,
+from the event loop, and only the failed coroutine ends. With none, it fails the nearest
+`run()`: the run drops all its coroutines at once (those of nested contexts, and for the
+outermost run the services), and they are never resumed; PHP destroys them, running their
+`finally` blocks, which can't suspend. Nothing is left running. phasync logs nothing.
+✅ ContextTest, ScopesTest, ErrorsTest
 
-**SCO-4. `run()` throws the scope's failure.** After the scope has drained, `run()`
-throws the first unhandled failure. Later failures are not lost (ERR-4). ✅ for the first
-failure (RunTest "lost exception in an orphaned go()")
+**SCO-4. `run()` throws the scope's failure.** A failed run throws its failure, or an
+`AggregateException` when there were several (ERR-4); the main coroutine's own failure comes
+first. A nested `run()` fails alone and throws into the coroutine that called it. ✅ RunTest,
+ScopesTest
 
 **SCO-5. Nested `run()` does not cascade.** Cancelling a coroutine that is blocked in a
 nested `run()` stops that coroutine only. The outer `run()` still waits for the nested
 children. ✅ Matches today.
 
 **SCO-6. Detached work is explicit.** `service()` is the only way to start a coroutine
-that outlives its scope. It has no scope to fail into, so its unhandled exceptions go to
-`logUnhandledException()` and are never silent. ❌ Currently prints "FATAL" to STDERR and
-continues.
+that outlives its scope. Its unhandled failures go to the outermost `run()` (a handler on its
+context, or its failure). ✅ ScopesTest
 
-**SCO-7. A context is any object.** `run()` and `go()` take an optional context object
-and `phasync::getContext()` returns the one the current coroutine belongs to, so an
-application can keep per-request services in a `WeakMap` keyed by it. phasync tracks the
-member coroutines itself and must not keep the object alive after its coroutines finish,
-so that such services are freed with the request. Setting up contexts is the job of
-servers (FastCGI, HTTP), not of application code. There is no storage API on the
-context (D4). ❌ Today it must implement `ContextInterface`, which carries the storage.
+**SCO-7. A context is any object.** `run()`, `go()` and `withContext()` take an optional
+context object and `phasync::getContext()` returns the one the current coroutine belongs
+to, so an application can keep per-request services in a `WeakMap` keyed by it. phasync
+tracks the member coroutines itself (`EventLoop::getFibers($context)`), refuses to use a
+context twice, and keeps no reference to the object after its coroutines finish, so that
+such services are freed with the request. A context entered from another (`withContext()`,
+or `go()` with a context of its own) is nested in it. A context may implement
+`SwitchAwareInterface` to swap per-request state in and out. There is no storage API on
+the context (D4). ✅ ScopesTest, ContextTest, WithContextTest
 
 
 ## 4. Errors
@@ -139,16 +142,14 @@ exception it terminated with, every time it is called, for any number of awaiter
 **ERR-2. An awaited failure is handled.** If at least one coroutine awaited the failed
 coroutine, the failure is not additionally reported to the scope. ⚠️
 
-**ERR-3. An un-awaited failure reaches the parent coroutine (or the top-level `run()`).**
-It is delivered when the failing coroutine terminates, not at the next context switch of
-an ancestor and not when its `Fiber` object happens to be released. ❌ Currently delivered
-by `FiberExceptionHolder::__destruct`, i.e. when the `Fiber` is released. That is
-immediate, but if application code still holds the `Fiber` (a variable or an array), the
-failure is neither thrown nor logged.
+**ERR-3. An un-awaited failure reaches a handler or its run (SCO-3).**
+It is known when the failed coroutine's `Fiber` object is released (anyone holding it may
+still await it). Released after its `run()` has ended, the failure is thrown where the last
+reference goes. ✅ ErrorsTest
 
-**ERR-4. No failure is dropped silently.** If a scope sees more than one failure, all are
-retained and reachable from the exception `run()` throws (shape: D3). ❌ Currently the
-first is kept and later ones are only logged.
+**ERR-4. No failure is dropped silently.** If a scope sees more than one failure, `run()`
+throws an `AggregateException` with all of them, the first as its previous exception (D3),
+also those thrown while its dropped coroutines unwind. ✅ ErrorsTest
 
 **ERR-5. `finally` always runs**, including on cancellation and on exceptions thrown into
 a suspended coroutine. ✅ FinallyTest. `phasync::finally()` callbacks run when the coroutine
@@ -177,9 +178,10 @@ says the fiber MUST be suspended and throws otherwise.
 catches it can keep running, and its cleanup code can suspend without being cancelled
 again. (D5)
 
-**CAN-5. `cancel($fiber)` stops that coroutine and nothing else, never its children.**
-There is no `cancelContext()` for now (D14). Related coroutines are torn down by channel
-ends closing (CHN-8), not by broadcasting a cancellation. ✅ Matches today.
+**CAN-5. `cancel($fiber)` stops that coroutine and nothing else, never its children;
+`cancel($context)` stops the context's.** Given a context, every waiting coroutine of it and
+of the contexts nested in it is cancelled, the deepest in the coroutine tree first, except
+the calling coroutine (D14). ✅ ScopesTest
 
 **CAN-6. Cancellation never loses or duplicates data.** A cancelled operation either
 completed before the exception, or did not happen. Examples: a cancelled channel write
@@ -543,13 +545,13 @@ fail on purpose and is reported before it is accepted.
 |----|-----------------|------------------|
 | SCH-3 | A coroutine waiting for readability is resumed when the resource only becomes writable | No spurious wake-ups |
 | SCH-5 | `go()` suspends its caller once the preempt interval has elapsed, using the process-wide `$lastPreemptTime`, so it depends on wall-clock time | `go()` returns to the caller without depending on the clock |
-| SCO-3 | An un-awaited child failure does not cancel siblings or interrupt the parent. `run()` throws at the end and the parent's return value is lost | No cascade (decided). Delivery timing is ERR-3 |
+| SCO-3 | An un-awaited child failure does not cancel siblings or interrupt the parent. `run()` throws at the end and the parent's return value is lost | **Changed (maintainer, 2026-09-29):** a handler takes it, or it fails the run, which drops its coroutines (hard teardown) and throws. Done |
 | SCO-5 | Cancelling a coroutine blocked in a nested `run()` does not cancel the nested children | No cascade (decided). Already matches |
-| SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | (supports D4, removal) |
-| ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | Delivered when the coroutine terminates |
-| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | None dropped |
+| SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | Removed with `ContextInterface` (D4). Done |
+| ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | A retained `Fiber`'s failure is thrown when it is released. Done |
+| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | None dropped: `AggregateException`. Done |
 | CAN-2, CAN-3 | Cancelling a running coroutine throws `RuntimeException`; a finished one throws `InvalidArgumentException` | Recorded, or no-op |
-| CAN-5 | There is no way to cancel a whole context | Deferred (D14). Teardown comes from channel ends (CHN-8) |
+| CAN-5 | There is no way to cancel a whole context | `cancel($context)` (D14). Done |
 | CAN-9 | `run()` throws the `CancelledException` of a child the parent cancelled on purpose | Not a failure (D12) |
 | CAN-10 *new* | Cancelling twice before the child resumes delivers only the second exception; the first escapes from `run()` even when the child caught the second | Every cancel is handled once, none escapes |
 | TMO-6 *new* | `checkTimeouts()` skips about half of the expired waiters per pass: ten simultaneous 0.2 s timeouts fire at 0.5, 1.0, 1.5 and 2.0 s, and equal timeouts wake in the order 0, 2, 1, 3. Plain PHP shows `SplObjectStorage` skipping every other entry when entries are removed during `foreach`, which matches. Verified in a scratch copy: iterating a snapshot of `pending` makes all ten fire in the same pass. The loop is unchanged since the first release, and nothing in the history says the skipping is deliberate | **Fixed:** all expired waiters fire in the same pass, in registration order |
@@ -572,7 +574,7 @@ fail on purpose and is reported before it is accepted.
 | PRC-1 | A command that could not be launched used to be reported inconsistently across platforms, because it relied on `proc_open()`'s own (glibc-version-dependent) error reporting | **Fixed:** resolved and checked before `proc_open()` is called, the same way on every platform |
 | PRC-6 | Once `isRunning()` or `getExitCode()` has seen the process exit, the pipes are closed and unread output is lost | Output remains readable |
 | RT-1 | `gc_enable()` is called unconditionally at exit even if the user had disabled GC; a channel end in a reference cycle is not released by `unset()` until the loop next collects (deliberate, P3) | Previous state restored |
-| RT-5 *new* | `logUnhandledException()` passes `$exception->getCode()` to `error_log()` as the message *type*, so a code of 1 would send email | Fixed message type |
+| RT-5 *new* | `logUnhandledException()` passes `$exception->getCode()` to `error_log()` as the message *type*, so a code of 1 would send email | Moot: `logUnhandledException()` is gone (phasync logs nothing, SCO-3) |
 | RT-6 *new* | `go(run: true)` outside a coroutine returns a Fiber that never started (`getReturn()` throws `FiberError`, `await()` throws `LogicException`) | Returns a usable result |
 
 Not covered: `await()` on a still-pending fiber from outside a coroutine cannot be reached
@@ -585,8 +587,8 @@ through the public API.
 |---|----------|---------|-------------------|
 | D1 | `ReadChannelInterface::read()` / `Channel::read()`: `write(null)` is accepted today (the value union includes `null`), so a legitimately-written `null` and "channel closed" are indistinguishable, and `ReadChannel::getIterator()`'s `while (null !== $this->read())` truncates `foreach` at the first written `null` (pinned, `CHN-5`) | keep as is; throw on close; `read(float $timeout = PHP_FLOAT_MAX, ?bool &$eof = null): mixed` | **Decided (maintainer) and done:** the `&$eof` out-parameter (inspired by C#'s `out` pattern; `feof()`-style naming). `getIterator()` uses it, fixing `CHN-5` for free with no second method. `Subscriber`/`Subscribers` got the same fix and two further bugs it surfaced in that class specifically (see CHN-5) |
 | D2 | Which values can a channel carry? Was `\Serializable\|array\|string\|float\|int\|bool\|null` | keep the union; any `mixed` | **Decided (maintainer) and done (2.0.0):** `mixed`. The restriction existed only because cross-process channel support was undecided; resolved by recognizing that as a separate concern -- a future clustering primitive (string broadcast, `docs/roadmap-2.0.md`) owns cross-process transport with its own explicit serialization at that layer, so in-process channels have no reason to be constrained by it. PHP ZTS builds remain a separate, still-open question, orthogonal to this |
-| D3 | Shape of multiple failures in one scope | first only (Go's `errgroup`); `AggregateException` holding all | `AggregateException`, with the first failure as the primary |
-| D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer):** `ContextInterface` and its storage go. A context is any object, optional on `run()`/`go()`. Callers keep their own `WeakMap<context, service>`, so `getContext()` is the only lookup needed |
+| D3 | Shape of multiple failures in one scope | first only (Go's `errgroup`); `AggregateException` holding all | `AggregateException`, with the first failure as the primary. Done |
+| D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer) and done (2.0.0-alpha18):** `ContextInterface`, `ContextTrait`, `DefaultContext`, `ServiceContext` and the storage are gone. A context is any object, optional on `run()`/`go()`/`withContext()`; use-once is enforced by the loop. Callers keep their own `WeakMap<context, service>`, so `getContext()` is the only lookup needed |
 | D5 | Cancellation delivery | once per request (edge); every suspension while cancelled (level, as in Trio) | **Decided (maintainer):** cancellation is one exception thrown into the coroutine. Cleanup is done by catching it. No shielding |
 | D6 | Default timeout for IO operations | infinite everywhere; keep a finite default for IO | **Decided (maintainer) and done:** infinite everywhere. `setDefaultTimeout()`, `getDefaultTimeout()` and `DEFAULT_TIMEOUT` are removed. A finite default is a hidden timer |
 | D7 | Choice order when several selectables are ready | argument order; random like Go | **Moot (2.0.0):** `select()` was removed, not fixed; see section 8 |
@@ -597,6 +599,6 @@ through the public API.
 | D17 | `readFixed($n, $timeout)` returns `null` on timeout, and also `null` at end-of-stream with too little data. `read()` now throws `TimeoutException` | keep `null`; throw `TimeoutException` like `read()`; distinguish the two cases | **Decided (maintainer) and done:** throws `TimeoutException` on a real timeout, matching `read()`. Matches `read()`'s other rule too: `$timeout` of exactly `0` is a non-blocking poll and never throws, only a real positive timeout that expires does. Only the genuine "buffer ended with too little data" case (`$this->ended`, no timeout involved) still returns `null` |
 | D16 | Should `StringBuffer` get an optional maximum length? | none; opt-in `?int $maxLength = null` that makes `write()` throw when the unread bytes would exceed it | **Deferred to 2.0.0 (maintainer).** Opt-in, throwing, default unbounded remains the shape if it happens |
 | D15 | Should `WaitGroup::add()` take a delta like Go's `Add(delta int)`? | keep `add()` with no argument; `add(int $delta = 1)` | **Decided (maintainer) and done:** `add(int $delta = 1)`. A `go(Closure)` method like Go's `WaitGroup.Go` may come later |
-| D14 | `cancelContext($context)` | implement; defer | **Deferred (maintainer).** Broadcasting a cancellation would hide the fact that the deadlock protection does not tear things down correctly. If it is ever added, it should skip the calling coroutine |
+| D14 | `cancelContext($context)` | implement; defer | **Decided (maintainer, 2026-09-29) and done:** `cancel($fiberOrContext)`; for a context, the deepest coroutines first, skipping the calling coroutine. An unhandled failure uses it to cancel its context (SCO-3) |
 | D12 | Does a cancelled child that ends with `CancelledException` fail its scope? | yes (today); no, treat as normal termination | No. Otherwise every deliberate `cancel()` needs a `try/catch` in the child to keep `run()` from throwing |
 | D11 | How long may an idle loop sleep past the earliest pending timeout? | keep the fixed 0.5 s idle sleep; cap the idle sleep at the earliest pending deadline | Keep the 0.1 s check as is. Cap only the idle sleep, computed only when nothing is runnable, so it costs nothing while busy |

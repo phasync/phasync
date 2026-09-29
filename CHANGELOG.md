@@ -2,6 +2,29 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha18 (2026-09-29)
+
+### Changed (breaking)
+
+- A context is any object (D4). `ContextInterface`, `ContextTrait`, `DefaultContext`,
+  `ServiceContext` and the context's `ArrayAccess` storage are gone; `run()`, `go()` and
+  `withContext()` take any object, and `getContext()` returns it. The loop tracks each
+  context's coroutines and refuses to use a context twice (`ContextUsedException`).
+- A failure nobody awaits goes to the nearest context implementing the new
+  `phasync\Context\ExceptionHandlerInterface` (its own, or one it is nested in), and only the
+  failed coroutine ends. With no handler it fails the nearest `run()`, which drops all its
+  coroutines at once (they are never resumed; PHP destroys them, running their `finally`
+  blocks) and throws the failure, or a `phasync\AggregateException` with all of them.
+  Before, `run()` threw the first after everything else had run to completion, and logged the
+  rest. `logUnhandledException()` is gone: phasync logs nothing. A service's failure goes to
+  the outermost `run()`. A failed coroutine whose `Fiber` object is kept past its `run()` is
+  thrown when the object is released, instead of being lost.
+
+### Added
+
+- `phasync::cancel($context)` cancels every waiting coroutine of a context and of the
+  contexts nested in it, the deepest first, except the caller. `EventLoop::getFibers($context)`.
+
 ## 2.0.0-alpha17 (2026-09-29)
 
 ### Added

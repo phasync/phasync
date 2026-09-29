@@ -7,12 +7,12 @@ The phasync library provides a comprehensive API for building and managing async
 ## Key Components
 
  * Fibers: Lightweight threads that allow for non-blocking execution.
- * ContextInterface: Manages groups of related fibers, providing a mechanism to group and control coroutine behavior collectively.
+ * Contexts: any object groups the coroutines of a run, a request or a task; `getContext()` returns the current one.
  * EventLoop: runs coroutines, and waits for timers, flags and (through its poller) streams.
 
 ## Core Functions
 
-### `phasync::run(Closure $coroutine, array $arguments = [], ContextInterface $context = null): mixed`
+### `phasync::run(Closure $coroutine, array $arguments = [], ?object $context = null): mixed`
 
 Executes a coroutine within an event loop, ensuring that all nested coroutines complete before returning. This function is blocking until the coroutine and all its nested operations are completed.
 

@@ -15,7 +15,7 @@ namespace phasync {
          * @throws FiberError
          * @throws Throwable
          */
-        public static function run(Closure $fn, ?array $args=[], ?ContextInterface $context=null): mixed;
+        public static function run(Closure $fn, ?array $args=[], ?object $context=null): mixed;
 
         /**
          * Creates a normal coroutine and starts running it. The coroutine will be associated
@@ -28,7 +28,7 @@ namespace phasync {
          * @throws LogicException
          * @throws Throwable
          */
-        public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?ContextInterface $context=null): Fiber;
+        public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?object $context=null): Fiber;
 
         /**
          * Launches a service coroutine independently of the context scope.
@@ -66,7 +66,7 @@ namespace phasync {
          *
          * @throws RuntimeException if the fiber is not currently blocked
          */
-        public static function cancel(Fiber $fiber, ?Throwable $exception=null): void;
+        public static function cancel(object $fiberOrContext, ?Throwable $exception=null): void;
 
         /**
          * Suspend the coroutine when it has been running for a configurable number of
@@ -199,7 +199,7 @@ namespace phasync {
          *
          * @throws LogicException
          */
-        public static function getContext(): ContextInterface;
+        public static function getContext(): object;
 
         /**
          * Register a callback to be invoked whenever an application enters the event
@@ -357,41 +357,24 @@ namespace phasync {
     }
 }
 namespace phasync\Context {
-    interface ContextInterface extends \ArrayAccess
+    /**
+     * A context told when its coroutines run: resume() before one of them runs after another
+     * switch-aware context's, suspend() before another's runs. For per-request state.
+     */
+    interface SwitchAwareInterface
     {
-        /**
-         * Invoked the first time a context is attached to a coroutine.
-         * The function MUST throw {@see ContextUsedException} if it is
-         * was previously activated.
-         */
-        public function activate(): void;
+        public function resume(): void;
 
-        /**
-         * Returns true if the context has been activated.
-         */
-        public function isActivated(): bool;
+        public function suspend(): void;
+    }
 
-        /**
-         * If an exception was thrown in the context, and not handled
-         * it should be assigned here. This will ensure the exception
-         * is thrown by `phasync::run()`.
-         *
-         * @throws \LogicException if the exception is already set
-         */
-        public function setContextException(\Throwable $exception): void;
-
-        /**
-         * Returns the exception for the context, if it has been set.
-         */
-        public function getContextException(): ?\Throwable;
-
-        /**
-         * All the Fiber instances attached to this context and their
-         * start time.
-         *
-         * @return \WeakMap<\Fiber, float>
-         */
-        public function getFibers(): \WeakMap;
+    /**
+     * A context that takes the failures of its coroutines that nobody awaited (also of the
+     * contexts nested in it). Without one, such a failure fails the nearest phasync::run().
+     */
+    interface ExceptionHandlerInterface
+    {
+        public function handleException(\Throwable $exception): void;
     }
 }
 namespace phasync\Util {

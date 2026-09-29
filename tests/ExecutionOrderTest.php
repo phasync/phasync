@@ -10,18 +10,16 @@ test('execute run coroutine immediately', function () {
 });
 
 test('execute go coroutine immediately before resuming', function () {
-    /*
-     * This will throw the "Yes" exception, even though the "No" exception
-     * is actually thrown first. This is because the coroutine that throws
-     * the "No" exception is not awaited, and therefore the "No" exception
-     * is actually not surfaced until the coroutine is garbage collected.
-     */
-    expect(function () {
+    // The main coroutine's own failure first, then the child's, which was thrown first but
+    // nobody awaited
+    try {
         phasync::run(function () {
             phasync::go(function () {
                 throw new Exception('No');
             });
             throw new Exception('Yes');
         });
-    })->toThrow(new Exception('Yes'));
+    } catch (phasync\AggregateException $e) {
+    }
+    expect(\array_map(fn ($x) => $x->getMessage(), $e->getExceptions()))->toBe(['Yes', 'No']);
 });

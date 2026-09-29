@@ -5,13 +5,12 @@
  */
 
 use phasync\CancelledException;
-use phasync\Context\DefaultContext;
 use phasync\ContextUsedException;
 
 test('inside, getContext() is the given context, also after a suspension; afterwards the own one again', function () {
     expect(phasync::run(function () {
         $own     = phasync::getContext();
-        $context = new DefaultContext();
+        $context = new stdClass();
         $seen    = phasync::withContext(function () use ($context) {
             $before = phasync::getContext() === $context;
             phasync::sleep(0.01);
@@ -27,13 +26,13 @@ test('returns what the closure returns, and runs it in the calling coroutine', f
     expect(phasync::run(function () {
         $fiber = Fiber::getCurrent();
 
-        return phasync::withContext(fn () => [Fiber::getCurrent() === $fiber, 42], new DefaultContext());
+        return phasync::withContext(fn () => [Fiber::getCurrent() === $fiber, 42], new stdClass());
     }))->toBe([true, 42]);
 });
 
 test('coroutines started inside belong to the context and keep running after it returns', function () {
     expect(phasync::run(function () {
-        $context = new DefaultContext();
+        $context = new stdClass();
         $child   = phasync::withContext(fn () => phasync::go(function () use ($context) {
             phasync::sleep(0.05);
 
@@ -47,11 +46,11 @@ test('coroutines started inside belong to the context and keep running after it 
 
 test('the context counts the calling coroutine only while the closure runs', function () {
     expect(phasync::run(function () {
-        $context = new DefaultContext();
+        $context = new stdClass();
         $fiber   = Fiber::getCurrent();
-        $inside  = phasync::withContext(fn () => isset($context->getFibers()[$fiber]), $context);
+        $inside  = phasync::withContext(fn () => \in_array($fiber, phasync::getLoop()->getFibers($context), true), $context);
 
-        return [$inside, isset($context->getFibers()[$fiber])];
+        return [$inside, \in_array($fiber, phasync::getLoop()->getFibers($context), true)];
     }))->toBe([true, false]);
 });
 
@@ -62,7 +61,7 @@ test('an exception leaves the closure as it is, and the own context is restored'
             phasync::withContext(function () {
                 phasync::sleep(0.01);
                 throw new RuntimeException('boom');
-            }, new DefaultContext());
+            }, new stdClass());
         } catch (RuntimeException $e) {
             return [$e->getMessage(), phasync::getContext() === $own];
         }
@@ -75,7 +74,7 @@ test('cancelling the coroutine while the closure waits ends it with the cancella
         $worker = phasync::go(function () use (&$own) {
             $own = phasync::getContext();
             try {
-                phasync::withContext(fn () => phasync::sleep(5), new DefaultContext());
+                phasync::withContext(fn () => phasync::sleep(5), new stdClass());
             } catch (CancelledException) {
                 return phasync::getContext() === $own;
             }
@@ -89,8 +88,8 @@ test('cancelling the coroutine while the closure waits ends it with the cancella
 
 test('nested: the inner context applies inside, the outer one again after it', function () {
     expect(phasync::run(function () {
-        $outer = new DefaultContext();
-        $inner = new DefaultContext();
+        $outer = new stdClass();
+        $inner = new stdClass();
 
         return phasync::withContext(function () use ($outer, $inner) {
             $in = phasync::withContext(fn () => phasync::getContext() === $inner, $inner);
@@ -102,21 +101,21 @@ test('nested: the inner context applies inside, the outer one again after it', f
 
 test('a context can be used once, as with go()', function () {
     phasync::run(function () {
-        $context = new DefaultContext();
+        $context = new stdClass();
         phasync::withContext(fn () => null, $context);
         expect(fn () => phasync::withContext(fn () => null, $context))->toThrow(ContextUsedException::class);
     });
 });
 
 test('outside a coroutine it throws LogicException', function () {
-    expect(fn () => phasync::withContext(fn () => null, new DefaultContext()))->toThrow(LogicException::class);
+    expect(fn () => phasync::withContext(fn () => null, new stdClass()))->toThrow(LogicException::class);
 });
 
 test('finally() inside withContext() runs as withContext() returns, before the caller goes on: in the same coroutine and context, last registered first', function () {
     expect(phasync::run(function () {
         $log     = [];
         $fiber   = Fiber::getCurrent();
-        $context = new DefaultContext();
+        $context = new stdClass();
         phasync::withContext(function () use (&$log, $fiber, $context) {
             foreach ([1, 2] as $n) {
                 phasync::finally(function () use (&$log, $n, $fiber, $context) {
@@ -141,7 +140,7 @@ test('finally() inside withContext() may suspend, and runs also when the closure
                     $log[] = 'after a wait';
                 });
                 throw new RuntimeException('failed');
-            }, new DefaultContext());
+            }, new stdClass());
         } catch (RuntimeException $e) {
             $log[] = 'caller caught ' . $e->getMessage();
         }
@@ -163,7 +162,7 @@ test('finally() in a coroutine started inside withContext() still runs when that
             phasync::finally(function () use (&$log) {
                 $log[] = 'withContext finally';
             });
-        }, new DefaultContext());
+        }, new stdClass());
         $log[] = 'caller';
         phasync::sleep(0.05);
 
@@ -182,19 +181,17 @@ test('finally() in nested withContext() runs as each returns', function () {
                 phasync::finally(function () use (&$log) {
                     $log[] = 'inner finally';
                 });
-            }, new DefaultContext());
+            }, new stdClass());
             $log[] = 'between';
-        }, new DefaultContext());
+        }, new stdClass());
 
         return $log;
     }))->toBe(['inner finally', 'between', 'outer finally']);
 });
 
 /** A context that swaps a "global" in and out, logging each call. */
-final class SwitchAwareTestContext implements phasync\Context\ContextInterface, phasync\Context\SwitchAwareInterface
+final class SwitchAwareTestContext implements phasync\Context\SwitchAwareInterface
 {
-    use phasync\Context\ContextTrait;
-
     public static ?string $global = null;
     private ?string $saved;
 
