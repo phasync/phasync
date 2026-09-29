@@ -2,31 +2,37 @@
 
 namespace phasync\Psr;
 
+use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriInterface;
 
 class ServerRequest extends Request implements ServerRequestInterface
 {
-    protected array $serverParams  = [];
-    protected array $cookieParams  = [];
-    protected ?array $queryParams  = null;
-    protected array $uploadedFiles = [];
-    protected mixed $parsedBody    = null;
-    protected array $attributes    = [];
+    protected array $serverParams           = [];
+    protected array $cookieParams           = [];
+    protected ?array $queryParams           = null;
+    protected array|\Closure $uploadedFiles = [];
+    protected mixed $parsedBody             = null;
+    protected array $attributes             = [];
+    private ?\Closure $bodySource           = null;
 
     /**
-     * @param string                  $method          case-sensitive HTTP method
-     * @param string                  $requestTarget   request target, e.g. "/path?query=value"
-     * @param mixed                   $body            body, see {@see StreamFactory::create()}
-     * @param array                   $headers         array of header names => values
-     * @param ?array                  $queryParams     query params override; null derives them from the request target
-     * @param array                   $serverParams    server params, like $_SERVER
-     * @param array                   $cookieParams    cookie params, like $_COOKIE
-     * @param UploadedFileInterface[] $uploadedFiles   tree of uploaded file instances
-     * @param array|object|null       $parsedBody      deserialized body data
-     * @param array                   $attributes      attributes derived from the request
-     * @param string                  $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     * @param string                           $method          case-sensitive HTTP method
+     *                                                          A Closure given for the body, the uploaded files or the parsed body is called each time that
+     *                                                          is asked for, until a with...() replaces it: a server can parse the body on demand, and every
+     *                                                          clone sees the same state.
+     * @param string                           $requestTarget   request target, e.g. "/path?query=value"
+     * @param mixed                            $body            body, see {@see StreamFactory::create()}, or a Closure returning it
+     * @param array                            $headers         array of header names => values
+     * @param ?array                           $queryParams     query params override; null derives them from the request target
+     * @param array                            $serverParams    server params, like $_SERVER
+     * @param array                            $cookieParams    cookie params, like $_COOKIE
+     * @param UploadedFileInterface[]|\Closure $uploadedFiles   tree of uploaded file instances, or a Closure returning it
+     * @param array|object|\Closure|null       $parsedBody      deserialized body data, or a Closure returning it
+     * @param array                            $attributes      attributes derived from the request
+     * @param string                           $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
      */
     public function __construct(
         string $method,
@@ -36,13 +42,17 @@ class ServerRequest extends Request implements ServerRequestInterface
         ?array $queryParams = null,
         array $serverParams = [],
         array $cookieParams = [],
-        array $uploadedFiles = [],
+        array|\Closure $uploadedFiles = [],
         mixed $parsedBody = null,
         array $attributes = [],
         string $protocolVersion = '1.1',
     ) {
-        if (!self::isValidUploadedFilesArray($uploadedFiles)) {
+        if (\is_array($uploadedFiles) && !self::isValidUploadedFilesArray($uploadedFiles)) {
             self::throwInvalidUploadedFilesArray();
+        }
+        if ($body instanceof \Closure) {
+            $this->bodySource = $body;
+            $body             = null;
         }
         parent::__construct($method, $requestTarget, $body, $headers, $protocolVersion);
         if (null !== $queryParams) {
@@ -58,7 +68,7 @@ class ServerRequest extends Request implements ServerRequestInterface
     public function __clone()
     {
         parent::__clone();
-        if (\is_object($this->parsedBody)) {
+        if (\is_object($this->parsedBody) && !$this->parsedBody instanceof \Closure) {
             $this->parsedBody = clone $this->parsedBody;
         }
     }
@@ -125,7 +135,7 @@ class ServerRequest extends Request implements ServerRequestInterface
 
     public function getUploadedFiles(): array
     {
-        return $this->uploadedFiles;
+        return $this->uploadedFiles instanceof \Closure ? ($this->uploadedFiles)() : $this->uploadedFiles;
     }
 
     public function withUploadedFiles($uploadedFiles): ServerRequestInterface
@@ -141,7 +151,33 @@ class ServerRequest extends Request implements ServerRequestInterface
 
     public function getParsedBody()
     {
-        return $this->parsedBody;
+        return $this->parsedBody instanceof \Closure ? ($this->parsedBody)() : $this->parsedBody;
+    }
+
+    public function getBody(): StreamInterface
+    {
+        return null !== $this->bodySource ? ($this->bodySource)() : parent::getBody();
+    }
+
+    public function withBody($body): MessageInterface
+    {
+        $c             = parent::withBody($body);
+        $c->bodySource = null;
+
+        return $c;
+    }
+
+    /** The cookies of a Cookie header, as PHP fills $_COOKIE: the first of equal names wins, values are URL-decoded. */
+    public static function cookies(string $header): array
+    {
+        $cookies = [];
+        foreach (\explode(';', $header) as $pair) {
+            if (false !== ($eq = \strpos($pair, '='))) {
+                $cookies[\trim(\substr($pair, 0, $eq), " \t")] ??= \urldecode(\trim(\substr($pair, $eq + 1), " \t"));
+            }
+        }
+
+        return $cookies;
     }
 
     public function withParsedBody($data): ServerRequestInterface

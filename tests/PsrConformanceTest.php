@@ -269,3 +269,22 @@ test('UploadedFile::moveTo() writes the stream contents to the target path and c
 
     \unlink($target);
 });
+
+test('a ServerRequest resolves a Closure body, parsed body and uploaded files each time, until a with...() replaces them', function () {
+    $f      = new PsrFactory();
+    $state  = ['body' => $f->createStream('raw'), 'fields' => ['a' => '1']];
+    $upload = $f->createUploadedFile($f->createStream('x'));
+    $req    = new ServerRequest('POST', '/', static function () use (&$state) { return $state['body']; }, [], null, [], [], static fn () => ['f' => $upload], static function () use (&$state) { return $state['fields']; });
+    $clone  = $req->withAttribute('k', 'v');
+
+    $state['body'] = $f->createStream('parsed'); // the server parsed the body meanwhile
+    expect([(string) $req->getBody(), (string) $clone->getBody(), $clone->getParsedBody(), $clone->getUploadedFiles()['f']])
+        ->toBe(['parsed', 'parsed', ['a' => '1'], $upload]);
+
+    $own = $clone->withBody($f->createStream('own'))->withParsedBody(['b' => '2'])->withUploadedFiles([]);
+    expect([(string) $own->getBody(), $own->getParsedBody(), $own->getUploadedFiles()])->toBe(['own', ['b' => '2'], []]);
+});
+
+test('ServerRequest::cookies() parses a Cookie header as PHP fills $_COOKIE', function () {
+    expect(ServerRequest::cookies('a=1; b=x%20y;a=2; c'))->toBe(['a' => '1', 'b' => 'x y']);
+});
