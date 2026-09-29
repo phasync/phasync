@@ -75,7 +75,7 @@ test('BUF-1: write() never blocks: megabytes can be written without a reader and
     });
 });
 
-test('BUF-1: write() lets other coroutines run when a slice has been used up (preempt), but does not wait for a reader', function () {
+test('BUF-1: write() is not a suspension point: it does not wait for a reader, and no other coroutine runs meanwhile', function () {
     phasync::run(function () {
         $buffer = new StringBuffer();
         $ticks  = 0;
@@ -86,11 +86,11 @@ test('BUF-1: write() lets other coroutines run when a slice has been used up (pr
                 phasync::yield();
             }
         });
-        $until = \microtime(true) + 0.25;
+        $until = \microtime(true) + 0.05;
         while (\microtime(true) < $until) {
             $buffer->write('x');
         }
-        expect($ticks)->toBeGreaterThan(0);
+        expect($ticks)->toBe(1); // its first round only, when go() started it
         $stop = true;
         phasync::await($ticker);
     });

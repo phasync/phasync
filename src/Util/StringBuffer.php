@@ -196,7 +196,6 @@ class StringBuffer implements SelectableInterface
         $this->totalWritten += \strlen($chunk);
         $this->queue->push($chunk);
         \phasync::raiseFlag($this->queue);
-        \phasync::preempt();
     }
 
     /**

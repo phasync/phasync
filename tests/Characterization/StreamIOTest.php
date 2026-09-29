@@ -2,7 +2,7 @@
 
 /*
  * Characterization tests for non-blocking stream IO: phasync::stream/readable/writable/io(),
- * the phasync\io helper functions and phasync::preempt()
+ * the phasync\io helper functions
  * (docs/SEMANTICS.md section 10, IO-1 .. IO-3).
  *
  * These pin how the code behaves TODAY. A failing test means "stop and tell the
@@ -548,48 +548,3 @@ test('IO-1: outside a coroutine the io helpers do the plain PHP function', funct
 });
 
 /* ------------------------------------------------------------------ IO-3 */
-
-test('IO-3: preempt() outside a coroutine does nothing', function () {
-    phasync::preempt();
-    expect(true)->toBeTrue();
-});
-
-test('IO-3: preempt() in a busy loop lets siblings run, without it they wait, and the result is the same', function () {
-    $run = function (bool $preempt): array {
-        return phasync::run(function () use ($preempt) {
-            $log   = [];
-            $other = phasync::go(function () use (&$log) {
-                for ($i = 0; $i < 3; ++$i) {
-                    $log[] = 'other' . $i;
-                    phasync::yield();
-                }
-            });
-            $sum = 0;
-            for ($i = 0; $i < 60; ++$i) {
-                $sum += $i;
-                // 1 ms of CPU work; not usleep(), which phasync-ext turns into a suspension
-                for ($until = \hrtime(true) + 1_000_000; \hrtime(true) < $until;) {
-                }
-                if ($preempt) {
-                    phasync::preempt();
-                }
-            }
-            $log[] = 'busy done';
-            phasync::await($other);
-
-            return [$sum, $log];
-        });
-    };
-
-    phasync::setPreemptInterval(1000);
-    try {
-        [$sumWith, $logWith]       = $run(true);
-        [$sumWithout, $logWithout] = $run(false);
-    } finally {
-        phasync::setPreemptInterval(\intdiv(phasync::DEFAULT_PREEMPT_INTERVAL, 1000));
-    }
-
-    expect($sumWith)->toBe(1770)->and($sumWithout)->toBe(1770);
-    expect($logWith)->toBe(['other0', 'other1', 'other2', 'busy done']);
-    expect($logWithout)->toBe(['other0', 'busy done', 'other1', 'other2']);
-});

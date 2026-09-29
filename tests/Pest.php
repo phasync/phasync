@@ -2,7 +2,7 @@
 
 /*
  * The characterization tests pin behaviour that depends on process-wide state: the driver
- * singleton (deadline checks, idle timing, GC timing), the preempt clock, the default
+ * singleton (deadline checks, idle timing, GC timing), the default
  * timeout, channel bookkeeping and the GC switch. Older test files also change some of this
  * while they are loaded, so the ambient state depends on load order. Without a reset the
  * results depend on which test ran before, so every characterization test starts from, and
@@ -25,8 +25,6 @@ if (!\function_exists('phasyncResetProcessState')) {
         // Leftover queues and flags go with the old driver.
         $set('phasync', 'driver', null);
         $set('phasync', 'runDepth', 0);
-        $set('phasync', 'lastPreemptTime', 0);
-        $set('phasync', 'preemptInterval', phasync::DEFAULT_PREEMPT_INTERVAL);
         $set('phasync', 'onEnterCallbacks', []);
         $set('phasync', 'onExitCallbacks', []);
         $set('phasync', 'promiseHandlerFunction', null);

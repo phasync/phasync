@@ -2,6 +2,21 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha20 (2026-09-29)
+
+### Removed
+
+- `phasync::preempt()`, `phasync::setPreemptInterval()` and `DEFAULT_PREEMPT_INTERVAL`. A coroutine
+  yielding voluntarily when it had run too long was hard to explain and made `go()` and
+  `StringBuffer::write()` suspend their caller depending on the clock. `go()` now never
+  suspends its caller (SCH-5), and `write()` is not a suspension point. Preemption, with
+  phasync-ext, will come from the event loop.
+
+### Fixed
+
+- A `RateLimiter` dropped before its first token was taken made `run()` throw
+  `ChannelException: Channel is closed`; its token generator now ends quietly.
+
 ## 2.0.0-alpha19 (2026-09-29)
 
 ### Removed

@@ -27,12 +27,6 @@ test('using phasync::cancel() with a fiber not from phasync', function () {
     })->toThrow(LogicException::class);
 });
 
-test('using phasync::preempt() outside of phasync is fast', function () {
-    $t = \hrtime(true);
-    phasync::preempt();
-    assertLessThan(30000, \hrtime(true) - $t);
-});
-
 test('using phasync::sleep() outside of phasync works', function () {
     $t = \microtime(true);
     phasync::sleep();

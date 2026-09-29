@@ -136,9 +136,6 @@ coroutine at a time may wait to read a given stream, and one to write to it.
 For HTTP, `phasync\Services\CurlMulti::await($ch)` runs a curl handle cooperatively. For MySQL,
 `phasync\Services\MySQLiPoll` does the same for mysqli's asynchronous queries.
 
-CPU-bound loops can let other coroutines in with `phasync::preempt()`, which yields only when
-the coroutine has run for a while, and costs almost nothing otherwise.
-
 ## phasync-ext: existing code joins in
 
 [phasync-ext](https://github.com/phasync/phasync-ext) is an optional PHP extension. Inside
@@ -246,7 +243,7 @@ Also in `phasync\Util`: `RateLimiter`, `Synchronized` (a lock per coroutine) and
 - [Using phasync in existing projects](docs/use-in-existing-projects.md)
 - [Asynchronous I/O](docs/async-io-basics.md)
 - [Concurrent HTTP requests with CurlMulti](docs/curl-multi.md)
-- [WaitGroup](docs/wait-group.md) · [RateLimiter](docs/rate-limiter.md) · [`phasync::preempt()`](docs/preempt.md)
+- [WaitGroup](docs/wait-group.md) · [RateLimiter](docs/rate-limiter.md)
 - [Write a basic web server](docs/build-async-server.md)
 - [API reference](docs/API.md)
 - [Semantics: how each part behaves, exactly](docs/SEMANTICS.md)

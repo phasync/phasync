@@ -70,9 +70,9 @@ timers. See section 9.
 ## 2. Scheduling
 
 **SCH-1. Cooperative.** A coroutine runs until it suspends. Suspension points are:
-`await`, `sleep`, `yield`, `idle`, `awaitFlag`, `readable`/`writable`/`stream`, channel
-operations, and `preempt()` (which suspends only after the configured
-interval). Code that never suspends blocks every other coroutine. ⚠️
+`await`, `sleep`, `yield`, `idle`, `awaitFlag`, `readable`/`writable`/`stream` and channel
+operations (with phasync-ext also blocking PHP functions). Code that never suspends blocks
+every other coroutine. ⚠️
 
 **SCH-2. `go()` runs the child immediately.** The child runs synchronously up to its
 first suspension, then control returns to the caller. *Differs from Go, where a new
@@ -388,7 +388,8 @@ example through a channel) or guard it with a lock.
 **IO-2. A resource closed while waited on throws `IOException`** in the waiting
 coroutine. ⚠️
 
-**IO-3. `preempt()` never changes results,** only when other coroutines get to run. ⚠️
+**IO-3.** (removed: `preempt()` is gone, and `go()` and `StringBuffer::write()` no longer
+suspend depending on the clock)
 
 **IO-7. A `stream_select()` failure that isn't a timeout is reported, loudly, to every fiber
 that was waiting that tick.** `stream_select()` fails outright (not "nothing is ready yet",
@@ -544,7 +545,7 @@ fail on purpose and is reported before it is accepted.
 | ID | Behaviour today | Contract expects |
 |----|-----------------|------------------|
 | SCH-3 | A coroutine waiting for readability is resumed when the resource only becomes writable | No spurious wake-ups |
-| SCH-5 | `go()` suspends its caller once the preempt interval has elapsed, using the process-wide `$lastPreemptTime`, so it depends on wall-clock time | `go()` returns to the caller without depending on the clock |
+| SCH-5 | `go()` suspends its caller once the preempt interval has elapsed, using the process-wide `$lastPreemptTime`, so it depends on wall-clock time | `go()` returns to the caller without depending on the clock. Done: `preempt()` is removed |
 | SCO-3 | An un-awaited child failure does not cancel siblings or interrupt the parent. `run()` throws at the end and the parent's return value is lost | **Changed (maintainer, 2026-09-29):** a handler takes it, or it fails the run, which drops its coroutines (hard teardown) and throws. Done |
 | SCO-5 | Cancelling a coroutine blocked in a nested `run()` does not cancel the nested children | No cascade (decided). Already matches |
 | SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | Removed with `ContextInterface` (D4). Done |

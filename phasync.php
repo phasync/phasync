@@ -45,18 +45,6 @@ use phasync\WriteChannelInterface;
  */
 final class phasync
 {
-    /**
-     * This is the number of microseconds that a coroutine can run
-     * before it is *volunteeringly* preempted by invoking the
-     * {@see phasync::preempt()} function. When the coroutine has
-     * run for this number of microseconds, the phasync::preempt()
-     * function will suspend the coroutine and allow other
-     * coroutines to run.
-     *
-     * Number is in nanoseconds, measured using \hrtime(true), the
-     * default is 50 ms.
-     */
-    public const DEFAULT_PREEMPT_INTERVAL = 50000000;
 
     /**
      * The recursion depth of run statements that are active.
@@ -78,21 +66,7 @@ final class phasync
      */
     private static ?Closure $promiseHandlerFunction = null;
 
-    /**
-     * The configurable preempt interval that can be set using the
-     * {@see phasync::setPreemptInterval()} function.
-     *
-     * @var int number of nanoseconds
-     */
-    private static int $preemptInterval = self::DEFAULT_PREEMPT_INTERVAL;
 
-    /**
-     * The last time that {@see phasync::preempt()) was invoked. This means
-     * that the first call to phasync::preempt() will always yield.
-     *
-     * @var int number in nanoseconds from \hrtime(true)
-     */
-    private static int $lastPreemptTime = 0;
 
     private static array $onEnterCallbacks = [];
     private static array $onExitCallbacks = [];
@@ -342,14 +316,7 @@ final class phasync
             }
             throw ExceptionTool::popTrace(new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context."));
         }
-        $result = $driver->create($fn, $args, $context);
-
-        // Since coroutines start immediately, launching coroutines can effectively
-        // cause a busy loop. The preempt below enables coroutines to proceed while
-        // this launching is going on.
-        self::preempt();
-
-        return $result;
+        return $driver->create($fn, $args, $context);
     }
 
     /**
@@ -546,37 +513,6 @@ final class phasync
         self::getDriver()->cancel($fiber, $exception);
     }
 
-    /**
-     * Suspend the coroutine when it has been running for a configurable number of
-     * microseconds. This function is designed to be invoked from within busy loops,
-     * to allow other tasks to be performed. Use it at strategic places in library
-     * functions that do not naturally suspend - and on strategic places in slow
-     * calculations (avoiding invoking it on every iteration if possible).
-     *
-     * This function is highly optimized, but it benefits a lot from JIT because it
-     * seems to be inlined.
-     */
-    public static function preempt(): void
-    {
-        $elapsed = ($now = \hrtime(true)) - self::$lastPreemptTime;
-        if ($elapsed > self::$preemptInterval) {
-            if (null === self::getDriver()->getCurrentFiber()) {
-                // Minimize cost of calling this outside of phasync
-                return;
-            }
-            if (0 === self::$lastPreemptTime) {
-                // This check is too costly to perform on every preempt()
-                // call, so we'll just set it here and wait for the next call.
-                self::$lastPreemptTime = $now;
-            } else {
-                $driver = self::getDriver();
-                self::$lastPreemptTime = $now;
-                $driver->enqueue($driver->getCurrentFiber());
-                // A suspension point: a cancellation delivered meanwhile is thrown here (CAN-1)
-                self::suspend();
-            }
-        }
-    }
 
     /**
      * Yield time so that other coroutines can continue processing. Note that
@@ -889,14 +825,6 @@ final class phasync
         self::$onExitCallbacks[] = $exitCallback;
     }
 
-    /**
-     * Set the interval between every time the {@see phasync::preempt()}
-     * function will cause the coroutine to suspend running.
-     */
-    public static function setPreemptInterval(int $microseconds): void
-    {
-        self::$preemptInterval = \max(0, $microseconds * 1000);
-    }
 
     /**
      * Configures handling of promises from other frameworks. The

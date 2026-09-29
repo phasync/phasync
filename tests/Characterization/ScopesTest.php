@@ -9,14 +9,6 @@ use phasync\ContextUsedException;
 
 uses()->group('characterization');
 
-// Without this, go() may suspend its caller depending on wall-clock time (see SCH-5).
-beforeEach(function () {
-    phasync::setPreemptInterval(3_600_000_000);
-});
-afterEach(function () {
-    phasync::setPreemptInterval(50_000);
-});
-
 /**
  * Runs $body in phasync::run(). Returns the log array, with a final entry if run() threw.
  */

@@ -3,6 +3,7 @@
 namespace phasync\Util;
 
 use phasync;
+use phasync\ChannelException;
 use phasync\ReadChannelInterface;
 use phasync\SelectableInterface;
 
@@ -37,7 +38,11 @@ final class RateLimiter implements SelectableInterface
         $this->readChannel = $readChannel;
         \phasync::go(static function () use ($interval, $writeChannel) {
             do {
-                $writeChannel->write(true);
+                try {
+                    $writeChannel->write(true);
+                } catch (ChannelException) {
+                    return; // the limiter was dropped: its channel's reading end is gone
+                }
                 \phasync::sleep($interval);
             } while (!$writeChannel->isClosed());
         });

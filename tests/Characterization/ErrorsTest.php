@@ -11,15 +11,12 @@ use phasync\TimeoutException;
 
 uses()->group('characterization');
 
-// Without this, go() may suspend its caller depending on wall-clock time (see SCH-5).
 beforeEach(function () {
-    phasync::setPreemptInterval(3_600_000_000);
     // phasync logs nothing; error_log() is captured to show that.
     $this->errLogFile     = \tempnam(\sys_get_temp_dir(), 'phasync-errlog');
     $this->previousErrLog = \ini_set('error_log', $this->errLogFile);
 });
 afterEach(function () {
-    phasync::setPreemptInterval(50_000);
     \ini_set('error_log', false === $this->previousErrLog ? '' : $this->previousErrLog);
     @\unlink($this->errLogFile);
 });

@@ -68,17 +68,6 @@ namespace phasync {
          */
         public static function cancel(object $fiberOrContext, ?Throwable $exception=null): void;
 
-        /**
-         * Suspend the coroutine when it has been running for a configurable number of
-         * microseconds. This function is designed to be invoked from within busy loops,
-         * to allow other tasks to be performed. Use it at strategic places in library
-         * functions that do not naturally suspend - and on strategic places in slow
-         * calculations (avoiding invoking it on every iteration if possible).
-         *
-         * This function is highly optimized, but it benefits a lot from JIT because it
-         * seems to be inlined.
-         */
-        public static function preempt(): void;
 
         /**
          * Yield time so that other coroutines can continue processing. Note that
@@ -217,11 +206,6 @@ namespace phasync {
          */
         public static function onExit(Closure $exitCallback): void;
 
-        /**
-         * Set the interval between every time the {@see phasync::preempt()}
-         * function will cause the coroutine to suspend running.
-         */
-        public static function setPreemptInterval(int $microseconds): void;
 
         /**
          * Configures handling of promises from other frameworks. The

@@ -456,12 +456,11 @@ test('TMO-1: sleep() outside a coroutine blocks the process for the full duratio
     expect($seconds)->toBeLessThan(0.5);
 });
 
-test('TMO-1: yield(), idle(), preempt() and sleep(0) outside a coroutine return immediately', function () {
+test('TMO-1: yield(), idle() and sleep(0) outside a coroutine return immediately', function () {
     $start = \microtime(true);
     phasync::yield();
     phasync::idle();
     phasync::idle(1);
-    phasync::preempt();
     phasync::sleep(0);
 
     expect(\microtime(true) - $start)->toBeLessThan(0.1);

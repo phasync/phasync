@@ -10,18 +10,6 @@ use phasync\TimeoutException;
 
 uses()->group('characterization');
 
-/*
- * go() calls preempt(), which suspends the caller once the preempt interval has elapsed.
- * That makes the order of anything involving go() depend on wall-clock time, so every
- * test in this file starts with preemption effectively disabled (one hour).
- */
-beforeEach(function () {
-    phasync::setPreemptInterval(3_600_000_000);
-});
-afterEach(function () {
-    phasync::setPreemptInterval(50_000); // the library default (50 ms)
-});
-
 /**
  * Runs coroutine A (a1, $op, a2) and coroutine B (b) side by side and returns the
  * log. `[a1, b, a2]` means $op suspended A so B could run; `[a1, a2, b]` means it did not.
@@ -85,7 +73,6 @@ dataset('sch non-suspension points', [
         phasync::await(phasync::go(fn () => 1));
     }],
     'nested run() that never blocks'         => [fn () => phasync::run(fn () => 1)],
-    'preempt() with the default interval'    => [fn () => phasync::preempt()],
 ]);
 
 // phasync-ext turns usleep() inside a coroutine into phasync::sleep().
@@ -118,27 +105,6 @@ test('SCH-1: reading an empty channel is a suspension point', function () {
         });
     });
     expect($log)->toBe(['a1', 'b', 'read x', 'a2']);
-});
-
-test('SCH-1: preempt() suspends only once the preempt interval has elapsed', function () {
-    // Interval 0: every preempt() call is a suspension point.
-    $log = [];
-    phasync::run(function () use (&$log) {
-        phasync::preempt(); // records the reference time
-        phasync::go(function () use (&$log) {
-            phasync::setPreemptInterval(0);
-            $log[] = 'a1';
-            phasync::preempt();
-            phasync::setPreemptInterval(3_600_000_000);
-            $log[] = 'a2';
-        });
-        phasync::go(function () use (&$log) {
-            $log[] = 'b';
-        });
-    });
-    // a1 runs immediately, preempt() suspends A, go() itself preempts the parent too,
-    // then A resumes before B is even created.
-    expect($log)->toBe(['a1', 'a2', 'b']);
 });
 
 test('SCH-1: a coroutine that never suspends blocks every other coroutine', function () {
@@ -503,13 +469,9 @@ test('SCH-5: a read-modify-write that does not suspend is never interleaved', fu
     expect($seen)->toBe([1, 2, 3, 4, 5, 6]);
 });
 
-test('SCH-5: go() suspends its caller once the preempt interval has elapsed, so code around go() can interleave [DIVERGENCE]', function () {
-    // Contract: statements without a suspension point are atomic. Today go() calls
-    // preempt(), which is a hidden suspension point in the CALLER.
-    phasync::setPreemptInterval(0);
+test('SCH-5: go() never suspends its caller: code around go() is atomic', function () {
     $log = [];
     phasync::run(function () use (&$log) {
-        phasync::preempt(); // reference time
         $log[] = 'p1';
         phasync::go(function () use (&$log) {
             $log[] = 'c1';
@@ -518,9 +480,8 @@ test('SCH-5: go() suspends its caller once the preempt interval has elapsed, so 
         });
         $log[] = 'p2';
     });
-    // Without the hidden suspension this would be [p1, c1, p2, c2].
-    expect($log)->toBe(['p1', 'c1', 'c2', 'p2']);
-})->group('divergence');
+    expect($log)->toBe(['p1', 'c1', 'p2', 'c2']);
+});
 
 // ---------------------------------------------------------------------------
 // Inside / outside coroutine parity
@@ -534,12 +495,11 @@ test('PARITY: sleep(seconds) outside a coroutine blocks the process for that lon
     expect($elapsed)->toBeLessThan(0.5);
 });
 
-test('PARITY: sleep(0), yield(), idle() and preempt() outside a coroutine return immediately', function () {
+test('PARITY: sleep(0), yield() and idle() outside a coroutine return immediately', function () {
     $t = \microtime(true);
     phasync::sleep(0);
     phasync::yield();
     $idle = phasync::idle(5);
-    phasync::preempt();
     expect($idle)->toBeNull();
     expect(\microtime(true) - $t)->toBeLessThan(0.05);
 });

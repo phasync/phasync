@@ -473,8 +473,7 @@ test('CHN-8: dropping the read end makes a writer throw ChannelException', funct
     $out = phasync::run(function () {
         phasync::channel($r, $w, 0);
         $writer = phasync::go(function () use ($w) {
-            // go() may preempt its caller (wall-clock dependent), so wait long enough
-            // for the read end to have been dropped.
+            // Wait long enough for the read end to have been dropped.
             phasync::sleep(0.02);
             try {
                 $w->write('x');

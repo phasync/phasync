@@ -83,32 +83,6 @@ test('phasync handles exceptions in coroutines', function () {
     expect($exceptionThrown)->toBeTrue();
 });
 
-test('phasync::preempt allows other coroutines to run during CPU-intensive tasks', function () {
-    $order = [];
-    phasync::run(function () use (&$order) {
-        phasync::go(function () use (&$order) {
-            for ($i = 0; $i < 1000000; ++$i) {
-                if (0 === $i % 100000) {
-                    $order[] = "A$i";
-                    phasync::preempt();
-                }
-            }
-        });
-
-        phasync::go(function () use (&$order) {
-            for ($i = 0; $i < 5; ++$i) {
-                $order[] = "B$i";
-                phasync::sleep(0.01);
-            }
-        });
-    });
-
-    expect($order)->toContain('B0');
-    expect($order)->toContain('A0');
-    expect($order)->toContain('B4');
-    expect($order)->toContain('A900000');
-});
-
 test('phasync::fork runs a function in a separate process', function () {
     $result = phasync::run(function () {
         return phasync::fork(function () {

@@ -9,24 +9,10 @@
  * from the moment the limiter was created (or, where noted, from just after).
  */
 
-use phasync\ChannelException;
 use phasync\SelectableInterface;
 use phasync\Util\RateLimiter;
 
 uses()->group('characterization');
-
-/*
- * The RateLimiter constructor starts its token generator with go(). Whether the generator
- * gets to place its first token before the constructor returns depends on whether go()'s
- * preempt() suspends the caller, which it only does when the preempt interval has elapsed
- * since the last preempt() call (SCH-5, wall-clock dependent). The tests that observe that
- * moment say explicitly which of the two situations they are in.
- */
-function rlPreemptIsDue(bool $due): void
-{
-    (new ReflectionProperty(phasync::class, 'lastPreemptTime'))
-        ->setValue(null, $due ? \hrtime(true) - 2 * phasync::DEFAULT_PREEMPT_INTERVAL : \hrtime(true));
-}
 
 test('RL-1: a rate of zero or less throws InvalidArgumentException', function () {
     foreach ([0, -1, 0.0] as $rate) {
@@ -120,7 +106,6 @@ test('RL-1: two coroutines share one rate', function () {
 });
 
 test('RL-1: isReady() is true while a token is available and false right after it was taken', function () {
-    rlPreemptIsDue(true); // go() in the constructor suspends the caller, so the first token is offered
     $out = phasync::run(function () {
         $rl    = new RateLimiter(5);
         $out   = [$rl->isReady()];
@@ -134,7 +119,8 @@ test('RL-1: isReady() is true while a token is available and false right after i
         return $out;
     });
 
-    expect($out)->toBe([true, true, false, true]);
+    // The generator's first token is offered once it has run: not yet right after the constructor
+    expect($out)->toBe([false, true, false, true]);
 });
 
 test('RL-1: await() ignores its timeout argument and waits for a token without throwing [DIVERGENCE]', function () {
@@ -202,7 +188,6 @@ test('RL-1: dropping a limiter that still holds an untaken token lets run() fini
 });
 
 test('RL-1: a limiter that was never used can be dropped without error', function () {
-    rlPreemptIsDue(true); // go() in the constructor suspends the caller, so the generator is already waiting for a reader
     $out = phasync::run(function () {
         new RateLimiter(50);
 
@@ -212,23 +197,14 @@ test('RL-1: a limiter that was never used can be dropped without error', functio
     expect($out)->toBe('done');
 });
 
-test('RL-1: when go() does not suspend the constructor, no token is offered yet and dropping an unused limiter makes run() throw ChannelException [SURPRISE]', function () {
-    // The other side of the two RL-1 tests above: the generator has only reached the yield at the
-    // start of Channel::write() when the limiter goes away, so it wakes to a closed channel.
-    rlPreemptIsDue(false);
+test('RL-1: no token is offered right after the constructor, and dropping the limiter then ends its generator quietly', function () {
     $ready = null;
-    $out   = null;
-    try {
-        phasync::run(function () use (&$ready) {
-            $rl    = new RateLimiter(50);
-            $ready = $rl->isReady();
+    $out   = phasync::run(function () use (&$ready) {
+        $rl    = new RateLimiter(50);
+        $ready = $rl->isReady();
 
-            return 'done';
-        });
-    } catch (Throwable $e) {
-        $out = [\get_class($e), $e->getMessage()];
-    }
+        return 'done';
+    });
 
-    expect($ready)->toBeFalse();
-    expect($out)->toBe([ChannelException::class, 'Channel is closed']);
-})->group('surprise');
+    expect([$ready, $out])->toBe([false, 'done']);
+});
