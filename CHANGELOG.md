@@ -6,7 +6,7 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Added
 
-- Preemption with phasync-ext: a coroutine that runs 10 ms (`EventLoop::PREEMPT_INTERVAL`) in a
+- Preemption with phasync-ext: a coroutine that runs 1 ms (`EventLoop::PREEMPT_INTERVAL`) in a
   PHP loop yields to other requests between two iterations. Its root context stays frozen until
   it resumes, so inside one request nothing changes (SCH-5); across requests, loop-free code is
   atomic. Never in C-called PHP code, `#[\phasync\Uninterruptible]` code, or phasync's and
