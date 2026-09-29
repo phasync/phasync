@@ -100,7 +100,8 @@ test('RT-1: run() enables the collector on exit even if the caller had disabled 
 test('RT-1: PHP\'s automatic cycle collection does not run while run() is active [DIVERGENCE]', function () {
     \gc_collect_cycles();
     $runsBefore = \gc_status()['runs'];
-    $runsDuring = phasync::run(static function () {
+    // Uninterruptible: with phasync-ext, preemption would let the loop's own collection run meanwhile
+    $runsDuring = phasync::run(#[phasync\Uninterruptible] static function () {
         $before = \gc_status()['runs'];
         for ($i = 0; $i < 30000; ++$i) {
             $object       = new stdClass();
