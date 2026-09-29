@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
         php: ["8.2", "8.3", "8.4", "8.5"]
 
@@ -61,7 +62,9 @@ jobs:
       - name: 🔨 Build phasync-ext
         working-directory: phasync-ext
         run: |
-          phpize && ./configure --enable-phasync && make -j"$(nproc)"
+          phpize && ./configure --enable-phasync
+          php build/gen_stub.php -f phasync.stub.php  # the committed arginfo targets the newest PHP
+          make -j"$(nproc)"
           cp modules/phasync.so "$RUNNER_TEMP/phasync.so"
           php -d extension="$RUNNER_TEMP/phasync.so" -r 'extension_loaded("phasync") || exit(1); echo "phasync-ext ", phpversion("phasync"), "\n";'
 
