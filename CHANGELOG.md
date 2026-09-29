@@ -2,6 +2,15 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha19 (2026-09-29)
+
+### Removed
+
+- A coroutine that suspended with another `Fiber` (`Fiber::suspend($fiber)`) had the loop run
+  that fiber at once, ahead of everything queued. It was a shortcut for channels, which no
+  longer use it, and it could starve other coroutines. Suspending with a value is now an
+  ordinary suspension.
+
 ## 2.0.0-alpha18 (2026-09-29)
 
 ### Changed (breaking)

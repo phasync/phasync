@@ -383,8 +383,6 @@ final class EventLoop implements \Countable
             $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
 
-            again:
-
             try {
                 $this->currentFiber   = $fiber;
                 $this->currentContext = $contexts[$fiber];
@@ -399,16 +397,9 @@ final class EventLoop implements \Countable
                     $exception = $eh->get();
                     $eh->returnToPool();
                     // FiberState::for($fiber)->log('throwing ' . \get_class($exception));
-                    $value = $fiber->throw($exception);
+                    $fiber->throw($exception);
                 } else {
-                    $value = $fiber->resume();
-                }
-                if ($value instanceof \Fiber) {
-                    // If a Fiber suspends itself with another Fiber, it swaps with that fiber.
-                    // In this case, no exception was thrown and the fiber is not terminated
-                    // $this->enqueue($value);
-                    $fiber = $value;
-                    goto again;
+                    $fiber->resume();
                 }
             } catch (\Throwable $e) {
                 /*
@@ -505,20 +496,7 @@ final class EventLoop implements \Countable
                 $this->switchAware = true;
                 $this->makeLive($context);
             }
-            $value                = $fiber->start(...$args);
-            while ($value instanceof \Fiber) {
-                try {
-                    $this->currentFiber   = $value;
-                    $this->currentContext = $this->contexts[$fiber];
-                    if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
-                        $this->makeLive($this->currentContext);
-                    }
-                    $value                = $value->resume();
-                } catch (\Throwable $e) {
-                    $this->enqueueWithException($value, $e);
-                    $value = null;
-                }
-            }
+            $fiber->start(...$args);
 
             return $fiber;
         } catch (\Throwable $e) {
