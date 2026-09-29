@@ -35,6 +35,14 @@ final class EventLoop implements \Countable
     private \WeakMap $contexts;
 
     /**
+     * phasync::finally() callbacks of the withContext() call each fiber is in, if any, by
+     * spl_object_id() of the fiber; run as that call returns.
+     *
+     * @var array<int, list<\Closure>>
+     */
+    private array $withContextFinally = [];
+
+    /**
      * Holds a reference to all fibers that will be resumed by this event
      * loop, and their timeout timestamp.
      *
@@ -203,6 +211,7 @@ final class EventLoop implements \Countable
         $this->queue                 = new \SplQueue();
         $this->pending               = new \SplObjectStorage();
         $this->parentFibers          = new \WeakMap();
+        $this->withContextFinally    = [];
         $this->fiberExceptionHolders = new \WeakMap();
         $this->fiberExceptions       = new \WeakMap();
         $this->scheduler             = new Scheduler();
@@ -681,17 +690,69 @@ final class EventLoop implements \Countable
     public function withContext(\Closure $fn, ContextInterface $context): mixed
     {
         $fiber = $this->currentFiber;
+        $id    = \spl_object_id($fiber);
         $context->activate();
-        $previous                     = $this->contexts[$fiber];
-        $this->contexts[$fiber]       = $context;
-        $this->currentContext         = $context;
-        $context->getFibers()[$fiber] = true;
+        $previous                       = $this->contexts[$fiber];
+        $outerFinally                   = $this->withContextFinally[$id] ?? null;
+        $this->contexts[$fiber]         = $context;
+        $this->currentContext           = $context;
+        $context->getFibers()[$fiber]   = true;
+        $this->withContextFinally[$id]  = [];
         try {
             return $fn();
         } finally {
-            unset($context->getFibers()[$fiber]);
-            $this->contexts[$fiber] = $previous;
-            $this->currentContext   = $previous;
+            $callbacks = $this->withContextFinally[$id];
+            try {
+                if ([] !== $callbacks) {
+                    // phasync::finally() callbacks registered in $fn, last first, still in $context
+                    self::runFinally($callbacks);
+                }
+            } finally {
+                if (null === $outerFinally) {
+                    unset($this->withContextFinally[$id]);
+                } else {
+                    $this->withContextFinally[$id] = $outerFinally;
+                }
+                unset($context->getFibers()[$fiber]);
+                $this->contexts[$fiber] = $previous;
+                $this->currentContext   = $previous;
+            }
+        }
+    }
+
+    /**
+     * Register a phasync::finally() callback with the withContext() call $fiber is in: false
+     * when it is in none.
+     *
+     * @internal
+     */
+    public function finallyWithContext(\Fiber $fiber, \Closure $fn): bool
+    {
+        $id = \spl_object_id($fiber);
+        if (!isset($this->withContextFinally[$id])) {
+            return false;
+        }
+        $this->withContextFinally[$id][] = $fn;
+
+        return true;
+    }
+
+    /**
+     * Run callbacks last first; each runs also when a later one threw (PHP chains the
+     * exceptions, as in nested finally blocks).
+     *
+     * @param list<\Closure> $callbacks
+     */
+    private static function runFinally(array $callbacks): void
+    {
+        if ([] === $callbacks) {
+            return;
+        }
+        $last = \array_pop($callbacks);
+        try {
+            $last();
+        } finally {
+            self::runFinally($callbacks);
         }
     }
 

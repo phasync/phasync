@@ -111,3 +111,81 @@ test('a context can be used once, as with go()', function () {
 test('outside a coroutine it throws LogicException', function () {
     expect(fn () => phasync::withContext(fn () => null, new DefaultContext()))->toThrow(LogicException::class);
 });
+
+test('finally() inside withContext() runs as withContext() returns, before the caller goes on: in the same coroutine and context, last registered first', function () {
+    expect(phasync::run(function () {
+        $log     = [];
+        $fiber   = Fiber::getCurrent();
+        $context = new DefaultContext();
+        phasync::withContext(function () use (&$log, $fiber, $context) {
+            foreach ([1, 2] as $n) {
+                phasync::finally(function () use (&$log, $n, $fiber, $context) {
+                    $log[] = "f$n " . (Fiber::getCurrent() === $fiber ? 'same coroutine' : 'other coroutine') . ', ' . (phasync::getContext() === $context ? 'its context' : 'other context');
+                });
+            }
+            $log[] = 'body';
+        }, $context);
+        $log[] = 'caller';
+
+        return $log;
+    }))->toBe(['body', 'f2 same coroutine, its context', 'f1 same coroutine, its context', 'caller']);
+});
+
+test('finally() inside withContext() may suspend, and runs also when the closure throws', function () {
+    expect(phasync::run(function () {
+        $log = [];
+        try {
+            phasync::withContext(function () use (&$log) {
+                phasync::finally(function () use (&$log) {
+                    phasync::sleep(0.01);
+                    $log[] = 'after a wait';
+                });
+                throw new RuntimeException('failed');
+            }, new DefaultContext());
+        } catch (RuntimeException $e) {
+            $log[] = 'caller caught ' . $e->getMessage();
+        }
+
+        return $log;
+    }))->toBe(['after a wait', 'caller caught failed']);
+});
+
+test('finally() in a coroutine started inside withContext() still runs when that coroutine ends', function () {
+    expect(phasync::run(function () {
+        $log = [];
+        phasync::withContext(function () use (&$log) {
+            phasync::go(function () use (&$log) {
+                phasync::finally(function () use (&$log) {
+                    $log[] = 'coroutine finally';
+                });
+                phasync::sleep(0.02);
+            });
+            phasync::finally(function () use (&$log) {
+                $log[] = 'withContext finally';
+            });
+        }, new DefaultContext());
+        $log[] = 'caller';
+        phasync::sleep(0.05);
+
+        return $log;
+    }))->toBe(['withContext finally', 'caller', 'coroutine finally']);
+});
+
+test('finally() in nested withContext() runs as each returns', function () {
+    expect(phasync::run(function () {
+        $log = [];
+        phasync::withContext(function () use (&$log) {
+            phasync::finally(function () use (&$log) {
+                $log[] = 'outer finally';
+            });
+            phasync::withContext(function () use (&$log) {
+                phasync::finally(function () use (&$log) {
+                    $log[] = 'inner finally';
+                });
+            }, new DefaultContext());
+            $log[] = 'between';
+        }, new DefaultContext());
+
+        return $log;
+    }))->toBe(['inner finally', 'between', 'outer finally']);
+});

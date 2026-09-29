@@ -471,10 +471,16 @@ final class phasync
     }
 
     /**
-     * Schedule a closure to run when the current coroutine completes. This function
-     * is intended to be used when a coroutine uses a resource that must be cleaned
-     * up when the coroutine finishes. Note that it may be more efficient to use a
-     * try {} finally {} statement.
+     * Schedule a closure to run when the current coroutine completes, or, when called inside
+     * {@see phasync::withContext()}, as that call returns, whichever comes first. Callbacks run
+     * last registered first. This function is intended to be used when a coroutine uses a
+     * resource that must be cleaned up when the coroutine finishes. Note that it may be more
+     * efficient to use a try {} finally {} statement.
+     *
+     * Inside withContext() the callbacks run in the calling coroutine, still in the context, also
+     * when the closure threw, and may suspend; no coroutine is started for them. A server that
+     * runs each request in withContext() and sends the response inside it thereby runs them
+     * after the response, as fastcgi_finish_request() allows under PHP-FPM.
      */
     public static function finally(Closure $fn): void
     {
@@ -489,6 +495,9 @@ final class phasync
             $queues = new WeakMap();
         }
         $fiber = self::getFiber();
+        if (self::getDriver()->finallyWithContext($fiber, $fn)) {
+            return; // runs as the withContext() call it was registered in returns
+        }
 
         if (!isset($queues[$fiber])) {
             $queues[$fiber] = [];

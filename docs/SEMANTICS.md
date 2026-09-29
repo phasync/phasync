@@ -151,7 +151,9 @@ retained and reachable from the exception `run()` throws (shape: D3). ❌ Curren
 first is kept and later ones are only logged.
 
 **ERR-5. `finally` always runs**, including on cancellation and on exceptions thrown into
-a suspended coroutine. ✅ FinallyTest
+a suspended coroutine. ✅ FinallyTest. `phasync::finally()` callbacks run when the coroutine
+ends, or, when registered inside `phasync::withContext()`, as that call returns, whichever comes
+first: in the calling coroutine, still in the context, and able to suspend. ✅ WithContextTest
 
 **ERR-6. Exceptions are not used for flow control by the runtime**, except
 `CancelledException` and `TimeoutException`, which are part of this contract.

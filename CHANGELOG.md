@@ -2,6 +2,17 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha16 (2026-09-29)
+
+### Changed
+
+- `phasync::finally()` called inside `phasync::withContext()` runs as that call returns, in the
+  calling coroutine and still in the context, instead of when the coroutine ends: whichever comes
+  first. No coroutine is started for it, and it may suspend. A server that runs each request in
+  `withContext()` and sends the response inside it gets code that runs after the response, as
+  `fastcgi_finish_request()` gives under PHP-FPM, without the cost of a new fiber per request
+  (about 11 µs in a Symfony-sized process). `withContext()` itself costs about 0.13 µs more.
+
 ## 2.0.0-alpha15 (2026-09-29)
 
 ### Fixed
