@@ -214,7 +214,9 @@ it was waiting on in a consistent state (same guarantee as CAN-6). ⚠️
 runs. Deadlines are kept in 10 ms slots (rounded up) and delivered once their slot has passed;
 checking costs one integer comparison per tick, and only coroutines whose timeout expired are
 looked at, however many wait. An idle loop wakes at the next slot while a timeout waits (D11).
-A coroutine that does not suspend still delays every timer (SCH-1). `sleep()` is exact.
+A zero or negative timeout (a deadline already past) throws `TimeoutException` at once,
+without waiting. A coroutine that does not suspend still delays every timer (SCH-1). `sleep()`
+is exact.
 ✅ TimeoutsTest
 
 **TMO-4. A scope-level deadline is a timeout that cancels the scope.** 🆕 (e.g.

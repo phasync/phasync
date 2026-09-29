@@ -10,8 +10,9 @@ Earlier releases are listed on the GitHub releases page.
   every 0.1 s. Checking costs one integer comparison per tick and looks only at the coroutines
   whose timeout expired: with 50 000 coroutines waiting, a scan took 6.4 ms ten times a second.
   Timeouts fire no earlier than their deadline and at most about 10 ms after it, also in an idle
-  loop, which slept up to 0.5 s past them before (D11). A zero or negative timeout fires at the
-  next slot.
+  loop, which slept up to 0.5 s past them before (D11).
+- A zero or negative timeout (a deadline already past) throws `TimeoutException` at once, without
+  waiting (it waited for the next timeout check before).
 
 ### Added
 

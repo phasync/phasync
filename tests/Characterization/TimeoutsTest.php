@@ -277,7 +277,7 @@ test('TMO-3: on an idle loop a short timeout fires within one 10 ms slot of its 
     expect($seconds)->toBeLessThan(0.3);
 });
 
-test('TMO-3: a zero or negative timeout fires at the next 10 ms slot, not at once', function () {
+test('TMO-3: a zero or negative timeout throws TimeoutException at once, without waiting: the time allowed is up', function () {
     $results = phasync::run(static fn () => [
         'zero'     => tmoTimed(static fn () => heldFlagWait(0)),
         'negative' => tmoTimed(static fn () => heldFlagWait(-1)),
@@ -285,7 +285,7 @@ test('TMO-3: a zero or negative timeout fires at the next 10 ms slot, not at onc
 
     foreach ($results as $name => [$outcome, $seconds]) {
         expect($outcome)->toBe(TimeoutException::class, $name);
-        expect($seconds)->toBeLessThan(0.3);
+        expect($seconds)->toBeLessThan(0.005);
     }
 });
 

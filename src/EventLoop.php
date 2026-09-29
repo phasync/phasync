@@ -617,6 +617,9 @@ final class EventLoop implements \Countable
      */
     public function whenFlagged(object $flag, float $timeout, \Fiber $fiber): void
     {
+        if ($timeout <= 0) {
+            throw new TimeoutException('The timeout had run out before waiting'); // a deadline already past
+        }
         if (isset($this->pending[$fiber])) {
             throw new \LogicException('Fiber is already pending when enqueueing for flag');
         }
@@ -713,6 +716,9 @@ final class EventLoop implements \Countable
      */
     public function park(int $slot, float $timeout = \PHP_FLOAT_MAX): void
     {
+        if ($timeout <= 0) {
+            throw new TimeoutException('The timeout had run out before waiting'); // a deadline already past
+        }
         if (isset($this->parked[$slot])) {
             throw new \LogicException('A coroutine is parked in slot ' . $slot . ' already');
         }
@@ -1119,8 +1125,8 @@ final class EventLoop implements \Countable
 
     private function addTimeout(\Fiber $fiber, float $deadline): void
     {
-        // A deadline already past (zero or negative timeouts) fires at the next slot
-        $slot                             = \max((int) \ceil($deadline * 100), $this->lastTimeoutSlot + 1);
+        // A positive timeout always lands after the last slot handled (it is at most now)
+        $slot                             = (int) \ceil($deadline * 100);
         $id                               = \spl_object_id($fiber);
         $this->timeoutBuckets[$slot][$id] = $fiber;
         $this->timeoutSlots[$id]          = $slot;
