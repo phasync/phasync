@@ -993,7 +993,10 @@ final class phasync
     {
         if (null === self::$driver) {
             self::$driver = new EventLoop();
-            self::$pid = posix_getpid();
+            // getmypid(), not posix_getpid(): they are documented aliases of each other, but
+            // getmypid() is a core function, available without the posix extension -- which
+            // never builds on Windows, where this line would otherwise fail to even load.
+            self::$pid = \getmypid();
         }
 
         return self::$driver;
