@@ -114,7 +114,7 @@ class UnbufferedStream implements StreamInterface
         return false;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek($offset, $whence = \SEEK_SET): void
     {
         throw ExceptionTool::popTrace(new \RuntimeException('Stream is not seekable'));
     }
@@ -129,7 +129,7 @@ class UnbufferedStream implements StreamInterface
         return false;
     }
 
-    public function write(string $string): int
+    public function write($string): int
     {
         throw ExceptionTool::popTrace(new \RuntimeException('Stream is not writable'));
     }
@@ -139,7 +139,7 @@ class UnbufferedStream implements StreamInterface
         return !$this->closed && !$this->detached;
     }
 
-    public function read(int $length): string
+    public function read($length): string
     {
         if ($this->closed || $this->detached) {
             throw ExceptionTool::popTrace(new \RuntimeException('Stream is not valid'));
@@ -170,7 +170,7 @@ class UnbufferedStream implements StreamInterface
         return $result;
     }
 
-    public function getMetadata(?string $key = null)
+    public function getMetadata($key = null)
     {
         $data = [
             'timed_out'    => false,

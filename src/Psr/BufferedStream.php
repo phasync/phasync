@@ -128,7 +128,7 @@ class BufferedStream implements StreamInterface
         return true;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek($offset, $whence = \SEEK_SET): void
     {
         $this->lock();
         try {
@@ -159,7 +159,7 @@ class BufferedStream implements StreamInterface
         return false;
     }
 
-    public function write(string $string): int
+    public function write($string): int
     {
         throw new \RuntimeException('Stream is not writable');
     }
@@ -169,7 +169,7 @@ class BufferedStream implements StreamInterface
         return !$this->closed && !$this->detached;
     }
 
-    public function read(int $length): string
+    public function read($length): string
     {
         if ($this->detached) {
             throw new \RuntimeException('Stream is detached');
@@ -232,7 +232,7 @@ class BufferedStream implements StreamInterface
         }
     }
 
-    public function getMetadata(?string $key = null)
+    public function getMetadata($key = null)
     {
         $this->lock();
         try {

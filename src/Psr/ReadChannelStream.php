@@ -115,7 +115,7 @@ final class ReadChannelStream implements StreamInterface
      *
      * @throws \RuntimeException on failure
      */
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek($offset, $whence = \SEEK_SET): void
     {
         throw new \RuntimeException('Not a seekable stream');
     }
@@ -153,7 +153,7 @@ final class ReadChannelStream implements StreamInterface
      *
      * @return int returns the number of bytes written to the stream
      */
-    public function write(string $string): int
+    public function write($string): int
     {
         throw new \RuntimeException('Not writable');
     }
@@ -178,7 +178,7 @@ final class ReadChannelStream implements StreamInterface
      * @return string returns the data read from the stream, or an empty string
      *                if no bytes are available
      */
-    public function read(int $length): string
+    public function read($length): string
     {
         if (!$this->isReadable()) {
             throw new \RuntimeException('Not readable');
@@ -226,7 +226,7 @@ final class ReadChannelStream implements StreamInterface
      *                          provided. Returns a specific key value if a key is provided and the
      *                          value is found, or null if the key is not found.
      */
-    public function getMetadata(?string $key = null)
+    public function getMetadata($key = null)
     {
         $data = [
             'timed_out'    => false,

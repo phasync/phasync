@@ -83,7 +83,7 @@ class Request implements RequestInterface
         return $this->requestTarget;
     }
 
-    public function withRequestTarget(string $requestTarget): RequestInterface
+    public function withRequestTarget($requestTarget): RequestInterface
     {
         $c = clone $this;
         // Freeze the URI before changing the request target: PSR-7 treats the URI
@@ -101,7 +101,7 @@ class Request implements RequestInterface
         return $this->method;
     }
 
-    public function withMethod(string $method): RequestInterface
+    public function withMethod($method): RequestInterface
     {
         $c         = clone $this;
         $c->method = $method;
@@ -127,7 +127,7 @@ class Request implements RequestInterface
         return new Uri($uri);
     }
 
-    public function withUri(UriInterface $uri, bool $preserveHost = false): RequestInterface
+    public function withUri($uri, $preserveHost = false): RequestInterface
     {
         $host = $uri->getHost();
         if (($preserveHost && $this->hasHeader('Host')) || '' === $host) {

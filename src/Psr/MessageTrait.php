@@ -265,7 +265,7 @@ trait MessageTrait
      *
      * @return static
      */
-    public function withBody(StreamInterface $body): MessageInterface
+    public function withBody($body): MessageInterface
     {
         $c       = clone $this;
         $c->body = $body;

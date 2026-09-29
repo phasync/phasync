@@ -93,7 +93,7 @@ class ServerRequest extends Request implements ServerRequestInterface
         return $this->cookieParams;
     }
 
-    public function withCookieParams(array $cookies): ServerRequestInterface
+    public function withCookieParams($cookies): ServerRequestInterface
     {
         $c               = clone $this;
         $c->cookieParams = $cookies;
@@ -115,7 +115,7 @@ class ServerRequest extends Request implements ServerRequestInterface
         return $params;
     }
 
-    public function withQueryParams(array $query): ServerRequestInterface
+    public function withQueryParams($query): ServerRequestInterface
     {
         $c              = clone $this;
         $c->queryParams = $query;
@@ -128,7 +128,7 @@ class ServerRequest extends Request implements ServerRequestInterface
         return $this->uploadedFiles;
     }
 
-    public function withUploadedFiles(array $uploadedFiles): ServerRequestInterface
+    public function withUploadedFiles($uploadedFiles): ServerRequestInterface
     {
         if (!self::isValidUploadedFilesArray($uploadedFiles)) {
             self::throwInvalidUploadedFilesArray();

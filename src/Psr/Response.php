@@ -43,7 +43,7 @@ class Response implements ResponseInterface
         return $this->statusCode;
     }
 
-    public function withStatus(int $code, string $reasonPhrase = ''): ResponseInterface
+    public function withStatus($code, $reasonPhrase = ''): ResponseInterface
     {
         $c               = clone $this;
         $c->statusCode   = $code;

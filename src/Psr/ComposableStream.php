@@ -105,7 +105,7 @@ class ComposableStream implements StreamInterface
         return null !== $this->seekFunction;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek($offset, $whence = \SEEK_SET): void
     {
         if (null === $this->seekFunction || \SEEK_SET !== $whence) {
             throw new \RuntimeException('Stream is not seekable or whence != SEEK_SET');
@@ -126,7 +126,7 @@ class ComposableStream implements StreamInterface
         return null !== $this->writeFunction;
     }
 
-    public function write(string $string): int
+    public function write($string): int
     {
         if (null === $this->writeFunction) {
             throw new \RuntimeException('Stream is not writable');
@@ -145,7 +145,7 @@ class ComposableStream implements StreamInterface
         return null !== $this->readFunction;
     }
 
-    public function read(int $length): string
+    public function read($length): string
     {
         if (null === $this->readFunction) {
             throw new \RuntimeException('Stream is not readable');
@@ -188,7 +188,7 @@ class ComposableStream implements StreamInterface
         return $data;
     }
 
-    public function getMetadata(?string $key = null)
+    public function getMetadata($key = null)
     {
         $data = [
             'timed_out'    => false,

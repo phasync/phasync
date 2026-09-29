@@ -57,7 +57,7 @@ class StringStream implements StreamInterface
         return true;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek($offset, $whence = \SEEK_SET): void
     {
         switch ($whence) {
             case \SEEK_SET:
@@ -82,7 +82,7 @@ class StringStream implements StreamInterface
         return false;
     }
 
-    public function write(string $string): int
+    public function write($string): int
     {
         throw new \RuntimeException('Stream is not writable');
     }
@@ -92,7 +92,7 @@ class StringStream implements StreamInterface
         return !$this->closed;
     }
 
-    public function read(int $length): string
+    public function read($length): string
     {
         if ($this->closed) {
             throw new \RuntimeException('Stream is closed or detached');
@@ -108,7 +108,7 @@ class StringStream implements StreamInterface
         return $this->read(\PHP_INT_MAX);
     }
 
-    public function getMetadata(?string $key = null)
+    public function getMetadata($key = null)
     {
         $data = [
             'timed_out'    => false,

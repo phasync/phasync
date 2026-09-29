@@ -19,7 +19,7 @@ jobs:
     env:
       # phasync must behave the same with and without the extension, so the suite runs both
       # ways. Bump deliberately; the release tree bundles a binary per PHP version.
-      PHASYNC_EXT_VERSION: 0.5.0-alpha7
+      PHASYNC_EXT_VERSION: 0.5.0-alpha21
 
     steps:
       - name: 📥 Checkout code
@@ -92,3 +92,29 @@ jobs:
 
       - name: ✅ Process tests
         run: vendor/bin/pest tests/ProcessTest.php tests/Characterization/ProcessTest.php tests/Characterization/ProcessWindowsTest.php --stop-on-defect
+
+  psr-http-message:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        version: ["1.0.1", "1.1", "2.0"]
+
+    name: 📨 PSR-7 with psr/http-message ${{ matrix.version }}
+
+    # Applications may depend on any psr/http-message version, so phasync's messages must satisfy
+    # every one: untyped parameters, v2's return types
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+
+      - name: 🧰 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: 📥 Install dependencies
+        run: composer require --no-progress --no-interaction -W "psr/http-message:${{ matrix.version }}"
+
+      - name: ✅ PSR-7 tests
+        run: vendor/bin/pest tests/PsrConformanceTest.php

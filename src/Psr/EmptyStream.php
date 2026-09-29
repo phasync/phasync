@@ -60,7 +60,7 @@ final class EmptyStream implements StreamInterface
         return false;
     }
 
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek($offset, $whence = \SEEK_SET): void
     {
     }
 
@@ -73,7 +73,7 @@ final class EmptyStream implements StreamInterface
         return false;
     }
 
-    public function write(string $string): int
+    public function write($string): int
     {
         throw new \RuntimeException('Not writable');
     }
@@ -83,7 +83,7 @@ final class EmptyStream implements StreamInterface
         return false;
     }
 
-    public function read(int $length): string
+    public function read($length): string
     {
         return '';
     }
@@ -93,7 +93,7 @@ final class EmptyStream implements StreamInterface
         return '';
     }
 
-    public function getMetadata(?string $key = null)
+    public function getMetadata($key = null)
     {
         $data = [
             'timed_out'    => false,
