@@ -67,95 +67,8 @@ final class phasync
     private static ?Closure $promiseHandlerFunction = null;
 
 
-
     private static array $onEnterCallbacks = [];
     private static array $onExitCallbacks = [];
-
-    /**
-     * Run the function in a separate process. The calling coroutine will be blocked but
-     * other coroutines can run while the function is being evaluated.
-     *
-     * @param Closure $function
-     * @param array $args
-     * @return mixed
-     * @throws LogicException
-     * @throws RuntimeException
-     * @throws FiberError
-     * @throws Throwable
-     */
-    public static function fork(Closure $function, mixed ...$args): mixed
-    {
-        if (!function_exists('pcntl_fork')) {
-            throw new LogicException('This function requires the pcntl extension');
-        }
-        self::getFiber();
-
-        // Create a socket pair
-        $socketPair = stream_socket_pair(AF_UNIX, SOCK_STREAM, STREAM_IPPROTO_IP);
-        if ($socketPair === false) {
-            throw new RuntimeException('Unable to create socket pair');
-        }
-
-        $pid = pcntl_fork();
-        if ($pid === -1) {
-            throw new RuntimeException('Unable to fork');
-        }
-
-        if ($pid === 0) {
-            // Remove the event loop driver (if any)
-            if (self::$driver !== null) {
-                self::$driver->clear();
-                self::$driver = null;
-            }
-            // Child process
-            fclose($socketPair[0]); // Close the parent's socket
-
-            try {
-                $result = $function(...$args);
-                $serializedResult = serialize(['result' => $result]);
-            } catch (Throwable $e) {
-                $serializedResult = serialize(['exception' => $e]);
-            }
-
-            $bytesToWrite = \strlen($serializedResult);
-            $offset = 0;
-            while ($offset < $bytesToWrite) {
-                $written = fwrite(self::writable($socketPair[1]), \substr($serializedResult, $offset), $bytesToWrite);
-                if (\is_int($written)) {
-                    $offset += $written;
-                } else {
-                    break;
-                }
-            }
-            fclose($socketPair[1]);
-            // Terminate the child process
-            posix_kill(posix_getpid(), SIGTERM);
-        } else {
-            // Parent process
-            fclose($socketPair[1]); // Close the child's socket
-
-            $task = function () use ($socketPair) {
-                $buffer = '';
-                while ($data = fread(phasync::readable($socketPair[0]), 65536)) {
-                    $buffer .= $data;
-                }
-
-                fclose($socketPair[0]);
-
-                $result = unserialize($buffer);
-                if (!is_array($result)) {
-                    throw new RuntimeException("Invalid result from child process: '$buffer'");
-                }
-                if (isset($result['exception'])) {
-                    throw $result['exception'];
-                } else {
-                    return $result['result'];
-                }
-            };
-
-            return self::run($task);
-        }
-    }
 
     /**
      * Register a coroutine/Fiber to run in the event loop and await the result.
@@ -523,7 +436,6 @@ final class phasync
         self::getDriver()->cancel($fiber, $exception);
     }
 
-
     /**
      * Yield time so that other coroutines can continue processing. Note that
      * if you intend to wait for something to happen in other coroutines, you
@@ -848,7 +760,6 @@ final class phasync
         self::$onExitCallbacks[] = $exitCallback;
     }
 
-
     /**
      * Configures handling of promises from other frameworks. The
      * `$promiseHandlerFunction` returns `false` if the value in
@@ -984,7 +895,6 @@ final class phasync
     {
         self::getDriver()->enqueue($fiber);
     }
-
 
     /**
      * The event loop, made at first use.

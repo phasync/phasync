@@ -4,6 +4,12 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Removed
+
+- `phasync::fork()`, until it has a design of its own. A forked child could run the parent's
+  coroutines and code: a failure pending in the parent was thrown in the child, which then
+  returned into the caller instead of ending (#69).
+
 ### Added
 
 - `Process::run()` works on Windows again (issue #45), rebuilt as one implementation shared

@@ -468,10 +468,9 @@ will be made obsolete by the other work in this document.
   work: transparent concurrency needing no wrapper class at all. Don't remove it before direction
   B actually covers the same ground, but track it as the wrapper's natural retirement condition,
   not something to maintain in parallel indefinitely.
-- **`phasync::fork()`** -- worth a deliberate design pass rather than continuing to be whatever it
-  currently is by default: what its contract actually promises once clustering (above) exists as
-  the sanctioned multi-process story, so `fork()` and clustering don't end up as two
-  half-overlapping ways to get more than one process.
+- **`phasync::fork()`** -- removed in 2.0 (phasync#69): a forked child could run the parent's
+  coroutines and code. It may return after 2.0 with a design of its own: the child runs no
+  coroutine, destructor or shutdown function of the parent, and nothing of phasync-ext's threads.
 
 This is a checklist to work through during 2.0.0 design, not a batch of removals to do now --
 several items are explicitly gated on other 2.0.0 work landing first (the PDO wrapper on

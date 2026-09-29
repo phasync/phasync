@@ -82,13 +82,3 @@ test('phasync handles exceptions in coroutines', function () {
 
     expect($exceptionThrown)->toBeTrue();
 });
-
-test('phasync::fork runs a function in a separate process', function () {
-    $result = phasync::run(function () {
-        return phasync::fork(function () {
-            return \posix_getpid();
-        });
-    });
-
-    expect($result)->not->toBe(\posix_getpid());
-});
