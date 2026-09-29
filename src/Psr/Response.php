@@ -9,10 +9,10 @@ class Response implements ResponseInterface
     use MessageTrait;
 
     /**
-     * This was copied from nyholm/psr-7 because the const was private.
+     * Standard HTTP status code/reason phrases.
      *
-     * @var array map of standard HTTP status code/reason phrases
-     * */
+     * @var array<int, string>
+     */
     public const PHRASES = [
         100 => 'Continue', 101 => 'Switching Protocols', 102 => 'Processing',
         200 => 'OK', 201 => 'Created', 202 => 'Accepted', 203 => 'Non-Authoritative Information', 204 => 'No Content', 205 => 'Reset Content', 206 => 'Partial Content', 207 => 'Multi-status', 208 => 'Already Reported',
@@ -21,14 +21,21 @@ class Response implements ResponseInterface
         500 => 'Internal Server Error', 501 => 'Not Implemented', 502 => 'Bad Gateway', 503 => 'Service Unavailable', 504 => 'Gateway Time-out', 505 => 'HTTP Version not supported', 506 => 'Variant Also Negotiates', 507 => 'Insufficient Storage', 508 => 'Loop Detected', 511 => 'Network Authentication Required',
     ];
 
-    private int $statusCode      = 200;
-    private string $reasonPhrase = '';
+    protected int $statusCode      = 200;
+    protected string $reasonPhrase = '';
 
-    public function __construct(int $code = 200, string $reasonPhrase = '')
+    /**
+     * @param mixed   $body            body, see {@see StreamFactory::create()}
+     * @param array   $headers         array of header names => values
+     * @param int     $statusCode      HTTP status code
+     * @param ?string $reasonPhrase    the HTTP reason phrase; defaults to the standard phrase for $statusCode
+     * @param string  $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     */
+    public function __construct(mixed $body = null, array $headers = [], int $statusCode = 200, ?string $reasonPhrase = null, string $protocolVersion = '1.1')
     {
-        $this->MessageTrait(null);
-        $this->statusCode   = $code;
-        $this->reasonPhrase = '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$code] ?? $reasonPhrase);
+        $this->statusCode   = $statusCode;
+        $this->reasonPhrase = null !== $reasonPhrase && '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$statusCode] ?? '');
+        $this->MessageTrait($body, $headers, $protocolVersion);
     }
 
     public function getStatusCode(): int
@@ -40,7 +47,7 @@ class Response implements ResponseInterface
     {
         $c               = clone $this;
         $c->statusCode   = $code;
-        $c->reasonPhrase = '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$code] ?? $reasonPhrase);
+        $c->reasonPhrase = '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$code] ?? '');
 
         return $c;
     }

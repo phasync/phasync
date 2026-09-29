@@ -3,7 +3,6 @@
 namespace phasync\Psr;
 
 use Psr\Http\Message\MessageInterface;
-use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\StreamInterface;
 
 /**
@@ -80,7 +79,7 @@ trait MessageTrait
      *
      * @return static
      */
-    public function withProtocolVersion($version): RequestInterface
+    public function withProtocolVersion($version): MessageInterface
     {
         $c                  = clone $this;
         $c->protocolVersion = (string) $version;

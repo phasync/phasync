@@ -18,7 +18,7 @@ final class ReadChannelStream implements StreamInterface
     public function __construct(ReadChannelInterface $source, ?int $size=null)
     {
         $this->source = $source;
-        $this->size   = null;
+        $this->size   = $size;
     }
 
     /**

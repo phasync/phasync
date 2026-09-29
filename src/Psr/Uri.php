@@ -55,7 +55,7 @@ class Uri implements UriInterface
      */
     public function getScheme(): string
     {
-        return \parse_url($this->uri, \PHP_URL_SCHEME);
+        return \strtolower(\parse_url($this->uri, \PHP_URL_SCHEME) ?? '');
     }
 
     /**
@@ -65,7 +65,7 @@ class Uri implements UriInterface
      */
     public function getHost(): string
     {
-        return \parse_url($this->uri, \PHP_URL_HOST) ?? '';
+        return \strtolower(\parse_url($this->uri, \PHP_URL_HOST) ?? '');
     }
 
     /**
@@ -142,7 +142,14 @@ class Uri implements UriInterface
      */
     public function getPort(): ?int
     {
-        return \parse_url($this->uri, \PHP_URL_PORT);
+        $port = \parse_url($this->uri, \PHP_URL_PORT);
+        if (null === $port) {
+            return null;
+        }
+        $scheme = $this->getScheme();
+
+        // MUST return null when the port is the standard port for the scheme
+        return isset(self::SCHEME_PORTS[$scheme]) && self::SCHEME_PORTS[$scheme] === $port ? null : $port;
     }
 
     /**
@@ -317,7 +324,8 @@ class Uri implements UriInterface
      */
     protected function setScheme(?string $scheme)
     {
-        if ('' !== \preg_replace('/^[a-z][a-z0-9:.-_]*[a-z0-9]/', '', $scheme)) {
+        $scheme = null !== $scheme ? \strtolower($scheme) : $scheme;
+        if ('' !== $scheme && '' !== \preg_replace('/^[a-z][a-z0-9:.-_]*[a-z0-9]/', '', (string) $scheme)) {
             throw new \InvalidArgumentException("Invalid scheme '$scheme'");
         }
         $parsed           = \parse_url($this->uri);
@@ -358,6 +366,9 @@ class Uri implements UriInterface
      */
     protected function setPort($port)
     {
+        if (null !== $port && ($port < 1 || $port > 65535)) {
+            throw new \InvalidArgumentException("Invalid port '$port'. Must be between 1 and 65535 or null.");
+        }
         $parsed         = \parse_url($this->uri);
         $parsed['port'] = $port;
         $this->uri      = static::buildUriString($parsed);
