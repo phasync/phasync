@@ -95,7 +95,8 @@ loop yields, so that timers, I/O and other requests get their turn. It is never 
 - at any point other than between two iterations of a PHP loop;
 - in PHP code called by a C function (callbacks, handlers, destructors), or in
   `#[\phasync\Uninterruptible]` code or what it calls;
-- in phasync's or swerve's own code.
+- in phasync's or swerve's own code, the event loop's tick included, or in a `Fiber` that a
+  coroutine runs itself.
 
 Its root context (a request) stays frozen until it resumes: none of that root's other
 coroutines run before it, so from inside a request, SCH-5 holds unchanged. Coroutines of that

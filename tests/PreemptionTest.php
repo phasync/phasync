@@ -125,6 +125,21 @@ test('#[\phasync\Uninterruptible] code is not preempted', function () {
     expect($log)->toBe(['A done', 'B']);
 });
 
+test('a Fiber that a coroutine runs itself is not preempted', function () {
+    $log = phasync::run(function () {
+        $log = [];
+        phasync::go(function () use (&$log) {
+            $inner = new Fiber(static fn () => preemptBusy(0.05));
+            $inner->start();
+            $log[] = $inner->isTerminated() ? 'inner done' : 'inner suspended';
+        }, context: new stdClass());
+        phasync::sleep(0.1);
+
+        return $log;
+    });
+    expect($log)->toBe(['inner done']);
+});
+
 test('a loop with nothing else to run just goes on after yielding', function () {
     $n = phasync::run(fn () => preemptBusy(0.05));
     expect($n)->toBeGreaterThan(0);

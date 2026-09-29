@@ -602,9 +602,9 @@ final class EventLoop implements \Countable
      */
     public function preempt(): void
     {
-        $fiber = $this->currentFiber;
-        if (null === $fiber) {
-            return;
+        $fiber = \Fiber::getCurrent();
+        if (null === $fiber || !isset($this->contexts[$fiber])) {
+            return; // not in a coroutine: the loop's own tick, or a Fiber of the coroutine's own
         }
         if ($fiber !== $this->preemptFiber || $this->ticks !== $this->preemptTick) {
             // Not running a whole interval yet: the next call decides
