@@ -497,10 +497,17 @@ reimplemented; see `docs/SEMANTICS.md` section 8 for the full account. Follow-up
 1. 1.1.0 ships first, clean, with the loud-failure fix (`IO-7`) as the extent of what stock PHP
    allows -- no FFI, no new runtime dependency, nothing in this document blocks it. **Done,
    tagged, released.**
-2. `Process` on Windows needs no FFI work at all, per the "A addendum" above -- it's now a
-   version-floor decision (wait for php/php-src#14452 to land and settle on a target PHP version)
-   plus re-enabling and likely renaming `PosixProcessRunner`, not an engineering project. Track
-   #14452 to merge; nothing to build in phasync until then.
+2. **Done, superseding the version-floor plan below.** `Process` on Windows shipped without
+   waiting on php/php-src#14452 or GH-16889 at all: `proc_open()`'s `['socket']` descriptors
+   (present since PHP 8.0, below phasync's own >= 8.2 floor) are pollable and non-blocking on
+   Windows the same way a plain socket always has been, unlike a pipe -- so switching
+   `PosixProcessRunner` (renamed `ProcessRunner`) to sockets on every platform sidestepped the
+   pipe-polling gap those two php-src changes were closing, rather than waiting for either.
+   `docs/SEMANTICS.md` section 14 and issue #45 have the details. *(Superseded text, kept for the
+   record: `Process` on Windows needs no FFI work at all, per the "A addendum" above -- it's now
+   a version-floor decision (wait for php/php-src#14452 to land and settle on a target PHP
+   version) plus re-enabling and likely renaming `PosixProcessRunner`, not an engineering
+   project. Track #14452 to merge; nothing to build in phasync until then.)*
 3. Extend fd extraction to arbitrary external resources (the general `readable()`/`writable()`/
    `stream()` case, for resources phasync didn't create), once the fd-extraction layer has real,
    tested, version-matched coverage for phasync's supported PHP range (8.2 through at least 8.5)

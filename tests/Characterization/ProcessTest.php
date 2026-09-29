@@ -1,31 +1,34 @@
 <?php
 
 /*
- * Characterization tests for phasync\Process\Process and the POSIX runner
- * (docs/SEMANTICS.md section 14, PRC-1 .. PRC-6).
+ * Characterization tests for phasync\Process\Process and ProcessRunner, exercised here through
+ * POSIX-only commands (sh, true, printf) (docs/SEMANTICS.md section 14, PRC-1 .. PRC-6). The
+ * Windows equivalents live in ProcessWindowsTest.php, since Windows command resolution and
+ * signal semantics differ enough that mirroring these one for one, in the same file, would
+ * obscure both.
  *
  * These pin how the code behaves TODAY. A failing test means "stop and tell the
  * maintainer" (see tests/Characterization/README.md).
  */
 
 use phasync\IOException;
-use phasync\Process\PosixProcessRunner;
 use phasync\Process\Process;
 use phasync\Process\ProcessInterface;
+use phasync\Process\ProcessRunner;
 
 uses()->group('characterization');
 
 if (\PHP_OS_FAMILY === 'Windows') {
-    test('PRC-1: the POSIX process runner is not exercised on Windows')->skip('POSIX only');
+    test('PRC-1: this file exercises only POSIX commands; see ProcessWindowsTest.php')->skip('POSIX only');
 
     return;
 }
 
 /* ------------------------------------------------------------------ PRC-1 */
 
-test('PRC-1: Process::run() returns a PosixProcessRunner on POSIX systems', function () {
+test('PRC-1: Process::run() returns a ProcessRunner', function () {
     $process = Process::run('true');
-    expect($process)->toBeInstanceOf(PosixProcessRunner::class);
+    expect($process)->toBeInstanceOf(ProcessRunner::class);
     expect($process)->toBeInstanceOf(ProcessInterface::class);
     expect([ProcessInterface::STDIN, ProcessInterface::STDOUT, ProcessInterface::STDERR])->toBe([0, 1, 2]);
     $process->stop();
@@ -36,7 +39,7 @@ test('PRC-1: Process::run() returns a PosixProcessRunner on POSIX systems', func
 // nothing executable is found. This is what makes the failure deterministic: proc_open() performs
 // the same resolution, but whether it *reports* a missing executable synchronously depends on the
 // platform's glibc version and how PHP was built, which this check does not depend on (see
-// src/Process/PosixProcessRunner.php::assertExecutable).
+// src/Process/ProcessRunner.php::resolveCommandPosix).
 
 test('PRC-1: an absolute path that does not exist throws RuntimeException', function () {
     expect(fn () => Process::run('/nonexistent/binary_xyz'))
@@ -55,7 +58,7 @@ test('PRC-1: a bare command name not found in PATH throws RuntimeException', fun
 
 test('PRC-1: a bare command name found in PATH still runs', function () {
     $process = Process::run('true');
-    expect($process)->toBeInstanceOf(PosixProcessRunner::class);
+    expect($process)->toBeInstanceOf(ProcessRunner::class);
     $process->stop();
 });
 
@@ -88,7 +91,7 @@ test('PRC-1: a custom environment without a PATH entry is not checked in advance
     // platform actually do is what happens; here that still succeeds, because /bin/true also
     // happens to be reachable via the C library's compiled-in default path.
     $process = Process::run('true', [], null, ['FOO' => 'bar']);
-    expect($process)->toBeInstanceOf(PosixProcessRunner::class);
+    expect($process)->toBeInstanceOf(ProcessRunner::class);
     $process->stop();
 })->group('surprise');
 

@@ -504,53 +504,80 @@ APIOutsideOfRunTest
 ## 14. Process
 
 `phasync\Process\Process::run()` launches a background process and returns a
-`ProcessInterface` for interacting with its STDIN, STDOUT and STDERR. On POSIX it returns a
-`PosixProcessRunner`; on Windows it throws. Windows support is dropped for 1.1.0 and will
-return, rebuilt, in 2.0.0 (section 0, `docs/roadmap-2.0.md`, issue #45). These rules describe
-`PosixProcessRunner`.
+`ProcessInterface` for interacting with its STDIN, STDOUT and STDERR. It returns the same
+class, `ProcessRunner`, on POSIX and on Windows (issue #45; Windows support returned, unified
+with POSIX rather than rebuilt separately, superseding the version-floor plan in
+`docs/roadmap-2.0.md`). STDIN/STDOUT/STDERR are `['socket']` `proc_open()` descriptors on
+every platform, not `['pipe', ...]`: a pipe cannot be made non-blocking or polled by
+`stream_select()`/`WaitForMultipleObjects` on Windows, a socket can, on any PHP phasync
+supports (>= 8.2, and `['socket']` has existed since 8.0). This is what makes one
+implementation possible instead of a POSIX one plus a separate Windows one.
 
 **PRC-1. A command that cannot be launched is detected before spawning, the same way on every
-platform.** `Process::run()` resolves the command itself, the way `exec()` would: a literal
-path if it contains a slash (resolved against `$cwd` if one is given), otherwise a search
-through `PATH` (`$env['PATH']` if `$env` is given, otherwise the inherited one), and throws
-`RuntimeException` if nothing executable is found, before `proc_open()` is called at all. ✅
-Fixed. This replaced relying on `proc_open()`'s own error reporting, which is not portable:
-whether it *reports* a missing executable synchronously depends on the platform's glibc
-version and how PHP was built against it (glibc ≥2.24 added synchronous exec-failure
-reporting to `posix_spawn()`, over a pipe). Verified failing two different ways on two
-machines before the fix (ProcessTest `PRC-1`). A `$env` given without a `PATH` entry is not
-pre-checked, since the platform's own fallback search path cannot be predicted from here;
-whatever `proc_open()` and the platform actually do is what happens (`surprise`). A second,
-best-effort layer checks the child's status once, non-blockingly, right after a successful
-`proc_open()`, to catch what neither the resolution check nor `proc_open()` itself can: the
-target existed and was executable, but `exec()` still failed inside the child, for example a
-`#!` interpreter line pointing at an interpreter that does not exist.
+platform.** `Process::run()` resolves the command itself. On POSIX, the way `exec()` would: a
+literal path if it contains a slash (resolved against `$cwd` if one is given), otherwise a
+search through `PATH` (`$env['PATH']` if `$env` is given, otherwise the inherited one). On
+Windows, the way `cmd.exe` would: a literal path (with or without its extension) if it
+contains a `\`, `/` or drive letter, otherwise a `PATH` search, trying each `PATHEXT`
+extension in turn (default `.COM;.EXE;.BAT;.CMD` if `PATHEXT` is unset); an existing file whose
+extension isn't in `PATHEXT` is not considered executable, the Windows equivalent of the POSIX
+executable-bit check. Either way, `RuntimeException` is thrown if nothing executable is found,
+before `proc_open()` is called at all. ✅ Fixed. This replaced relying on `proc_open()`'s own
+error reporting, which is not portable: whether it *reports* a missing executable synchronously
+depends on the platform's glibc version and how PHP was built against it (glibc ≥2.24 added
+synchronous exec-failure reporting to `posix_spawn()`, over a pipe). Verified failing two
+different ways on two machines before the fix (ProcessTest `PRC-1`). A `$env` given without a
+`PATH` entry is not pre-checked on either platform, since the platform's own fallback search
+path cannot be predicted from here; whatever `proc_open()` and the platform actually do is what
+happens (`surprise`). A second, best-effort layer checks the child's status once,
+non-blockingly, right after a successful `proc_open()`, to catch what neither the resolution
+check nor `proc_open()` itself can: the target existed and was executable, but the child still
+failed to start, for example a POSIX `#!` interpreter line pointing at an interpreter that does
+not exist.
 
-**PRC-2. No shell is involved at any point.** Arguments reach the child exactly as given, with
-no metacharacter expansion and nothing to escape, and a bare command name is found the way
-`execvp` finds it, not the way a shell would. ✅ Verified: a spawned process's immediate parent
-is `php` itself, never a shell, and an argument containing `$HOME && echo x` arrives at the
-child unexpanded, character for character. STDOUT and STDERR are separate streams
+**PRC-2. No shell is involved at any point, on either platform.** Arguments reach the child
+exactly as given, with no metacharacter expansion and nothing to escape, and a bare command
+name is found the way `execvp` (POSIX) or a direct `CreateProcess()` call (Windows) finds it,
+not the way a shell would. ✅ Verified: a spawned process's immediate parent is `php` itself,
+never a shell, and an argument containing shell metacharacters (`$HOME && echo x` on POSIX,
+`%HOMEPATH% && echo x` on Windows) arrives at the child unexpanded, character for character.
+On Windows this needs `proc_open()`'s `bypass_shell` option: without it, `proc_open()` always
+wraps the command in `cmd /c`, which is exactly the shell involvement this rule rules out.
+`bypass_shell` calls `CreateProcess()` directly, which -- unlike `cmd.exe` -- cannot launch a
+`.bat`/`.cmd` script itself (it needs `cmd.exe` as an interpreter); resolving to such a script
+still succeeds, but launching it then fails, the same way a POSIX shell script missing its `#!`
+line does (ProcessWindowsTest `PRC-1` `[SURPRISE]`). STDOUT and STDERR are separate streams
 (`read(ProcessInterface::STDOUT)` / `read(ProcessInterface::STDERR)`), and `read()` behaves
 the same inside and outside a coroutine: inside, it suspends and lets other coroutines run;
 outside, it blocks.
 
 **PRC-3. The exit code is available once the process has stopped running, not before.**
 `getExitCode()` returns `false` while the process runs and the real exit code once it has
-exited on its own; after `stop()` or a delivered signal ended it, it returns `-1` (PRC-5). ✅
+exited on its own; after `stop()` or a delivered signal ended it, it returns `-1` on POSIX
+(PRC-5). ✅
 
-**PRC-4. `write()` feeds STDIN; `getStream($fd)` exposes the STDIN, STDOUT and STDERR pipes
+**PRC-4. `write()` feeds STDIN; `getStream($fd)` exposes the STDIN, STDOUT and STDERR sockets
 directly**, as non-blocking stream resources, for the three standard descriptors, and `null`
 for anything else. ✅
 
 **PRC-5. `stop()` sends SIGTERM and returns once the process is gone, is idempotent, and
 works both inside and outside a coroutine.** Once a process has stopped or been signalled
 away, `write()` and `sendSignal()` become no-ops returning `false`, and a later `stop()`
-returns `true` immediately. ✅
+returns `true` immediately. ✅ On POSIX, `sendSignal()` and `sigterm()`/`sigkill()`/`sigint()`/
+`sigstop()`/`sigcont()`/`sighup()` use plain integers (15/9/2/19/18/1), not the pcntl `\SIG*`
+constants: those are undefined without the pcntl extension, which never builds on Windows, so
+referencing them directly would make this class fail to load a signal method there. **On
+Windows, `sendSignal()` (what every `sig*()` helper calls, via `proc_terminate()`) cannot
+deliver a specific signal: the value passed is accepted for interface compatibility but
+ignored, and every call forcibly ends the process outright**, the same as `sigkill()` on POSIX
+(ProcessWindowsTest `PRC-5`). This means `sigstop()`/`sigcont()` cannot pause or resume a
+Windows process -- `sigstop()` ends it instead, and `isStopped()` stays `false` -- and
+`sigterm()`/`sigint()`/`sighup()` cannot ask a Windows child to shut down gracefully; they
+hard-kill it too.
 
-**PRC-6. Once an exit has been observed, the pipes are closed, so output that was never read
+**PRC-6. Once an exit has been observed, the sockets are closed, so output that was never read
 is lost and a later `read()` throws `IOException`.** ❌ `isRunning()` and `getExitCode()` poll
-and close the pipes as soon as the process is seen to have terminated, whether or not
+and close the sockets as soon as the process is seen to have terminated, whether or not
 anything had read from them yet. A caller that checks `isRunning()` before draining output can
 lose it silently.
 

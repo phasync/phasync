@@ -2,6 +2,32 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- `Process::run()` works on Windows again (issue #45), rebuilt as one implementation shared
+  with POSIX instead of a separate runner: STDIN/STDOUT/STDERR are `proc_open()` `['socket']`
+  descriptors on every platform, not `['pipe', ...]` -- a socket can be made non-blocking and
+  polled on Windows, a pipe can't. Windows command resolution follows `PATHEXT`; `proc_open()`'s
+  `bypass_shell` keeps "no shell involved" true there too, with the trade-off that a `.bat`/
+  `.cmd` script can't be launched directly (needs `cmd.exe` as an interpreter). CI gained a
+  windows-latest job running the process tests.
+
+### Changed
+
+- `phasync\Process\PosixProcessRunner` is renamed `phasync\Process\ProcessRunner` (no
+  deprecated alias: it is `final`, returned only via `ProcessInterface`, and nothing in this
+  repo or in swerve referenced the concrete class name). `Process::run()` no longer throws on
+  Windows.
+- `ProcessRunner`'s POSIX signal helpers (`sigkill()`, `sigint()`, `sigstop()`, `sigcont()`,
+  `sighup()`) use plain integers instead of the pcntl `\SIG*` constants, which are undefined
+  without the pcntl extension (pcntl never builds on Windows). `sendSignal()`'s numeric default
+  was already a plain `15`. On Windows, every signal value forcibly ends the process
+  (`proc_terminate()` has no way to deliver a specific one there): `sigstop()`/`sigcont()`
+  cannot pause or resume a process, and `sigterm()`/`sigint()`/`sighup()` hard-kill instead of
+  asking for a graceful shutdown.
+
 ## 2.0.0-alpha24 (2026-09-29)
 
 ### Fixed

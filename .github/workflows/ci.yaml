@@ -69,3 +69,26 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
         if: matrix.php == '8.2'
+
+  windows:
+    runs-on: windows-latest
+
+    name: 🪟 Process tests on Windows
+
+    # Only the process tests run here, not the whole suite: large parts of it assume POSIX
+    # (stream_socket_pair(STREAM_PF_UNIX, ...), pcntl_*, posix_*), unrelated to Process itself
+    # and out of scope for issue #45 -- tracked separately (phasync/phasync#64).
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+
+      - name: 🧰 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+
+      - name: 📥 Install dependencies
+        run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+      - name: ✅ Process tests
+        run: vendor/bin/pest tests/ProcessTest.php tests/Characterization/ProcessTest.php tests/Characterization/ProcessWindowsTest.php --stop-on-defect
