@@ -49,6 +49,10 @@ test('a CPU-bound request no longer starves another: the other runs while it loo
 test('a preempted request is frozen: its other coroutines run only after its loop is done', function () {
     $log = phasync::run(function () {
         $log     = [];
+        phasync::go(function () use (&$log) { // another request, which does run meanwhile
+            phasync::sleep(0.02);
+            $log[] = 'B';
+        }, context: new stdClass());
         $request = new stdClass();
         phasync::withContext(function () use (&$log) {
             phasync::go(function () use (&$log) {
@@ -57,19 +61,48 @@ test('a preempted request is frozen: its other coroutines run only after its loo
                 $log[] = 'A1 done';
             });
             phasync::go(function () use (&$log) {
+                $log[] = 'A2'; // its creator is of the request too: it waits for A1's loop
+            });
+            phasync::go(function () use (&$log) {
                 phasync::sleep(0.01);
-                $log[] = 'A2';
+                $log[] = 'A3'; // ready meanwhile: held until A1 resumes
             });
         }, $request);
-        phasync::go(function () use (&$log) { // another request, which does run meanwhile
-            phasync::sleep(0.02);
-            $log[] = 'B';
-        }, context: new stdClass());
         phasync::sleep(0.2);
 
         return $log;
     });
-    expect($log)->toBe(['A1 starts', 'B', 'A1 done', 'A2']);
+    expect($log)->toBe(['A1 starts', 'B', 'A1 done', 'A2', 'A3']);
+});
+
+test('a coroutine held for a frozen request can be cancelled: it throws once the request thaws', function () {
+    $log = phasync::run(function () {
+        $log     = [];
+        $waiting = null;
+        phasync::go(function () use (&$log, &$waiting) { // another request
+            phasync::sleep(0.03);
+            phasync::cancel($waiting);
+            $log[] = 'cancel';
+        }, context: new stdClass());
+        phasync::withContext(function () use (&$log, &$waiting) {
+            $waiting = phasync::go(function () use (&$log) {
+                try {
+                    phasync::sleep(0.01);
+                    $log[] = 'not cancelled';
+                } catch (phasync\CancelledException) {
+                    $log[] = 'cancelled';
+                }
+            });
+            phasync::go(function () use (&$log) {
+                preemptBusy(0.1);
+                $log[] = 'loop done';
+            });
+        }, new stdClass());
+        phasync::sleep(0.2);
+
+        return $log;
+    });
+    expect($log)->toBe(['cancel', 'loop done', 'cancelled']);
 });
 
 test('#[\phasync\Uninterruptible] code is not preempted', function () {

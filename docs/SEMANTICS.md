@@ -99,7 +99,9 @@ loop yields, so that timers, I/O and other requests get their turn. It is never 
 
 Its root context (a request) stays frozen until it resumes: none of that root's other
 coroutines run before it, so from inside a request, SCH-5 holds unchanged. Coroutines of that
-root that became ready meanwhile run right after it, unless it was preempted again. Across roots,
+root that became ready meanwhile run right after it, unless it was preempted again. A coroutine
+preempted before its first suspension returns control to the `go()` that started it; if that
+caller is of the same root, it waits too, so `go()` returns once the root thaws. Across roots,
 a sequence of statements without a loop and without a suspension point is atomic: code can build
 its own atomic operations (test-and-set, compare-and-swap) in plain PHP. Without phasync-ext
 there is no preemption. ✅ PreemptionTest

@@ -541,7 +541,7 @@ final class EventLoop implements \Countable
                 if (($this->frozen[$root] ?? null) === $fiber) {
                     // Preempted again in its turn: the others wait on (as they would for a loop
                     // that never yields without preemption)
-                    \array_push($held, ...($this->held[$root] ?? []));
+                    \array_push($held, ...$this->held[$root]);
                     $this->held[$root] = $held;
                 } else {
                     foreach ($held as $f) {
@@ -556,7 +556,7 @@ final class EventLoop implements \Countable
     /** $root's preempted coroutine resumes (or is gone): the coroutines held for it. */
     private function thaw(object $root): array
     {
-        $held = $this->held[$root] ?? [];
+        $held = $this->held[$root];
         unset($this->frozen[$root], $this->held[$root]);
         --$this->preempted;
 
@@ -622,6 +622,7 @@ final class EventLoop implements \Countable
             return; // its root is frozen already (another coroutine of it was preempted)
         }
         $this->frozen[$root] = $fiber;
+        $this->held[$root]   = [];
         ++$this->preempted;
         $this->preemptFiber = null;
         $this->enqueue($fiber);
@@ -680,13 +681,9 @@ final class EventLoop implements \Countable
                 $this->makeLive($context);
             }
             $fiber->start(...$args);
-
-            return $fiber;
         } catch (\Throwable $e) {
             // $e = ExceptionTool::popTrace($e, __FILE__);
             $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
-
-            return $fiber;
         } finally {
             $this->currentFiber   = $currentFiber;
             $this->currentContext = $currentContext;
@@ -697,6 +694,15 @@ final class EventLoop implements \Countable
                 $this->handleTerminatedFiber($fiber);
             }
         }
+        if (0 !== $this->preempted && null !== $currentFiber && isset($this->frozen[$root = $this->rootContexts[$currentContext]])) {
+            // The new coroutine was preempted before it first suspended: its creator is of the
+            // same frozen root, so it waits too (go() returns once the root thaws)
+            $this->pending[$currentFiber] = \PHP_FLOAT_MAX;
+            $this->held[$root][]          = $currentFiber;
+            \Fiber::suspend();
+        }
+
+        return $fiber;
     }
 
     /**
@@ -1196,6 +1202,15 @@ final class EventLoop implements \Countable
                     $cancelled = true;
                     break 2;
                 }
+            }
+
+            // Held while its root is frozen
+            if (0 !== $this->preempted && isset($this->held[$root = $this->rootContexts[$this->contexts[$fiber]]])
+                && false !== ($i = \array_search($fiber, $held = $this->held[$root], true))) {
+                \array_splice($held, $i, 1);
+                $this->held[$root] = $held;
+                $cancelled         = true;
+                break;
             }
 
             // The fiber must be in the pending queue
