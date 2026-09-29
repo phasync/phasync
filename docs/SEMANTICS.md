@@ -128,7 +128,9 @@ to, so an application can keep per-request services in a `WeakMap` keyed by it. 
 tracks the member coroutines itself (`EventLoop::getFibers($context)`), refuses to use a
 context twice, and keeps no reference to the object after its coroutines finish, so that
 such services are freed with the request. A context entered from another (`withContext()`,
-or `go()` with a context of its own) is nested in it. A context may implement
+or `go()` with a context of its own) is nested in it. `getRootContext()` gives the context's
+root: a `run()`'s context is its own root, and so is a context entered from it (a request);
+contexts nested deeper share that one's root. A context may implement
 `SwitchAwareInterface` to swap per-request state in and out. There is no storage API on
 the context (D4). ✅ ScopesTest, ContextTest, WithContextTest
 

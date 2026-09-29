@@ -60,6 +60,16 @@ final class EventLoop implements \Countable
     private ?object $rootRunContext = null;
 
     /**
+     * The root context of each context with coroutines: a run()'s context is its own root, and so
+     * is a context entered from it (a request); a context entered from any other shares the root
+     * of that one. A root maps to itself, until its last coroutine leaves it (PHP 8.2's cycle
+     * collector never frees a WeakMap entry whose value is its key).
+     *
+     * @var \WeakMap<object, object>
+     */
+    private \WeakMap $rootContexts;
+
+    /**
      * Contexts used already: a context is used once.
      *
      * @var \WeakMap<object, true>
@@ -256,6 +266,7 @@ final class EventLoop implements \Countable
         $this->contextFibers     = new \WeakMap();
         $this->outerContexts     = new \WeakMap();
         $this->usedContexts      = new \WeakMap();
+        $this->rootContexts      = new \WeakMap();
         $this->runContexts       = new \WeakMap();
         if ($fiber = $this->getCurrentFiber()) {
             // The current fiber stays, alone in its context
@@ -264,6 +275,7 @@ final class EventLoop implements \Countable
             $this->contextFibers[$context]         = new \WeakMap();
             $this->contextFibers[$context][$fiber] = true;
             $this->usedContexts[$context]          = true;
+            $this->rootContexts[$context]          = $context;
         }
         $this->queue                               = new \SplQueue();
         $this->pending                             = new \SplObjectStorage();
@@ -281,6 +293,7 @@ final class EventLoop implements \Countable
         $this->afterNextFlag                       = new \stdClass();
         $this->serviceContext                      = new \stdClass();
         $this->usedContexts[$this->serviceContext] = true;
+        $this->rootContexts[$this->serviceContext] = $this->serviceContext;
         static $shutdown                           = false;
         if (!$shutdown) {
             $shutdown = true;
@@ -799,6 +812,7 @@ final class EventLoop implements \Countable
                     $this->withContextFinally[$id] = $outerFinally;
                 }
                 unset($this->contextFibers[$context][$fiber]);
+                $this->leftContext($context);
                 $this->contexts[$fiber] = $previous;
                 $this->currentContext   = $previous;
                 if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
@@ -863,6 +877,9 @@ final class EventLoop implements \Countable
         if (null !== $outer) {
             $this->outerContexts[$context] = $outer;
         }
+        if (!isset($this->rootContexts[$context])) { // a run()'s context is set by beginRun()
+            $this->rootContexts[$context] = null === $outer || isset($this->runContexts[$outer]) ? $context : $this->rootContexts[$outer];
+        }
     }
 
     private function joinContext(object $context, \Fiber $fiber): void
@@ -871,6 +888,24 @@ final class EventLoop implements \Countable
             $this->contextFibers[$context] = new \WeakMap();
         }
         $this->contextFibers[$context][$fiber] = true;
+    }
+
+    /**
+     * The root context of $context: the one below the nearest run()'s context that $context was
+     * entered from, or $context itself. See phasync::getRootContext().
+     */
+    public function getRootContext(object $context): object
+    {
+        return $this->rootContexts[$context];
+    }
+
+    /** A coroutine left $context: a root with none left drops its self-reference. */
+    private function leftContext(object $context): void
+    {
+        // Cheapest first: coroutines of a run()'s context (most) leave it without this
+        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context && 0 === \count($this->contextFibers[$context])) {
+            unset($this->rootContexts[$context]);
+        }
     }
 
     /** $context's coroutine runs next, and another switch-aware context's ran last. */
@@ -1202,7 +1237,8 @@ final class EventLoop implements \Countable
      */
     public function beginRun(object $context, bool $root): void
     {
-        $this->runContexts[$context] = [];
+        $this->runContexts[$context]  = [];
+        $this->rootContexts[$context] = $context;
         if ($root) {
             $this->rootRunContext = $context;
         }
@@ -1219,7 +1255,7 @@ final class EventLoop implements \Countable
     public function endRun(object $context): array
     {
         $failures = $this->runContexts[$context] ?? [];
-        unset($this->runContexts[$context]);
+        unset($this->runContexts[$context], $this->rootContexts[$context]);
         if ($context === $this->rootRunContext) {
             $this->rootRunContext = null;
         }
@@ -1259,7 +1295,9 @@ final class EventLoop implements \Countable
                 continue;
             }
             $this->discard($fiber);
-            unset($this->contextFibers[$this->contexts[$fiber]][$fiber]);
+            $context = $this->contexts[$fiber];
+            unset($this->contextFibers[$context][$fiber]);
+            $this->leftContext($context);
             unset($this->contexts[$fiber], $this->parentFibers[$fiber], $this->flagGraph[$fiber], $this->fiberExceptionHolders[$fiber]);
         }
     }
@@ -1276,6 +1314,7 @@ final class EventLoop implements \Countable
         $context = $this->contexts[$fiber];
         $this->raiseFlag($fiber);
         unset($this->contextFibers[$context][$fiber]);
+        $this->leftContext($context);
         unset($this->contexts[$fiber], $this->parentFibers[$fiber]);
         $this->shouldGarbageCollect = true;
     }

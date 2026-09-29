@@ -89,3 +89,44 @@ test('a nested run() without a handler fails alone: its coroutines are dropped, 
     expect($result)->toBe('outer done');
     expect($log)->toBe(['inner waiter unwound', 'caught inner failure', 'outer sibling finished']);
 });
+
+test('getRootContext(): a run()\'s context is its own root; a context entered from it is a root; contexts entered from that share its root', function () {
+    $r = phasync::run(function () {
+        $run     = phasync::getContext();
+        $out     = ['run is its own root' => phasync::getRootContext() === $run];
+        $request = new stdClass();
+        phasync::withContext(function () use (&$out, $request) {
+            $out['entered from the run is a root'] = phasync::getRootContext() === $request;
+            phasync::withContext(function () use (&$out, $request) {
+                $out['nested withContext: same root'] = phasync::getRootContext() === $request;
+            }, new stdClass());
+            phasync::await(phasync::go(function () use (&$out, $request) {
+                $out['go(context:) in it: same root'] = phasync::getRootContext() === $request;
+            }, context: new stdClass()));
+            phasync::await(phasync::go(function () use (&$out, $request) {
+                $out['plain go() in it: same root'] = phasync::getRootContext() === $request;
+            }));
+            $out['a nested run() is a root of its own'] = phasync::run(fn () => phasync::getRootContext() === phasync::getContext());
+        }, $request);
+
+        return $out;
+    });
+    expect(\array_filter($r, fn ($v) => true !== $v))->toBe([]);
+});
+
+test('a root context is not kept alive by its root entry once its coroutines are done', function () {
+    $ref = phasync::run(function () {
+        $request = new stdClass();
+        $ref     = WeakReference::create($request);
+        phasync::withContext(fn () => phasync::getRootContext(), $request);
+        unset($request);
+
+        return $ref;
+    });
+    \gc_collect_cycles();
+    expect($ref->get())->toBeNull();
+});
+
+test('getRootContext() outside a coroutine throws LogicException', function () {
+    expect(fn () => phasync::getRootContext())->toThrow(LogicException::class);
+});

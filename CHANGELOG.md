@@ -2,6 +2,19 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha22 (2026-09-29)
+
+### Added
+
+- `phasync::getRootContext()`: the root of the running coroutine's context. A `run()`'s context
+  is its own root, and so is a context entered from it, such as a server's request context;
+  contexts entered from that one share its root. For a root, `getRootContext() === getContext()`.
+
+### Fixed
+
+- A zero or negative timeout (a deadline already past) throws `TimeoutException` at once, without
+  waiting (it waited for the next timeout check before).
+
 ## 2.0.0-alpha21 (2026-09-29)
 
 ### Changed

@@ -788,6 +788,19 @@ final class phasync
     }
 
     /**
+     * The root context of the running coroutine: its request, so to say. A run()'s context is its
+     * own root, and so is a context entered from it (withContext(), or go() with a context of its
+     * own); contexts entered from any other share that one's root. For a root context,
+     * getRootContext() === getContext(). Outside a coroutine, throws LogicException.
+     *
+     * @throws LogicException
+     */
+    public static function getRootContext(): object
+    {
+        return self::getDriver()->getRootContext(self::getContext());
+    }
+
+    /**
      * The context of the running coroutine: the object given to run(), go() or withContext(), or
      * the one it inherited. Outside a coroutine, throws LogicException.
      *
