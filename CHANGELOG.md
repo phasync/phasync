@@ -11,7 +11,8 @@ Earlier releases are listed on the GitHub releases page.
   descriptors on every platform, not `['pipe', ...]` -- a socket can be made non-blocking and
   polled on Windows, a pipe can't. Windows command resolution follows `PATHEXT`; `proc_open()`'s
   `bypass_shell` keeps "no shell involved" true there too, except for `.bat`/`.cmd` scripts,
-  which Windows itself runs through `cmd.exe`. CI gained a
+  which Windows itself runs through `cmd.exe`. On Windows it needs PHP 8.3 or later, and throws
+  `LogicException` before that. CI gained a
   windows-latest job running the process tests.
 
 ### Changed

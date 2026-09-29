@@ -544,8 +544,9 @@ never a shell, and an argument containing shell metacharacters (`$HOME && echo x
 On Windows this needs `proc_open()`'s `bypass_shell` option: without it, `proc_open()` always
 wraps the command in `cmd /c`, which is exactly the shell involvement this rule rules out.
 `bypass_shell` calls `CreateProcess()` directly. A `.bat`/`.cmd` command is the exception: Windows
-runs batch files through `cmd.exe` itself, and PHP escapes the arguments for it (since 8.2.20 and
-8.3.8) (ProcessWindowsTest `PRC-1` `[SURPRISE]`). STDOUT and STDERR are separate streams
+runs batch files through `cmd.exe` itself, and PHP escapes the arguments for it (ProcessWindowsTest
+`PRC-1` `[SURPRISE]`). On Windows, processes need PHP 8.3 or later; before that, starting one throws
+`LogicException`. STDOUT and STDERR are separate streams
 (`read(ProcessInterface::STDOUT)` / `read(ProcessInterface::STDERR)`), and `read()` behaves
 the same inside and outside a coroutine: inside, it suspends and lets other coroutines run;
 outside, it blocks.

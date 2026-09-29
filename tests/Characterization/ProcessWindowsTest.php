@@ -26,6 +26,14 @@ if (\PHP_OS_FAMILY !== 'Windows') {
     return;
 }
 
+if (\PHP_VERSION_ID < 80300) {
+    test('PRC-1: on PHP before 8.3, starting a process throws LogicException', function () {
+        expect(fn () => Process::run(\PHP_BINARY, ['-v']))->toThrow(LogicException::class, 'needs PHP 8.3 or later on Windows');
+    });
+
+    return;
+}
+
 /**
  * A `cat`-alike: forwards whatever it reads from STDIN to STDOUT immediately, byte for byte,
  * until STDIN reaches EOF.

@@ -67,6 +67,9 @@ final class ProcessRunner implements ProcessInterface
      */
     public function __construct(array $command, ?string $cwd = null, ?array $env = null)
     {
+        if (\PHP_OS_FAMILY === 'Windows' && \PHP_VERSION_ID < 80300) {
+            throw new \LogicException('phasync\Process needs PHP 8.3 or later on Windows');
+        }
         $this->command = $command;
 
         if ([] === $command) {
