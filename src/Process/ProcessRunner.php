@@ -84,10 +84,8 @@ final class ProcessRunner implements ProcessInterface
         // docblock for why this replaced ['pipe', 'r'|'w']. On Windows, bypass_shell keeps
         // command resolution here the only place arguments are ever interpreted -- otherwise
         // proc_open() wraps everything in `cmd /c`, which is exactly the shell involvement
-        // PRC-2 rules out on POSIX and must not silently reappear on Windows. The trade-off:
-        // CreateProcess (what bypass_shell calls directly) cannot launch a .bat/.cmd script
-        // itself -- that needs cmd.exe as an interpreter -- so a batch file as the command is
-        // not supported here, the same way a shell script without a `#!` line isn't on POSIX.
+        // PRC-2 rules out on POSIX and must not silently reappear on Windows. A .bat/.cmd
+        // command still runs through cmd.exe, which Windows starts for batch files itself.
         $descriptorSpec  = [['socket'], ['socket'], ['socket']];
         $otherOptions    = \PHP_OS_FAMILY === 'Windows' ? ['bypass_shell' => true] : [];
 

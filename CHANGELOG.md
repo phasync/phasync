@@ -10,8 +10,8 @@ Earlier releases are listed on the GitHub releases page.
   with POSIX instead of a separate runner: STDIN/STDOUT/STDERR are `proc_open()` `['socket']`
   descriptors on every platform, not `['pipe', ...]` -- a socket can be made non-blocking and
   polled on Windows, a pipe can't. Windows command resolution follows `PATHEXT`; `proc_open()`'s
-  `bypass_shell` keeps "no shell involved" true there too, with the trade-off that a `.bat`/
-  `.cmd` script can't be launched directly (needs `cmd.exe` as an interpreter). CI gained a
+  `bypass_shell` keeps "no shell involved" true there too, except for `.bat`/`.cmd` scripts,
+  which Windows itself runs through `cmd.exe`. CI gained a
   windows-latest job running the process tests.
 
 ### Changed

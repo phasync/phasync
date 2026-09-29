@@ -81,15 +81,11 @@ test('PRC-1: an existing file whose extension is not in PATHEXT throws RuntimeEx
     }
 });
 
-test('PRC-1: a .bat script cannot be launched directly, because bypass_shell has no interpreter for it [SURPRISE]', function () {
-    // resolveCommandWindows() accepts it (.bat is a default PATHEXT extension and the file
-    // exists), but proc_open()'s bypass_shell calls CreateProcess() directly, which -- unlike
-    // cmd.exe -- cannot launch a .bat/.cmd script itself. This is the trade-off for PRC-2's "no
-    // shell involved" guarantee applying on Windows too; see the ProcessRunner class docblock.
+test('PRC-1: a .bat script runs, through the cmd.exe that Windows starts for batch files [SURPRISE]', function () {
     $path = \tempnam(\sys_get_temp_dir(), 'prc-bat') . '.bat';
     \file_put_contents($path, "@echo off\r\necho hi\r\n");
     try {
-        expect(fn () => Process::run($path))->toThrow(RuntimeException::class);
+        expect(\trim(Process::run($path)->read()))->toBe('hi');
     } finally {
         \unlink($path);
     }
