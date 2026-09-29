@@ -6,6 +6,7 @@ use Fiber;
 use phasync\Context\ContextInterface;
 use phasync\Context\DefaultContext;
 use phasync\Context\ServiceContext;
+use phasync\Context\SwitchAwareInterface;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
@@ -170,6 +171,12 @@ final class EventLoop implements \Countable
 
     private ?\Fiber $currentFiber             = null;
     private ?ContextInterface $currentContext = null;
+
+    /** The switch-aware context whose coroutine ran last: see SwitchAwareInterface. */
+    private ?SwitchAwareInterface $liveContext = null;
+
+    /** Whether a switch-aware context was ever used: until then, switches check nothing. */
+    private bool $switchAware = false;
 
     /**
      * The phasync extension's poll()-based stream_select() when it is loaded. It takes the
@@ -341,6 +348,9 @@ final class EventLoop implements \Countable
             try {
                 $this->currentFiber   = $fiber;
                 $this->currentContext = $contexts[$fiber];
+                if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
+                    $this->makeLive($this->currentContext);
+                }
 
                 if (isset($fiberExceptionHolders[$fiber])) {
                     // We got an opportunity to throw the exception inside the coroutine
@@ -445,11 +455,18 @@ final class EventLoop implements \Countable
         try {
             $this->currentFiber   = $fiber;
             $this->currentContext = $context;
+            if ($context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
+                $this->switchAware = true;
+                $this->makeLive($context);
+            }
             $value                = $fiber->start(...$args);
             while ($value instanceof \Fiber) {
                 try {
                     $this->currentFiber   = $value;
                     $this->currentContext = $this->contexts[$fiber];
+                    if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
+                        $this->makeLive($this->currentContext);
+                    }
                     $value                = $value->resume();
                 } catch (\Throwable $e) {
                     $this->enqueueWithException($value, $e);
@@ -466,6 +483,9 @@ final class EventLoop implements \Countable
         } finally {
             $this->currentFiber   = $currentFiber;
             $this->currentContext = $currentContext;
+            if ($this->switchAware && null !== $currentFiber && $currentContext instanceof SwitchAwareInterface && $currentContext !== $this->liveContext) {
+                $this->makeLive($currentContext); // the creating coroutine goes on
+            }
             if ($fiber->isTerminated()) {
                 $this->handleTerminatedFiber($fiber);
             }
@@ -697,6 +717,10 @@ final class EventLoop implements \Countable
         $this->contexts[$fiber]         = $context;
         $this->currentContext           = $context;
         $context->getFibers()[$fiber]   = true;
+        if ($context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
+            $this->switchAware = true;
+            $this->makeLive($context);
+        }
         $this->withContextFinally[$id]  = [];
         try {
             return $fn();
@@ -716,8 +740,20 @@ final class EventLoop implements \Countable
                 unset($context->getFibers()[$fiber]);
                 $this->contexts[$fiber] = $previous;
                 $this->currentContext   = $previous;
+                if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
+                    $this->makeLive($previous);
+                }
             }
         }
+    }
+
+    /** $context's coroutine runs next, and another switch-aware context's ran last. */
+    private function makeLive(SwitchAwareInterface $context): void
+    {
+        $was               = $this->liveContext;
+        $this->liveContext = $context;
+        $was?->suspend();
+        $context->resume();
     }
 
     /**

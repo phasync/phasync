@@ -99,6 +99,59 @@ function scenarios(): array
             return 2 * $loops;
         }],
 
+        'switch_sleep0_2ctx' => ['context switches: two coroutines looping sleep(0), each in a context of its own', static function (float $s) use ($n) {
+            $loops = $n(150000, $s);
+            \phasync::run(static function () use ($loops) {
+                $body = static function () use ($loops) {
+                    for ($i = 0; $i < $loops; ++$i) {
+                        \phasync::sleep(0);
+                    }
+                };
+                $a = \phasync::go($body, context: new \phasync\Context\DefaultContext());
+                $b = \phasync::go($body, context: new \phasync\Context\DefaultContext());
+                \phasync::await($a);
+                \phasync::await($b);
+            });
+
+            return 2 * $loops;
+        }],
+
+        'switch_sleep0_2ctx_hooks' => ['context switches: two coroutines looping sleep(0), each in a context whose resume()/suspend() swap a static', static function (float $s) use ($n) {
+            $loops = $n(150000, $s);
+            \phasync::run(static function () use ($loops) {
+                $body = static function () use ($loops) {
+                    for ($i = 0; $i < $loops; ++$i) {
+                        \phasync::sleep(0);
+                    }
+                };
+                $context = static fn (string $value) => new class($value) implements \phasync\Context\ContextInterface, \phasync\Context\SwitchAwareInterface {
+                    use \phasync\Context\ContextTrait;
+
+                    public static ?string $live = null;
+
+                    public function __construct(private string $value)
+                    {
+                    }
+
+                    public function resume(): void
+                    {
+                        self::$live = $this->value;
+                    }
+
+                    public function suspend(): void
+                    {
+                        $this->value = self::$live;
+                    }
+                };
+                $a = \phasync::go($body, context: $context('a'));
+                $b = \phasync::go($body, context: $context('b'));
+                \phasync::await($a);
+                \phasync::await($b);
+            });
+
+            return 2 * $loops;
+        }],
+
         'switch_yield' => ['context switches: two coroutines looping yield()', static function (float $s) use ($n) {
             $loops = $n(100000, $s);
             \phasync::run(static function () use ($loops) {

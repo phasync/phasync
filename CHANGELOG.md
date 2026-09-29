@@ -2,6 +2,16 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha17 (2026-09-29)
+
+### Added
+
+- `phasync\Context\SwitchAwareInterface`: a context with `resume()` and `suspend()`, which the event
+  loop calls as the coroutine it runs next belongs to another switch-aware context (also at
+  `withContext()`'s entry and exit). A server keeps per-request global variables, static
+  properties or the locale swapped in for each request's coroutines. Switches within one context,
+  and programs without switch-aware contexts, pay nothing measurable: 1.92M vs 1.93M switches/s.
+
 ## 2.0.0-alpha16 (2026-09-29)
 
 ### Changed

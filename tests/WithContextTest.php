@@ -189,3 +189,79 @@ test('finally() in nested withContext() runs as each returns', function () {
         return $log;
     }))->toBe(['inner finally', 'between', 'outer finally']);
 });
+
+/** A context that swaps a "global" in and out, logging each call. */
+final class SwitchAwareTestContext implements phasync\Context\ContextInterface, phasync\Context\SwitchAwareInterface
+{
+    use phasync\Context\ContextTrait;
+
+    public static ?string $global = null;
+    private ?string $saved;
+
+    public function __construct(private string $name, private array &$log)
+    {
+        $this->saved = "$name's";
+    }
+
+    public function resume(): void
+    {
+        $this->log[]  = "resume {$this->name}";
+        self::$global = $this->saved;
+    }
+
+    public function suspend(): void
+    {
+        $this->log[] = "suspend {$this->name}";
+        $this->saved = self::$global;
+    }
+}
+
+test('a switch-aware context is resumed before its coroutines run and suspended before another switch-aware context\'s run; switches within one context call neither', function () {
+    $log  = [];
+    $seen = phasync::run(function () use (&$log) {
+        $seen = [];
+        $a    = phasync::go(function () use (&$seen) {
+            phasync::go(function () use (&$seen) { // a second coroutine of the same context
+                $seen[] = 'a2';
+            });
+            phasync::sleep(0.01);
+            $seen[] = 'a1';
+        }, context: new SwitchAwareTestContext('a', $log));
+        $b = phasync::go(function () use (&$seen) {
+            phasync::sleep(0.03);
+            $seen[] = 'b';
+        }, context: new SwitchAwareTestContext('b', $log));
+        phasync::await($a);
+        phasync::await($b);
+
+        return $seen;
+    });
+    expect($seen)->toBe(['a2', 'a1', 'b']);
+    // a: resumed to start; a's second coroutine runs without calls; b's start suspends a; the
+    // loop resumes a, then b
+    expect($log)->toBe(['resume a', 'suspend a', 'resume b', 'suspend b', 'resume a', 'suspend a', 'resume b']);
+});
+
+test('switch-aware contexts keep their own value of a global across interleaved coroutines, also through withContext()', function () {
+    $log    = [];
+    $result = phasync::run(function () use (&$log) {
+        $out = [];
+        foreach (['a', 'b', 'c'] as $name) {
+            phasync::go(function () use ($name, &$out) {
+                $out[]                          = "$name start " . SwitchAwareTestContext::$global;
+                SwitchAwareTestContext::$global = "$name changed";
+                phasync::sleep(0.01);
+                $out[] = "$name end " . SwitchAwareTestContext::$global;
+            }, context: new SwitchAwareTestContext($name, $log));
+        }
+        phasync::sleep(0.05);
+        $out[] = 'withContext ' . phasync::withContext(fn () => SwitchAwareTestContext::$global, new SwitchAwareTestContext('w', $log));
+
+        return $out;
+    });
+    expect($result)->toBe([
+        "a start a's", "b start b's", "c start c's",
+        'a end a changed', 'b end b changed', 'c end c changed',
+        "withContext w's",
+    ]);
+});
