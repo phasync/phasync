@@ -2,6 +2,13 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha24 (2026-09-29)
+
+### Fixed
+
+- Preemption acts only on a running coroutine: a checkpoint inside a `Fiber` that a coroutine
+  runs itself suspended that Fiber, and the loop crashed.
+
 ## 2.0.0-alpha23 (2026-09-29)
 
 ### Added
