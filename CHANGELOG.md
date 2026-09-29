@@ -2,6 +2,15 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha15 (2026-09-29)
+
+### Fixed
+
+- `Synchronized::run()` and `LockTrait::lock()` hand the lock to whoever waited longest. Before,
+  releasing woke every waiter and the first to run took it, often a coroutine that had just
+  arrived, so a waiter could lose many times in a row (#53). swerve-laravel, which serves requests
+  one at a time through `Synchronized`, had a p99 of 150 ms at 2,500 req/s; now 6.6 ms.
+
 ## 2.0.0-alpha14 (2026-09-28)
 
 - The Io\\Poll poller selection, which slipped into alpha13 unreleased, is taken out again.
