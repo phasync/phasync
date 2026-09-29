@@ -398,7 +398,7 @@ final class EventLoop implements \Countable
         /**
          * Determine how long it is until the next coroutine will be running.
          */
-        $maxSleepTime = 0 === $queue->count() ? 0.5 : 0;
+        $maxSleepTime = 0 === $queue->count() && $this->callbackQueue->isEmpty() ? 0.5 : 0;
 
         /*
          * Ensure the delay is not too long for the scheduler

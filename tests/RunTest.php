@@ -165,3 +165,14 @@ test('complex nested phasync::run() calls concurrently', function () {
         expect($totalTime)->toBeLessThan(1.7)->toBeGreaterThan(1.5);
     });
 });
+
+test('a failed run() stops its sleeping coroutines at once, without waiting for the loop to go idle first', function () {
+    $start = \microtime(true);
+    expect(fn () => phasync::run(function () {
+        phasync::go(fn () => phasync::sleep(2));
+        phasync::go(function () {
+            throw new RuntimeException('failed');
+        });
+    }))->toThrow(RuntimeException::class, 'failed');
+    expect(\microtime(true) - $start)->toBeLessThan(0.1);
+});
