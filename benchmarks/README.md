@@ -13,7 +13,20 @@ php benchmarks/bench.php --only=chan,select           # scenarios whose name con
 php benchmarks/bench.php --runs=3                     # measured runs per scenario (default 5)
 ```
 
-A default run takes about a minute. Each scenario runs in its own fresh PHP process, after a
+For a quick check of a change, `ab.php` compares the working tree with a git ref in about half
+a minute: seven core scenarios, each run for 0.4 s in a fresh process, the two sides alternating
+so that background load hits both alike. It prints each side's median and the ratio (above 1:
+the working tree is faster).
+
+```bash
+php benchmarks/ab.php                          # working tree vs HEAD
+php benchmarks/ab.php 2.0.0-alpha19 --rounds=9 --only=switch,flag
+```
+
+With the tracing JIT, some scenarios run at one of two speeds depending on which code got hot
+first; use more rounds when a ratio looks surprising.
+
+A default run of `bench.php` takes about a minute. Each scenario runs in its own fresh PHP process, after a
 short warm-up, so GC state and phasync's global driver never leak between scenarios. The
 table shows the **median** operations per second over the runs, with min, max and the
 spread. `--compare` prints the ratio to the baseline and marks a scenario `SLOWER` when it

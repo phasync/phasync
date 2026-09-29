@@ -151,7 +151,23 @@ final class EventLoop implements \Countable
      * because checking for timeouts involves a scan through all blocked
      * fibers and is slightly expensive.
      */
-    private float $lastTimeoutCheck = 0;
+    /**
+     * Coroutines waiting with a finite timeout, by the 10 ms slot their deadline falls in
+     * (rounded up, so none fires early): only these are looked at when time passes.
+     *
+     * @var array<int, array<int, \Fiber>>
+     */
+    private array $timeoutBuckets = [];
+
+    /**
+     * The slot of each coroutine in $timeoutBuckets, by spl_object_id().
+     *
+     * @var array<int, int>
+     */
+    private array $timeoutSlots = [];
+
+    /** The last slot whose timeouts were delivered. */
+    private int $lastTimeoutSlot = 0;
 
     /**
      * The time that we last activated tasks waiting for idle. Tasks waiting
@@ -256,6 +272,9 @@ final class EventLoop implements \Countable
         $this->fiberExceptionHolders               = new \WeakMap();
         $this->fiberExceptions                     = new \WeakMap();
         $this->scheduler                           = new Scheduler();
+        $this->timeoutBuckets                      = [];
+        $this->timeoutSlots                        = [];
+        $this->lastTimeoutSlot                     = (int) (\microtime(true) * 100);
         $this->flaggedFibers                       = new \WeakMap();
         $this->flagGraph                           = new \WeakMap();
         $this->idleFlag                            = new \stdClass();
@@ -313,9 +332,9 @@ final class EventLoop implements \Countable
         $now   = \microtime(true);
         $queue = $this->queue;
 
-        // Check if any fibers have timed out
-        if ($now - $this->lastTimeoutCheck > 0.1) {
-            $this->checkTimeouts();
+        // Deliver the timeouts of the 10 ms slots that have passed: usually none this tick
+        if (($slot = (int) ($now * 100)) > $this->lastTimeoutSlot) {
+            $this->checkTimeouts($slot);
         }
 
         /*
@@ -339,9 +358,9 @@ final class EventLoop implements \Countable
         }
 
         if ($maxSleepTime > 0) {
-            // Use idle times as opportunity to check timeouts
-            if ($now - $this->lastTimeoutCheck > 0.1) {
-                $this->checkTimeouts();
+            // Wake at the next timeout slot, where timeouts are waiting
+            if ([] !== $this->timeoutBuckets) {
+                $maxSleepTime = \min($maxSleepTime, \max(0.0, ($this->lastTimeoutSlot + 1) / 100 - $now));
             }
 
             // If work was added, cancel the sleep
@@ -553,6 +572,9 @@ final class EventLoop implements \Countable
         }
         // FiberState::for($fiber)->log("enqueued");
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
+        if ([] !== $this->timeoutSlots) {
+            $this->removeTimeout($fiber);
+        }
         $this->queue->enqueue($fiber);
     }
 
@@ -615,7 +637,10 @@ final class EventLoop implements \Countable
             $this->flagGraph[$fiber] = $flag;
         }
         $this->flaggedFibers[$flag]->add($fiber);
-        $this->pending[$fiber] = \microtime(true) + $timeout;
+        $this->pending[$fiber] = $deadline = \microtime(true) + $timeout;
+        if ($timeout < 1e9) {
+            $this->addTimeout($fiber, $deadline);
+        }
     }
 
     /**
@@ -694,7 +719,10 @@ final class EventLoop implements \Countable
         $fiber                                     = $this->currentFiber;
         $this->parked[$slot]                       = $fiber;
         $this->parkedSlots[\spl_object_id($fiber)] = $slot;
-        $this->pending[$fiber]                     = \microtime(true) + $timeout;
+        $this->pending[$fiber]                     = $deadline = \microtime(true) + $timeout;
+        if ($timeout < 1e9) {
+            $this->addTimeout($fiber, $deadline);
+        }
         try {
             \Fiber::suspend();
         } catch (\Throwable $e) {
@@ -721,6 +749,9 @@ final class EventLoop implements \Countable
         $fiber = $this->parked[$slot];
         unset($this->parked[$slot], $this->parkedSlots[\spl_object_id($fiber)]);
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
+        if ([] !== $this->timeoutSlots) {
+            $this->removeTimeout($fiber);
+        }
         $this->queue->enqueue($fiber);
 
         return true;
@@ -989,6 +1020,9 @@ final class EventLoop implements \Countable
 
         if ($cancelled) {
             unset($this->pending[$fiber]);
+            if ([] !== $this->timeoutSlots) {
+                $this->removeTimeout($fiber);
+            }
 
             /*
             if (isset($this->fiberExceptionHolders[$fiber])) {
@@ -1047,24 +1081,62 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Scans pending fibers and cancels any that have exceeded their timeout.
+     * Cancel, with TimeoutException, the coroutines whose timeout falls in a slot up to $slot:
+     * everything in those buckets has expired.
      */
-    private function checkTimeouts(): void
+    private function checkTimeouts(int $slot): void
     {
-        $now = \microtime(true);
-        // Collect first. Cancelling a fiber removes it from $this->pending, and removing an
-        // entry from an SplObjectStorage while iterating over it makes the loop skip entries.
-        $expired = [];
-        foreach ($this->pending as $fiber) {
-            if ($this->pending[$fiber] <= $now) {
-                $expired[] = $fiber;
+        $from                  = $this->lastTimeoutSlot + 1;
+        $this->lastTimeoutSlot = $slot;
+        if ([] === $this->timeoutBuckets) {
+            return;
+        }
+        if ($slot - $from < 64) {
+            for ($s = $from; $s <= $slot; ++$s) {
+                if (isset($this->timeoutBuckets[$s])) {
+                    $this->expire($s);
+                }
+            }
+        } else {
+            foreach ($this->timeoutBuckets as $s => $_) { // a long gap (an idle or busy loop)
+                if ($s <= $slot) {
+                    $this->expire($s);
+                }
             }
         }
-        foreach ($expired as $fiber) {
+    }
+
+    private function expire(int $slot): void
+    {
+        $fibers = $this->timeoutBuckets[$slot];
+        unset($this->timeoutBuckets[$slot]);
+        foreach ($fibers as $id => $fiber) {
+            unset($this->timeoutSlots[$id]);
             // FiberState::for($fiber)->log("timeout");
             $this->cancel($fiber, new TimeoutException('Operation timed out for ' . Debug::getDebugInfo($fiber)));
         }
-        $this->lastTimeoutCheck = $now;
+    }
+
+    private function addTimeout(\Fiber $fiber, float $deadline): void
+    {
+        // A deadline already past (zero or negative timeouts) fires at the next slot
+        $slot                             = \max((int) \ceil($deadline * 100), $this->lastTimeoutSlot + 1);
+        $id                               = \spl_object_id($fiber);
+        $this->timeoutBuckets[$slot][$id] = $fiber;
+        $this->timeoutSlots[$id]          = $slot;
+    }
+
+    /** $fiber no longer waits (it was woken or cancelled): its timeout goes. */
+    private function removeTimeout(\Fiber $fiber): void
+    {
+        $id = \spl_object_id($fiber);
+        if (isset($this->timeoutSlots[$id])) {
+            $slot = $this->timeoutSlots[$id];
+            unset($this->timeoutSlots[$id], $this->timeoutBuckets[$slot][$id]);
+            if ([] === $this->timeoutBuckets[$slot]) {
+                unset($this->timeoutBuckets[$slot]);
+            }
+        }
     }
 
     /**

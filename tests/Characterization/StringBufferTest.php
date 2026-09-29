@@ -252,13 +252,13 @@ test('BUF-2: readFixed($n, $timeout) throws TimeoutException on a real timeout, 
     });
 });
 
-test('BUF-2: readFixed() timeouts in an idle loop fire at the 0.5 s idle boundary', function () {
-    // Same cause as TMO-3.
+test('BUF-2: readFixed() timeouts in an idle loop fire within one 10 ms slot of the deadline', function () {
+    // As TMO-3.
     phasync::run(function () {
         $buffer = new StringBuffer();
         $start  = \microtime(true);
         expect(fn () => $buffer->readFixed(4, 0.05))->toThrow(TimeoutException::class);
-        expect(\microtime(true) - $start)->toBeGreaterThan(0.3)->toBeLessThan(1.2);
+        expect(\microtime(true) - $start)->toBeGreaterThanOrEqual(0.05)->toBeLessThan(0.3);
     });
 });
 

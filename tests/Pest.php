@@ -34,15 +34,16 @@ if (!\function_exists('phasyncResetProcessState')) {
         \gc_enable();
 
         // Steady state: a driver that has just done its periodic maintenance. A brand new
-        // driver has lastTimeoutCheck, lastIdleRun and lastGarbageCollect at 0, so its first
-        // tick checks timeouts, raises the idle flag and runs the cycle collector at once.
+        // driver has lastIdleRun and lastGarbageCollect at 0, so its first
+        // tick raises the idle flag and runs the cycle collector at once.
         // Most pinned behaviour (zero timeouts, idle(), cycles surviving unset()) is about a
         // loop that is already running, where those happen at most every 0.1 s, 1 s and 0.5 s.
         $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
         $now    = \microtime(true);
-        foreach (['lastTimeoutCheck', 'lastIdleRun', 'lastGarbageCollect'] as $property) {
+        foreach (['lastIdleRun', 'lastGarbageCollect'] as $property) {
             (new ReflectionProperty($driver, $property))->setValue($driver, $now);
         }
+        (new ReflectionProperty($driver, 'lastTimeoutSlot'))->setValue($driver, (int) ($now * 100));
     }
 }
 

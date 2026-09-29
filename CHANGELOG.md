@@ -2,6 +2,21 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-alpha21 (2026-09-29)
+
+### Changed
+
+- Timeouts are kept in 10 ms slots instead of being found by a scan of every waiting coroutine
+  every 0.1 s. Checking costs one integer comparison per tick and looks only at the coroutines
+  whose timeout expired: with 50 000 coroutines waiting, a scan took 6.4 ms ten times a second.
+  Timeouts fire no earlier than their deadline and at most about 10 ms after it, also in an idle
+  loop, which slept up to 0.5 s past them before (D11). A zero or negative timeout fires at the
+  next slot.
+
+### Added
+
+- `benchmarks/ab.php`: a half-minute A/B benchmark of the working tree against a git ref.
+
 ## 2.0.0-alpha20 (2026-09-29)
 
 ### Removed

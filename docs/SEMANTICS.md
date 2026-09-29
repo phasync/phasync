@@ -210,14 +210,12 @@ passes a timeout, IO operations included (D6).
 **TMO-2. A timeout throws `TimeoutException` from that operation** and leaves the object
 it was waiting on in a consistent state (same guarantee as CAN-6). ⚠️
 
-**TMO-3. A timeout never fires early, and may fire late.** It fires no sooner than its
-deadline. No upper bound is promised: a coroutine that does not suspend delays every
-timer (SCH-1), and deadlines are checked coarsely (at most every 0.1 s) on purpose,
-because checking more often costs more than it is worth. ⚠️ Measured lateness of a 0.2 s
-flag timeout: about 300 ms when the loop is idle or only waiting on quiet streams (the
-idle sleep is 0.5 s), about 100 ms while a sibling loops on `yield()` (the check
-interval), and about 1 ms while a sibling loops on `sleep(0.05)`. `sleep()` itself is
-exact. Whether to tighten the idle case is D11.
+**TMO-3. A timeout never fires early, and fires at most about 10 ms late** while the loop
+runs. Deadlines are kept in 10 ms slots (rounded up) and delivered once their slot has passed;
+checking costs one integer comparison per tick, and only coroutines whose timeout expired are
+looked at, however many wait. An idle loop wakes at the next slot while a timeout waits (D11).
+A coroutine that does not suspend still delays every timer (SCH-1). `sleep()` is exact.
+✅ TimeoutsTest
 
 **TMO-4. A scope-level deadline is a timeout that cancels the scope.** 🆕 (e.g.
 `phasync::timeout($seconds, $fn)`.)
@@ -602,4 +600,4 @@ through the public API.
 | D15 | Should `WaitGroup::add()` take a delta like Go's `Add(delta int)`? | keep `add()` with no argument; `add(int $delta = 1)` | **Decided (maintainer) and done:** `add(int $delta = 1)`. A `go(Closure)` method like Go's `WaitGroup.Go` may come later |
 | D14 | `cancelContext($context)` | implement; defer | **Decided (maintainer, 2026-09-29) and done:** `cancel($fiberOrContext)`; for a context, the deepest coroutines first, skipping the calling coroutine. An unhandled failure uses it to cancel its context (SCO-3) |
 | D12 | Does a cancelled child that ends with `CancelledException` fail its scope? | yes (today); no, treat as normal termination | No. Otherwise every deliberate `cancel()` needs a `try/catch` in the child to keep `run()` from throwing |
-| D11 | How long may an idle loop sleep past the earliest pending timeout? | keep the fixed 0.5 s idle sleep; cap the idle sleep at the earliest pending deadline | Keep the 0.1 s check as is. Cap only the idle sleep, computed only when nothing is runnable, so it costs nothing while busy |
+| D11 | How long may an idle loop sleep past the earliest pending timeout? | keep the fixed 0.5 s idle sleep; cap the idle sleep at the earliest pending deadline | **Done (2.0.0-alpha21):** timeouts in 10 ms slots; the idle sleep is capped at the next slot while a timeout waits, computed only when nothing is runnable |

@@ -5,9 +5,9 @@
  * They pin how timeouts behave TODAY. Read tests/Characterization/README.md
  * before changing anything here.
  *
- * Timing facts these tests rely on (both are deliberate design decisions):
- *  - deadlines are checked at most every 0.1 s, and
- *  - an otherwise idle loop sleeps 0.5 s at a time (decision D11 is about the latter).
+ * Timing facts these tests rely on (deliberate design decisions):
+ *  - deadlines fall in 10 ms slots (rounded up), delivered once the slot has passed, and
+ *  - an otherwise idle loop wakes at the next slot while a timeout waits (D11).
  * Lower bounds ("never early") are strict; upper bounds are generous so that a busy
  * machine does not make the tests flaky.
  */
@@ -269,15 +269,15 @@ test('TMO-3: a timeout never fires before its deadline (awaitFlag, await, readab
     }
 });
 
-test('TMO-3: on an idle loop a short timeout fires only at the loop\'s next 0.5 s wake-up (decision D11)', function () {
+test('TMO-3: on an idle loop a short timeout fires within one 10 ms slot of its deadline (D11)', function () {
     [$outcome, $seconds] = phasync::run(static fn () => tmoTimed(static fn () => heldFlagWait(0.05)));
 
     expect($outcome)->toBe(TimeoutException::class);
-    expect($seconds)->toBeGreaterThanOrEqual(0.4);
-    expect($seconds)->toBeLessThan(1.5);
+    expect($seconds)->toBeGreaterThanOrEqual(0.05);
+    expect($seconds)->toBeLessThan(0.3);
 });
 
-test('TMO-3: a zero or negative timeout does not fire immediately, only at the next loop check', function () {
+test('TMO-3: a zero or negative timeout fires at the next 10 ms slot, not at once', function () {
     $results = phasync::run(static fn () => [
         'zero'     => tmoTimed(static fn () => heldFlagWait(0)),
         'negative' => tmoTimed(static fn () => heldFlagWait(-1)),
@@ -285,10 +285,9 @@ test('TMO-3: a zero or negative timeout does not fire immediately, only at the n
 
     foreach ($results as $name => [$outcome, $seconds]) {
         expect($outcome)->toBe(TimeoutException::class, $name);
-        expect($seconds)->toBeGreaterThanOrEqual(0.4);
-        expect($seconds)->toBeLessThan(1.5);
+        expect($seconds)->toBeLessThan(0.3);
     }
-})->group('surprise');
+});
 
 test('TMO-3: a timer-driven sibling (sleep loop) wakes the loop often enough that a 0.2 s timeout fires within 0.2 s of its deadline', function () {
     [$outcome, $seconds] = phasync::run(static function () {
@@ -328,7 +327,7 @@ test('TMO-3: a yield-looping sibling makes a 0.2 s timeout fire at the next 0.1 
     expect($seconds)->toBeLessThan(0.6);
 });
 
-test('TMO-3: a sibling waiting on a quiet stream does not shorten the idle wait', function () {
+test('TMO-3: a sibling waiting on a quiet stream does not delay a timeout past its slot', function () {
     [$outcome, $seconds] = phasync::run(static function () {
         [$a, $b]  = tmoPair();
         $sibling  = phasync::go(static function () use ($a) {
@@ -348,8 +347,8 @@ test('TMO-3: a sibling waiting on a quiet stream does not shorten the idle wait'
     });
 
     expect($outcome)->toBe(TimeoutException::class);
-    expect($seconds)->toBeGreaterThanOrEqual(0.4);
-    expect($seconds)->toBeLessThan(1.5);
+    expect($seconds)->toBeGreaterThanOrEqual(0.2);
+    expect($seconds)->toBeLessThan(0.45);
 });
 
 test('TMO-3: sleep() is exact where timeouts are not (it is scheduled, not scanned)', function () {

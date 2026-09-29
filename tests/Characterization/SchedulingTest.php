@@ -307,7 +307,7 @@ test('SCH-3: readable() on a quiet stream ends with TimeoutException, not a norm
     expect($outcome)->toBe(TimeoutException::class);
 });
 
-test('SCH-3: idle() is the exception to "timeouts throw": it resumes normally, after the loop has slept (about 0.5 s)', function () {
+test('SCH-3: idle() is the exception to "timeouts throw": it resumes normally, by its timeout\'s slot at the latest', function () {
     $result  = 'unset';
     $elapsed = null;
     phasync::run(function () use (&$result, &$elapsed) {
@@ -316,11 +316,10 @@ test('SCH-3: idle() is the exception to "timeouts throw": it resumes normally, a
         $elapsed = \microtime(true) - $t;
     });
     expect($result)->toBeNull();
-    // The idle flag is raised while the loop is about to sleep, but the coroutine only
-    // runs after the fixed idle sleep of tick() (see SEMANTICS.md D11).
-    expect($elapsed)->toBeGreaterThan(0.3);
-    expect($elapsed)->toBeLessThan(2.0);
-})->group('surprise');
+    // The idle flag is raised while the loop is about to sleep; the loop sleeps no longer
+    // than to the next timeout slot (SEMANTICS.md D11)
+    expect($elapsed)->toBeLessThan(0.3);
+});
 
 test('SCH-3: idle() resumes when the loop is about to sleep for a timer, before that timer fires', function () {
     $log = [];
