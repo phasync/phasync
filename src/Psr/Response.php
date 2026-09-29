@@ -26,6 +26,7 @@ class Response implements ResponseInterface
 
     public function __construct(int $code = 200, string $reasonPhrase = '')
     {
+        $this->MessageTrait(null);
         $this->statusCode   = $code;
         $this->reasonPhrase = '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$code] ?? $reasonPhrase);
     }
