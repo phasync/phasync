@@ -2,6 +2,14 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- `Console::log($level, $message, $context, $source)`: one log line format everywhere (time,
+  source, the level from warning up, the message with its `{placeholders}` filled), written
+  without parsing any markup, with control characters escaped.
+
 ## 2.0.0-alpha26 (2026-09-30)
 
 ### Added

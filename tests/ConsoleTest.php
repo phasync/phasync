@@ -113,3 +113,26 @@ test('a percentage width is of the terminal width', function () {
 test('a padding word needs a width', function () {
     expect(fn () => Console::strip('<!pad>x<!>'))->toThrow(InvalidArgumentException::class, "'pad' needs a width");
 });
+
+test('log() writes one line format: time, source, level from warning up, and the message with its values', function () {
+    $stream = \fopen('php://memory', 'w+');
+    $plain  = new Console($stream, false);
+    $plain->log('info', 'listening on {address}', ['address' => '127.0.0.1:8080'], '3');
+    $plain->log('warning', 'disk {path} is full', ['path' => '/var']);
+    \rewind($stream);
+    $lines = \explode("\n", \rtrim(\stream_get_contents($stream)));
+    expect($lines[0])->toMatch('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d 3 listening on 127\.0\.0\.1:8080$/');
+    expect($lines[1])->toMatch('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d warning   disk \/var is full$/');
+});
+
+test('log() never reads its message as markup, and escapes control characters', function () {
+    $stream = \fopen('php://memory', 'w+');
+    (new Console($stream, true))->log('error', "GET /<!red>x<!>\e[2J {v}", ['v' => "a\e[1mb"]);
+    \rewind($stream);
+    $line = \stream_get_contents($stream);
+    expect($line)->toContain("\e[31merror    \e[0m GET /<!red>x<!>\\033[2J \e[4ma\\033[1mb\e[24m");
+});
+
+test('log() rejects a level PSR-3 does not have', function () {
+    expect(fn () => (new Console(\fopen('php://memory', 'w+'), false))->log('verbose', 'x'))->toThrow(InvalidArgumentException::class);
+});

@@ -30,7 +30,21 @@ final class Console
     private const COLORS = ['black' => 0, 'red' => 1, 'green' => 2, 'yellow' => 3, 'blue' => 4, 'magenta' => 5, 'cyan' => 6, 'white' => 7];
     private const MARKUP = '/<!([-a-z0-9% ]*)>/';
 
+    /** The level labels log() writes (from warning up), styled and plain. */
+    private const LABELS = [
+        'warning'   => ["\e[33mwarning  \e[0m ", 'warning   '],
+        'error'     => ["\e[31merror    \e[0m ", 'error     '],
+        'critical'  => ["\e[41;37mcritical \e[0m ", 'critical  '],
+        'alert'     => ["\e[41;37malert    \e[0m ", 'alert     '],
+        'emergency' => ["\e[41;37memergency\e[0m ", 'emergency '],
+    ];
+    private const LEVELS = ['debug' => 1, 'info' => 1, 'notice' => 1, 'warning' => 1, 'error' => 1, 'critical' => 1, 'alert' => 1, 'emergency' => 1];
+
     private readonly bool $color;
+
+    /** log()'s timestamp, redone once a second. */
+    private int $second  = 0;
+    private string $time = '';
 
     /**
      * @param resource  $stream where write() writes
@@ -45,6 +59,59 @@ final class Console
     public function write(string $markup): void
     {
         \fwrite($this->stream, $this->render($markup));
+    }
+
+    /**
+     * A log line, in one format everywhere: the local time to hundredths of a second, $source
+     * when given, the level from warning up, and the message. `{key}` placeholders take the
+     * values in $context (underlined when styled). Nothing is parsed as markup, and control
+     * characters are escaped, so the line shows what was logged and can't reach a terminal as
+     * escape sequences. A line that can't be written (a full disk, a reader gone) is lost
+     * silently: logging never throws.
+     *
+     *     2026-09-30 08:02:12.43 3 warning   disk /var is full
+     *
+     * @param string              $level   a PSR-3 level: debug, info, notice, warning, error,
+     *                                     critical, alert or emergency
+     * @param array<string,mixed> $context
+     */
+    public function log(string $level, string|\Stringable $message, array $context = [], string $source = ''): void
+    {
+        if (!isset(self::LEVELS[$level])) {
+            throw new \InvalidArgumentException("Unknown log level '$level'");
+        }
+        $now = \microtime(true);
+        if ((int) $now !== $this->second) {
+            $this->second = (int) $now;
+            $this->time   = \date('Y-m-d H:i:s', $this->second);
+        }
+        $cs   = (int) (($now - $this->second) * 100);
+        $time = $this->time . ($cs < 10 ? ".0$cs" : ".$cs");
+        $line = ($this->color ? "\e[37m$time\e[0m " : "$time ") . ('' === $source ? '' : self::text($source) . ' ');
+        if (isset(self::LABELS[$level])) {
+            $line .= self::LABELS[$level][$this->color ? 0 : 1];
+        }
+        $message = \rtrim((string) $message);
+        if ([] !== $context && \str_contains($message, '{')) {
+            $values = [];
+            foreach ($context as $key => $value) {
+                if (null === $value || \is_scalar($value) || $value instanceof \Stringable) {
+                    $values['{' . $key . '}'] = $this->color ? "\e[4m" . self::text((string) $value) . "\e[24m" : (string) $value;
+                }
+            }
+            // Plain: escaped once, values included; styled: around the underline codes
+            $message = $this->color ? \strtr(self::text($message), $values) : self::text(\strtr($message, $values));
+        } else {
+            $message = self::text($message);
+        }
+        $line .= $message;
+        @\fwrite($this->stream, $line . "\n");
+    }
+
+    /** Control characters other than newline and tab, escaped as in C: "\033[2J". */
+    private static function text(string $text): string
+    {
+        return \preg_match('/[\x00-\x08\x0B-\x1F\x7F]/', $text) ? \addcslashes($text, "\0..\x08\x0B..\x1F\x7F") : $text;
     }
 
     /** $markup as this console writes it: styled, or plain. */
@@ -123,7 +190,7 @@ final class Console
             if ('clip' === $word) {
                 $clip = true;
             } elseif (null !== ($pad = match ($word) {
-                'pad', 'rpad' => \STR_PAD_RIGHT, 'lpad' => \STR_PAD_LEFT, 'center' => \STR_PAD_BOTH, default => null
+                'pad', 'rpad' => \STR_PAD_RIGHT, 'lpad' => \STR_PAD_LEFT, 'center' => \STR_PAD_BOTH, default => null,
             })) {
                 $size  = $words[++$i] ?? '';
                 $width = \str_ends_with($size, '%') ? \intdiv(self::columns() * (int) $size, 100) : (int) $size;
