@@ -9,15 +9,17 @@ final class StreamFactory
 {
     public static function create(mixed $source): StreamInterface
     {
-        if ($source instanceof StreamInterface) {
+        if (\is_string($source)) {
+            return '' === $source ? EmptyStream::create() : new StringStream($source);
+        } elseif ($source instanceof StreamInterface) {
             return $source;
-        } elseif (null === $source || '' === $source) {
+        } elseif (null === $source) {
             return EmptyStream::create();
         } elseif (\is_resource($source) && 'stream' === \get_resource_type($source)) {
             return new ResourceStream($source);
         } elseif ($source instanceof ReadChannelInterface) {
             return new ReadChannelStream($source);
-        } elseif (\is_string($source) || $source instanceof \Stringable) {
+        } elseif ($source instanceof \Stringable) {
             return new StringStream((string) $source);
         } elseif ($source instanceof \JsonSerializable) {
             return new StringStream(\json_encode($source));

@@ -41,7 +41,7 @@ trait MessageTrait
             if (\is_string($values)) {
                 $this->headers[$key] = [$values];
             } else {
-                $this->headers[$key] = [...$values];
+                $this->headers[$key] = \array_is_list($values) ? $values : [...$values];
             }
         }
     }
