@@ -2,6 +2,13 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- `phasync\Util\ConsoleLogger`: a PSR-3 logger writing `Console::log()` lines, with a minimum
+  level. It satisfies psr/log 1, 2 and 3, so it pins no version on its dependants.
+
 ## 2.0.0-alpha27 (2026-09-30)
 
 ### Added

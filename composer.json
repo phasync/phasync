@@ -13,7 +13,8 @@
     "require": {
         "php": "^8.2",
         "psr/http-message": "^1.0 || ^2.0",
-        "psr/http-factory": "^1.1"
+        "psr/http-factory": "^1.1",
+        "psr/log": "^1.0 || ^2.0 || ^3.0"
     },
     "require-dev": {
         "pestphp/pest": "^2.34 || ^3.0",

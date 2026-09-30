@@ -125,3 +125,28 @@ jobs:
 
       - name: ✅ PSR-7 tests
         run: vendor/bin/pest tests/PsrConformanceTest.php
+
+  psr-log:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        version: ["1.1.4", "2.0.0", "3.0.2"]
+
+    name: 📝 PSR-3 with psr/log ${{ matrix.version }}
+
+    # Applications may depend on any psr/log version, so ConsoleLogger must satisfy every one
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+
+      - name: 🧰 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: 📥 Install dependencies
+        run: composer require --no-progress --no-interaction -W "psr/log:${{ matrix.version }}"
+
+      - name: ✅ PSR-3 tests
+        run: vendor/bin/pest tests/ConsoleLoggerTest.php
