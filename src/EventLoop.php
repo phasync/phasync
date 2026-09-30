@@ -1000,11 +1000,20 @@ final class EventLoop implements \Countable
         $fiber                          = $this->currentFiber;
         $id                             = \spl_object_id($fiber);
         $previous                       = $this->contexts[$fiber];
-        $this->useContext($context, $previous);
+        // useContext() and joinContext(), inline: a request's context passes here once per request
+        if (isset($this->usedContexts[$context])) {
+            throw new ContextUsedException();
+        }
+        $this->usedContexts[$context]   = true;
+        $this->outerContexts[$context]  = $previous;
+        if (!isset($this->rootContexts[$context])) {
+            $this->rootContexts[$context] = isset($this->runContexts[$previous]) ? $context : $this->rootContexts[$previous];
+        }
         $outerFinally                   = $this->withContextFinally[$id] ?? null;
         $this->contexts[$fiber]         = $context;
         $this->currentContext           = $context;
-        $this->joinContext($context, $fiber);
+        $this->contextFibers[$context]  = $fibers = new \WeakMap();
+        $fibers[$fiber]                 = true;
         if ($context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
             $this->switchAware = true;
             $this->makeLive($context);
@@ -1031,8 +1040,8 @@ final class EventLoop implements \Countable
                 } else {
                     $this->withContextFinally[$id] = $outerFinally;
                 }
-                unset($this->contextFibers[$context][$fiber]);
-                $this->leftContext($context);
+                unset($fibers[$fiber]);
+                $this->leftContext($context, $fibers);
                 $this->contexts[$fiber] = $previous;
                 $this->currentContext   = $previous;
                 if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
@@ -1126,14 +1135,18 @@ final class EventLoop implements \Countable
         return $this->rootContexts[$context];
     }
 
-    /** A coroutine left $context: a root with none left drops its self-reference. */
-    private function leftContext(object $context): void
+    /**
+     * A coroutine left $context: a root with none left drops its self-reference.
+     *
+     * @param \WeakMap<\Fiber, true> $fibers the coroutines $context has left
+     */
+    private function leftContext(object $context, \WeakMap $fibers): void
     {
         // Cheapest first: coroutines of a run()'s context (most) leave it without this
-        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context && 0 === \count($this->contextFibers[$context])) {
+        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context && 0 === \count($fibers)) {
             unset($this->rootContexts[$context]);
         }
-        if (0 !== $this->cancellations && isset($this->cancelledContexts[$context]) && 0 === \count($this->contextFibers[$context])) {
+        if (0 !== $this->cancellations && isset($this->cancelledContexts[$context]) && 0 === \count($fibers)) {
             // No coroutine can join a context that has none left
             unset($this->cancelledContexts[$context]);
             --$this->cancellations;
@@ -1725,8 +1738,9 @@ final class EventLoop implements \Countable
             --$this->cancellations;
         }
         $this->raiseFlag($fiber);
-        unset($this->contextFibers[$context][$fiber]);
-        $this->leftContext($context);
+        $fibers = $this->contextFibers[$context];
+        unset($fibers[$fiber]);
+        $this->leftContext($context, $fibers);
         unset($this->contexts[$fiber], $this->parentFibers[$fiber]);
         $this->shouldGarbageCollect = true;
     }
