@@ -53,8 +53,7 @@ test('phasync::cancel() handled cancellation', function () {
                     phasync::sleep(1);
                 }
             } catch (CancelledException $e) {
-                $counter *= -1;
-                phasync::sleep(0.2);
+                $counter *= -1; // a wait here would throw again (CAN-4)
             }
         });
         phasync::sleep(0.1);

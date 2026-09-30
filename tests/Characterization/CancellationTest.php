@@ -142,41 +142,41 @@ test('CAN-1: cancel() of a Fiber that phasync did not create throws LogicExcepti
 // CAN-2 / CAN-3: what cancel() does to a running or terminated coroutine
 // ---------------------------------------------------------------------------
 
-test('CAN-2: cancelling the running coroutine (itself) throws RuntimeException [DIVERGENCE]', function () {
-    // The contract (CAN-2) says this is legal and delivered at the next suspension.
+test('CAN-2: a coroutine cancelling itself gets the exception at once, as a throw', function () {
     $message = phasync::run(static function () {
         try {
-            phasync::cancel(Fiber::getCurrent());
+            phasync::cancel(Fiber::getCurrent(), new LogicException('self'));
+
+            return 'no exception';
         } catch (Throwable $e) {
             return $e::class . ': ' . $e->getMessage();
         }
-
-        return 'no exception';
     });
 
-    expect($message)->toStartWith('RuntimeException: Unable to cancel fiber');
-    expect($message)->toEndWith('not found.');
-})->group('divergence');
+    expect($message)->toBe('LogicException: self');
+});
 
-test('CAN-2: cancelling a running parent from its child throws RuntimeException [DIVERGENCE]', function () {
-    // go() runs the child immediately, so the parent is running (not suspended) at that point.
+test('CAN-2: a coroutine cancelled while it runs meets the cancellation at its next wait', function () {
+    // go() runs the child at once, so the parent is running (not waiting) when the child cancels it
     $result = phasync::run(static function () {
         $parent = Fiber::getCurrent();
         $child  = phasync::go(static function () use ($parent) {
-            try {
-                phasync::cancel($parent);
+            phasync::cancel($parent);
 
-                return 'cancelled';
-            } catch (Throwable $e) {
-                return $e::class;
-            }
+            return 'cancelled';
         });
+        $value = phasync::await($child); // finished already: not a wait
+        try {
+            phasync::sleep(0);
 
-        return phasync::await($child);
+            return "$value, then no exception";
+        } catch (CancelledException) {
+            return "$value, then cancelled at its next wait";
+        }
     });
 
-    expect($result)->toBe(RuntimeException::class);
-})->group('divergence');
+    expect($result)->toBe('cancelled, then cancelled at its next wait');
+});
 
 test('CAN-3: cancelling a terminated coroutine throws InvalidArgumentException [DIVERGENCE]', function () {
     // The contract (CAN-3) says this is a no-op.
@@ -198,35 +198,48 @@ test('CAN-3: cancelling a terminated coroutine throws InvalidArgumentException [
 // CAN-4: delivery count
 // ---------------------------------------------------------------------------
 
-test('CAN-4: a coroutine that catches CancelledException can keep suspending in its cleanup', function () {
-    $result = phasync::run(static function () {
-        $child = phasync::go(static function () {
-            try {
-                phasync::sleep(5);
-            } catch (CancelledException) {
-                phasync::sleep(0.05);
-                phasync::sleep(0.05);
-
-                return 'cleaned up';
-            }
-        });
-        phasync::cancel($child);
-
-        return phasync::await($child);
-    });
-
-    expect($result)->toBe('cleaned up');
-});
-
-test('CAN-4: suspending in a finally block during cancellation is not cancelled again', function () {
+test('CAN-4: cancellation is sticky: every later wait of a cancelled coroutine throws it again', function () {
     $log = phasync::run(static function () {
         $log   = [];
         $child = phasync::go(static function () use (&$log) {
             try {
                 phasync::sleep(5);
-            } finally {
+            } catch (CancelledException) {
+                $log[] = 'caught';
+            }
+            try {
                 phasync::sleep(0.05);
-                $log[] = 'finally finished';
+                $log[] = 'slept';
+            } catch (CancelledException) {
+                $log[] = 'caught again';
+            }
+        });
+        phasync::cancel($child);
+        phasync::await($child);
+
+        return $log;
+    });
+
+    expect($log)->toBe(['caught', 'caught again']);
+});
+
+test('CAN-4: a wait in a finally block of a cancelled coroutine throws; a phasync::finally() callback completes', function () {
+    $log = phasync::run(static function () {
+        $log   = [];
+        $child = phasync::go(static function () use (&$log) {
+            phasync::finally(static function () use (&$log) {
+                phasync::sleep(0.05);
+                $log[] = 'finally() callback finished';
+            });
+            try {
+                phasync::sleep(5);
+            } finally {
+                try {
+                    phasync::sleep(0.05);
+                    $log[] = 'finally block finished';
+                } catch (CancelledException) {
+                    $log[] = 'finally block cancelled';
+                }
             }
         });
         phasync::cancel($child);
@@ -235,86 +248,37 @@ test('CAN-4: suspending in a finally block during cancellation is not cancelled 
         } catch (CancelledException) {
             $log[] = 'awaiter got CancelledException';
         }
+        phasync::sleep(0.1);
 
         return $log;
     });
 
-    expect($log)->toBe(['finally finished', 'awaiter got CancelledException']);
+    expect($log)->toBe(['finally block cancelled', 'awaiter got CancelledException', 'finally() callback finished']);
 });
 
-test('CAN-4: a second cancel() while the target is suspended in its cleanup cancels the cleanup', function () {
+test('CAN-4: cancelled twice before it resumes, a coroutine gets the first exception, and its later waits the second', function () {
     $log = [];
     phasync::run(static function () use (&$log) {
         $child = phasync::go(static function () use (&$log) {
             try {
                 phasync::sleep(5);
-            } catch (CancelledException) {
-                $log[] = 'child caught';
-                phasync::sleep(0.2);
-                $log[] = 'cleanup finished';
+            } catch (Throwable $e) {
+                $log[] = 'child got ' . $e->getMessage();
+            }
+            try {
+                phasync::sleep(0.01);
+            } catch (Throwable $e) {
+                $log[] = 'then ' . $e->getMessage();
             }
         });
-        phasync::cancel($child);
-        phasync::sleep(0.02);
-        phasync::cancel($child);
-        try {
-            phasync::await($child);
-        } catch (Throwable $e) {
-            $log[] = 'await threw ' . $e::class;
-        }
+        phasync::cancel($child, new RuntimeException('one'));
+        phasync::cancel($child, new LogicException('two'));
+        phasync::await($child);
     });
 
-    expect($log)->toBe(['child caught', 'await threw ' . CancelledException::class]);
+    // It caught both, so run() returns normally
+    expect($log)->toBe(['child got one', 'then two']);
 });
-
-test('CAN-4: cancelling twice before the target resumes delivers only the second exception and run() throws the first [SURPRISE]', function () {
-    $log    = [];
-    $thrown = null;
-    try {
-        phasync::run(static function () use (&$log) {
-            $child = phasync::go(static function () use (&$log) {
-                try {
-                    phasync::sleep(5);
-                } catch (Throwable $e) {
-                    $log[] = 'child got ' . $e::class . ':' . $e->getMessage();
-                }
-            });
-            phasync::cancel($child, new RuntimeException('one'));
-            phasync::cancel($child, new LogicException('two'));
-            phasync::await($child);
-        });
-    } catch (Throwable $e) {
-        $thrown = $e::class . ':' . $e->getMessage();
-    }
-
-    // The child handled the exception it received, yet run() still throws the first one.
-    expect($log)->toBe(['child got LogicException:two']);
-    expect($thrown)->toBe('RuntimeException:one');
-})->group('surprise');
-
-test('CAN-4: cancelling twice with the default exception makes run() throw CancelledException although the child caught it [SURPRISE]', function () {
-    $log    = [];
-    $thrown = null;
-    try {
-        phasync::run(static function () use (&$log) {
-            $child = phasync::go(static function () use (&$log) {
-                try {
-                    phasync::sleep(5);
-                } catch (Throwable $e) {
-                    $log[] = 'child caught ' . $e::class;
-                }
-            });
-            phasync::cancel($child);
-            phasync::cancel($child);
-            phasync::await($child);
-        });
-    } catch (Throwable $e) {
-        $thrown = $e::class;
-    }
-
-    expect($log)->toBe(['child caught ' . CancelledException::class]);
-    expect($thrown)->toBe(CancelledException::class);
-})->group('surprise');
 
 // ---------------------------------------------------------------------------
 // CAN-5: scopes
@@ -363,8 +327,7 @@ test('CAN-5: cancelling the coroutine running a nested run() leaves the nested s
     ]);
 })->group('divergence');
 
-test('CAN-5: a coroutine created by an already-cancelled coroutine runs normally [DIVERGENCE]', function () {
-    // The contract (CAN-5) says coroutines created in a cancelled scope start cancelled.
+test('CAN-5: a coroutine created by a cancelled coroutine is not cancelled, but the cancelled one can not wait for it', function () {
     $log = phasync::run(static function () {
         $log   = [];
         $child = phasync::go(static function () use (&$log) {
@@ -375,17 +338,22 @@ test('CAN-5: a coroutine created by an already-cancelled coroutine runs normally
                     phasync::sleep(0.01);
                     $log[] = 'grandchild ran normally';
                 });
-                phasync::await($grandchild);
+                try {
+                    phasync::await($grandchild);
+                } catch (CancelledException) {
+                    $log[] = 'child cancelled again at its await';
+                }
             }
         });
         phasync::cancel($child);
         phasync::await($child);
+        phasync::sleep(0.05);
 
         return $log;
     });
 
-    expect($log)->toBe(['grandchild ran normally']);
-})->group('divergence');
+    expect($log)->toBe(['child cancelled again at its await', 'grandchild ran normally']);
+});
 
 // ---------------------------------------------------------------------------
 // CAN-6: cancellation never loses or duplicates data
@@ -549,26 +517,23 @@ test('CAN-7: cancelling one of two awaiters of the same coroutine leaves the oth
 // CAN-8: cancellation cannot be forced
 // ---------------------------------------------------------------------------
 
-test('CAN-8: a coroutine may swallow CancelledException and continue, and the awaiter waits for it', function () {
+test('CAN-8: a coroutine may catch CancelledException and finish its work, as long as it does not wait again', function () {
     $result = phasync::run(static function () {
-        $start = \microtime(true);
         $child = phasync::go(static function () {
             try {
                 phasync::sleep(5);
-            } catch (Throwable) {
-                // swallowed on purpose
+            } catch (CancelledException) {
+                // caught on purpose
             }
-            phasync::sleep(0.2);
 
-            return 'finished after swallowing';
+            return 'finished after catching';
         });
         phasync::cancel($child);
-        $value = phasync::await($child);
 
-        return [$value, \microtime(true) - $start >= 0.19];
+        return phasync::await($child);
     });
 
-    expect($result)->toBe(['finished after swallowing', true]);
+    expect($result)->toBe('finished after catching');
 });
 
 test('CAN-8: finally blocks run when a coroutine is cancelled', function () {
@@ -598,9 +563,7 @@ test('CAN-8: finally blocks run when a coroutine is cancelled', function () {
 // CAN-9: ending with the cancellation you were given
 // ---------------------------------------------------------------------------
 
-test('CAN-9: run() throws CancelledException when a coroutine cancelled on purpose does not catch it [DIVERGENCE]', function () {
-    // The contract (CAN-9) says this is normal termination and run() must not throw.
-    // Decision D12 is open.
+test('CAN-9: a coroutine that ends with the cancellation it was given did not fail: run() returns normally', function () {
     $thrown = null;
     try {
         phasync::run(static function () {
@@ -611,10 +574,10 @@ test('CAN-9: run() throws CancelledException when a coroutine cancelled on purpo
         $thrown = $e::class;
     }
 
-    expect($thrown)->toBe(CancelledException::class);
-})->group('divergence');
+    expect($thrown)->toBeNull();
+});
 
-test('CAN-9: run() throws a custom cancellation exception the child did not catch [DIVERGENCE]', function () {
+test('CAN-9: also with a custom cancellation exception', function () {
     $thrown = null;
     try {
         phasync::run(static function () {
@@ -625,8 +588,8 @@ test('CAN-9: run() throws a custom cancellation exception the child did not catc
         $thrown = $e::class . ':' . $e->getMessage();
     }
 
-    expect($thrown)->toBe('DomainException:boom');
-})->group('divergence');
+    expect($thrown)->toBeNull();
+});
 
 test('CAN-9: an awaiter of the cancelled coroutine sees CancelledException', function () {
     $seen = phasync::run(static function () {

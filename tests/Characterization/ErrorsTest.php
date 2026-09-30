@@ -188,7 +188,7 @@ test('ERR-2: a failure that is awaited and rethrown surfaces from run() once, an
 // ERR-3  An un-awaited failure reaches the scope deterministically
 // ---------------------------------------------------------------------------
 
-test('ERR-3: an un-awaited failure with no handler fails the run: its coroutines are dropped, the parent too, and run() throws the failure', function () {
+test('ERR-3: an un-awaited failure with no handler fails the run: its coroutines, the parent too, are cancelled, and run() throws the failure', function () {
     $log     = [];
     $outcome = errOutcome(function () use (&$log) {
         phasync::go(function () {
@@ -205,7 +205,8 @@ test('ERR-3: an un-awaited failure with no handler fails the run: its coroutines
 
         return 'parent value';
     });
-    expect($log)->toBe([]); // never resumed: not interrupted, and it doesn't finish
+    // Cancelled with the failure as the reason; it caught that, so it finished
+    expect($log)->toBe(['parent interrupted by Cancelled: the run failed with RuntimeException: unawaited', 'parent end']);
     expect($outcome)->toBe('threw RuntimeException: unawaited');
 });
 
@@ -374,10 +375,14 @@ test('ERR-5: a finally block runs when an exception is thrown into the suspended
     expect($log)->toBe(['finally', 'awaiter got DomainException: custom']);
 });
 
-test('ERR-5: cleanup code inside finally may itself suspend, and the cancelled coroutine finishes its cleanup', function () {
+test('ERR-5: finally blocks of a cancelled coroutine run, but a wait in them is cancelled too; phasync::finally() callbacks complete', function () {
     $log = [];
     phasync::run(function () use (&$log) {
         $c = phasync::go(function () use (&$log) {
+            phasync::finally(function () use (&$log) {
+                phasync::sleep(0.01);
+                $log[] = 'finally() callback end';
+            });
             try {
                 phasync::sleep(1);
             } finally {
@@ -393,8 +398,9 @@ test('ERR-5: cleanup code inside finally may itself suspend, and the cancelled c
         } catch (Throwable) {
         }
         $log[] = 'parent continues';
+        phasync::sleep(0.05);
     });
-    expect($log)->toBe(['cleanup start', 'cleanup end', 'parent continues']);
+    expect($log)->toBe(['cleanup start', 'parent continues', 'finally() callback end']);
 });
 
 test('ERR-5: phasync::finally() callbacks run last-registered-first, after the coroutine has failed and before an awaiter sees it', function () {

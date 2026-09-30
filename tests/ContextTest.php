@@ -130,3 +130,53 @@ test('a root context is not kept alive by its root entry once its coroutines are
 test('getRootContext() outside a coroutine throws LogicException', function () {
     expect(fn () => phasync::getRootContext())->toThrow(LogicException::class);
 });
+
+/** A context whose handler logs, then rethrows: as if it had no handler. */
+final class RethrowingContext implements phasync\Context\ExceptionHandlerInterface
+{
+    public array $logged = [];
+
+    public function handleException(Throwable $exception): void
+    {
+        $this->logged[] = $exception->getMessage();
+
+        throw $exception;
+    }
+}
+
+test('a handler that rethrows passes the failure on: with no other handler, the run cancels its coroutines and throws it', function () {
+    $context = new RethrowingContext();
+    $log     = [];
+    try {
+        phasync::run(function () use (&$log) {
+            phasync::go(function () use (&$log) {
+                try {
+                    phasync::sleep(1);
+                } catch (phasync\CancelledException) {
+                    $log[] = 'sibling cancelled';
+                }
+            });
+            phasync::go(function () {
+                throw new RuntimeException('rethrown');
+            });
+            phasync::sleep(1);
+        }, context: $context);
+    } catch (RuntimeException $e) {
+        $log[] = 'run threw ' . $e->getMessage();
+    }
+    expect([$context->logged, $log])->toBe([['rethrown'], ['sibling cancelled', 'run threw rethrown']]);
+});
+
+test('a handler that rethrows passes the failure to the next handler outward', function () {
+    $outer = new HandlingContext();
+    $inner = new RethrowingContext();
+    phasync::run(function () use ($inner) {
+        phasync::withContext(function () {
+            phasync::go(function () {
+                throw new RuntimeException('passed on');
+            });
+        }, $inner);
+        phasync::sleep(0.02);
+    }, context: $outer);
+    expect([$inner->logged, $outer->handled])->toBe([['passed on'], ['passed on (in the loop)']]);
+});

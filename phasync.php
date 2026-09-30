@@ -101,9 +101,22 @@ final class phasync
 
             $exception = null;
 
-            $start = static function () use ($driver, $fn, $args, $context, $runDepth, &$fiber, &$exception) {
+            // The main coroutine failing fails the run: its other coroutines are cancelled
+            $main = static function (mixed ...$args) use ($driver, $fn, $context) {
                 try {
-                    $fiber = $driver->create($fn, $args, $context);
+                    return $fn(...$args);
+                } catch (Throwable $e) {
+                    if (!$driver->isCancellation($e)) {
+                        $driver->cancelRun($context, $e); // cancelled, it did not fail (CAN-9)
+                    }
+
+                    throw $e;
+                }
+            };
+
+            $start = static function () use ($driver, $main, $args, $context, $runDepth, &$fiber, &$exception) {
+                try {
+                    $fiber = $driver->create($main, $args, $context);
                 } catch (Throwable $e) {
                     $fiber     = null;
                     $exception = $e;
@@ -148,7 +161,7 @@ final class phasync
             if ([] !== ($failures = $driver->endRun($context, $fiber))) {
                 // A failure no handler took failed the run: its coroutines were dropped by the
                 // loop, and are destroyed as their last references go (their finally blocks run)
-                if ($fiber->isTerminated() && null !== ($e = $driver->getException($fiber))) {
+                if ($fiber->isTerminated() && null !== ($e = $driver->getException($fiber)) && !$driver->isRunCancellation($context, $e)) {
                     \array_unshift($failures, $e);
                 }
                 $fiber = $start = null;
@@ -167,8 +180,14 @@ final class phasync
                 throw $e; // a failure of the run (null: its coroutines were dropped), or the main coroutine's own
             }
             phasync::cancel($fiber);
-
-            return phasync::await($fiber);
+            // Shielded: the run returns once its main coroutine has unwound, though the calling
+            // coroutine was cancelled
+            $driver->shield($caller = Fiber::getCurrent());
+            try {
+                return phasync::await($fiber);
+            } finally {
+                $driver->unshield($caller);
+            }
         } finally {
             if (isset($preempting) && $preempting) {
                 \phasync\ext\set_preempt_function($previousPreempt);
@@ -398,6 +417,8 @@ final class phasync
         }
         if (empty($queues[$fiber])) {
             self::go(static function () use ($fiber, $queues) {
+                // Shielded: the callbacks complete also when the coroutine was cancelled
+                self::getDriver()->shield(Fiber::getCurrent());
                 try {
                     self::await($fiber);
                 } catch (Throwable) {
@@ -859,6 +880,9 @@ final class phasync
      */
     private static function suspend(): void
     {
+        if (0 !== self::$driver->cancellations) {
+            self::$driver->checkCancelled(Fiber::getCurrent());
+        }
         try {
             Fiber::suspend();
         } catch (Throwable $e) {

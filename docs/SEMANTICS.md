@@ -120,16 +120,19 @@ or throws only after every coroutine in its scope has terminated. ✅ RunTest
 
 **SCO-3. An unhandled failure goes to a handler, or fails its run.** A failure no coroutine
 takes (nobody awaits the failed coroutine) goes outward through the contexts: its own, then
-the one that was entered from. The first implementing `ExceptionHandlerInterface` takes it,
-from the event loop, and only the failed coroutine ends. With none, it fails the nearest
-`run()`: the run drops all its coroutines at once (those of nested contexts, and for the
-outermost run the services), and they are never resumed; PHP destroys them, running their
-`finally` blocks, which can't suspend. Nothing is left running. phasync logs nothing.
-✅ ContextTest, ScopesTest, ErrorsTest
+the one that was entered from. The first implementing `ExceptionHandlerInterface` gets it,
+from the event loop. A handler that returns has handled it: only the failed coroutine ended.
+One that throws passes its exception on outward, as if it had no handler. With no handler
+taking it, it fails the nearest `run()`: the run cancels its scope (its coroutines, those of
+contexts nested in it, and for the outermost run the services) with a `CancelledException`
+whose previous exception is the failure, and waits until they have unwound (CAN-4). The main
+coroutine failing fails its run the same way. phasync logs nothing. ✅ ContextTest,
+ScopesTest, ErrorsTest
 
 **SCO-4. `run()` throws the scope's failure.** A failed run throws its failure, or an
 `AggregateException` when there were several (ERR-4); the main coroutine's own failure comes
-first. A nested `run()` fails alone and throws into the coroutine that called it. ✅ RunTest,
+first. The cancellations its coroutines unwind with are no failures; anything else they throw
+is. A nested `run()` fails alone and throws into the coroutine that called it. ✅ RunTest,
 ScopesTest
 
 **SCO-5. Nested `run()` does not cascade.** Cancelling a coroutine that is blocked in a
@@ -174,9 +177,11 @@ throws an `AggregateException` with all of them, the first as its previous excep
 also those thrown while its dropped coroutines unwind. ✅ ErrorsTest
 
 **ERR-5. `finally` always runs**, including on cancellation and on exceptions thrown into
-a suspended coroutine. ✅ FinallyTest. `phasync::finally()` callbacks run when the coroutine
+a suspended coroutine; in a cancelled coroutine, a wait inside it throws again (CAN-4).
+✅ FinallyTest. `phasync::finally()` callbacks run when the coroutine
 ends, or, when registered inside `phasync::withContext()`, as that call returns, whichever comes
-first: in the calling coroutine, still in the context, and able to suspend. ✅ WithContextTest
+first: in the calling coroutine, still in the context, and able to suspend, also when it was
+cancelled (CAN-4). ✅ WithContextTest
 
 **ERR-6. Exceptions are not used for flow control by the runtime**, except
 `CancelledException` and `TimeoutException`, which are part of this contract.
@@ -189,16 +194,20 @@ first: in the calling coroutine, still in the context, and able to suspend. ✅ 
 **CAN-1. Delivered at a suspension point.** `cancel($fiber)` causes `CancelledException`
 to be thrown from the coroutine's current or next suspension point. ✅ CancelTest
 
-**CAN-2. Cancelling a running coroutine is legal.** If the target is not suspended, the
-cancellation is recorded and delivered at its next suspension. ❌ Currently the docblock
-says the fiber MUST be suspended and throws otherwise.
+**CAN-2. Cancelling a running coroutine is legal.** A coroutine that cancels itself (or a
+context it is in) gets the exception at once, as a `throw`. Any other coroutine that isn't
+waiting meets it at its next wait; one that was preempted too, never at the preemption
+itself (SCH-6). ✅ CancellationTest
 
 **CAN-3. Cancelling a finished coroutine is a no-op.** ❌ Currently throws
 `InvalidArgumentException`.
 
-**CAN-4. Delivered once per request.** A cancellation is thrown once. A coroutine that
-catches it can keep running, and its cleanup code can suspend without being cancelled
-again. (D5)
+**CAN-4. Cancellation is sticky.** Once a coroutine or a context is cancelled, every wait
+in it throws the cancellation again, until the coroutine ends or leaves the context (a
+`withContext()` returning). A wait in a `catch` or `finally` block is cancelled too.
+`phasync::finally()` callbacks are shielded: their waits aren't, so cleanup that must do I/O
+completes, bounded by that I/O's own timeouts. Timeouts are not cancellations: a
+`TimeoutException` is thrown once. (D5, revised) ✅ CancellationTest
 
 **CAN-5. `cancel($fiber)` stops that coroutine and nothing else, never its children;
 `cancel($context)` stops the context's.** Given a context, every waiting coroutine of it and
@@ -213,15 +222,15 @@ did not deliver its value; a cancelled channel read did not consume a value. ⚠
 stream, flag or channel keep waiting. ✅ regression fixed in commits c65d5b1 and 575d4b8;
 add a dedicated test.
 
-**CAN-8. Cancellation cannot be forced.** A coroutine may catch `CancelledException`. The
-scope still waits for it (SCO-2). This is a documented property, not a bug.
+**CAN-8. Cancellation cannot be forced, but can't be ignored while waiting.** A coroutine
+may catch `CancelledException` and finish its work, and the scope waits for it (SCO-2); any
+further wait throws again (CAN-4).
 
 **CAN-9. Ending with the cancellation you were given is not a failure.** A coroutine that
-terminates with the `CancelledException` it was cancelled with does not fail its scope,
-and `run()` does not throw it. *Go, Trio and Kotlin all treat this as normal
-termination.* ❌ Verified: cancelling a child that does not catch `CancelledException`
-makes `run()` throw `CancelledException`, even though the parent did the cancelling on
-purpose. (D12)
+terminates with the exception it was cancelled with (the default `CancelledException` or one
+passed to `cancel()`) does not fail its scope, and `run()` does not throw it; awaiting it
+still throws it. *Go, Trio and Kotlin all treat this as normal termination.* (D12)
+✅ CancellationTest
 
 
 ## 6. Timeouts

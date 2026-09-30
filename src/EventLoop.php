@@ -56,6 +56,48 @@ final class EventLoop implements \Countable
      */
     private \WeakMap $runContexts;
 
+    /**
+     * Cancelled coroutines and contexts, with the exception each cancellation throws: sticky, so
+     * every wait of a cancelled coroutine, or of one in a cancelled context (or a context nested
+     * in it), throws it until the coroutine ends or leaves the context.
+     *
+     * @var \WeakMap<\Fiber, \Throwable>
+     */
+    private \WeakMap $cancelledFibers;
+
+    /** @var \WeakMap<object, \Throwable> */
+    private \WeakMap $cancelledContexts;
+
+    /**
+     * How many coroutines and contexts are cancelled: 0 keeps the check off every wait.
+     *
+     * @internal
+     */
+    public int $cancellations = 0;
+
+    /**
+     * Coroutines whose waits no cancellation reaches: those running phasync::finally() callbacks.
+     *
+     * @var \WeakMap<\Fiber, int>
+     */
+    private \WeakMap $shielded;
+
+    /**
+     * The cancellation each failed run() sent through its scope, with its failure as the previous
+     * exception: the coroutines unwinding from it are no further failures.
+     *
+     * @var \WeakMap<object, CancelledException>
+     */
+    private \WeakMap $runCancellations;
+
+    /**
+     * The cancellations cancel() and a failed run() issued: a coroutine that ends with one of
+     * them was cancelled, it did not fail.
+     *
+     * @var \WeakMap<\Throwable, true>
+     */
+    private \WeakMap $issued;
+
     /** The context of the outermost phasync::run(): where services' failures go. */
     private ?object $rootRunContext = null;
 
@@ -305,6 +347,12 @@ final class EventLoop implements \Countable
         $this->held              = new \WeakMap();
         $this->preempted         = 0;
         $this->runContexts       = new \WeakMap();
+        $this->cancelledFibers   = new \WeakMap();
+        $this->cancelledContexts = new \WeakMap();
+        $this->cancellations     = 0;
+        $this->shielded          = new \WeakMap();
+        $this->runCancellations  = new \WeakMap();
+        $this->issued            = new \WeakMap();
         if ($fiber = $this->getCurrentFiber()) {
             // The current fiber stays, alone in its context
             $context                               = $this->currentContext;
@@ -899,6 +947,9 @@ final class EventLoop implements \Countable
             throw new \LogicException('A coroutine is parked in slot ' . $slot . ' already');
         }
         $fiber                                     = $this->currentFiber;
+        if (0 !== $this->cancellations) {
+            $this->checkCancelled($fiber);
+        }
         $this->parked[$slot]                       = $fiber;
         $this->parkedSlots[\spl_object_id($fiber)] = $slot;
         $this->pending[$fiber]                     = $deadline = \microtime(true) + $timeout;
@@ -965,8 +1016,14 @@ final class EventLoop implements \Countable
             $callbacks = $this->withContextFinally[$id];
             try {
                 if ([] !== $callbacks) {
-                    // phasync::finally() callbacks registered in $fn, last first, still in $context
-                    self::runFinally($callbacks);
+                    // phasync::finally() callbacks registered in $fn, last first, still in $context,
+                    // and shielded: they complete also when $context was cancelled
+                    $this->shield($fiber);
+                    try {
+                        self::runFinally($callbacks);
+                    } finally {
+                        $this->unshield($fiber);
+                    }
                 }
             } finally {
                 if (null === $outerFinally) {
@@ -1011,9 +1068,15 @@ final class EventLoop implements \Countable
      * deepest in the tree of coroutines first, except the coroutine that cancels. Coroutines that
      * aren't waiting, because they run or are about to, are left to finish.
      */
-    public function cancelContext(object $context, ?\Throwable $exception = null): void
+    public function cancelContext(object $context, ?\Throwable $exception = null, bool $throwInCaller = true): void
     {
-        $depths = [];
+        $exception ??= new CancelledException('Operation cancelled');
+        $this->issued[$exception] = true;
+        if (!isset($this->cancelledContexts[$context])) {
+            ++$this->cancellations;
+        }
+        $this->cancelledContexts[$context] = $exception;
+        $depths                            = [];
         foreach ($this->getFibers($context) as $fiber) {
             if ($fiber === $this->currentFiber || $fiber->isTerminated()) {
                 continue;
@@ -1024,9 +1087,10 @@ final class EventLoop implements \Countable
         }
         \usort($depths, static fn (array $a, array $b) => $b[0] <=> $a[0]);
         foreach ($depths as [, $fiber]) {
-            if (isset($this->pending[$fiber])) {
-                $this->cancel($fiber, $exception);
-            }
+            $this->wake($fiber);
+        }
+        if ($throwInCaller && null !== ($caller = \Fiber::getCurrent()) && isset($this->contexts[$caller]) && null !== ($e = $this->cancellationFor($caller))) {
+            throw $e; // the caller is in it: as a throw
         }
     }
 
@@ -1068,6 +1132,11 @@ final class EventLoop implements \Countable
         // Cheapest first: coroutines of a run()'s context (most) leave it without this
         if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context && 0 === \count($this->contextFibers[$context])) {
             unset($this->rootContexts[$context]);
+        }
+        if (0 !== $this->cancellations && isset($this->cancelledContexts[$context]) && 0 === \count($this->contextFibers[$context])) {
+            // No coroutine can join a context that has none left
+            unset($this->cancelledContexts[$context]);
+            --$this->cancellations;
         }
     }
 
@@ -1153,12 +1222,85 @@ final class EventLoop implements \Countable
         if (!isset($this->contexts[$fiber])) {
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
-        if (!$this->discard($fiber)) {
-            // FiberState::for($fiber)->log('unable to discard');
-            throw new \RuntimeException('Unable to cancel fiber ' . Debug::getDebugInfo($fiber) . ', not found.');
+        $exception ??= new CancelledException('Operation cancelled');
+        $this->issued[$exception] = true;
+        if (!isset($this->cancelledFibers[$fiber])) {
+            ++$this->cancellations;
         }
-        // FiberState::for($fiber)->log('cancel (exception=' . Debug::getDebugInfo($exception) .')');
-        $this->enqueueWithException($fiber, $exception ?? new CancelledException('Operation cancelled'));
+        $this->cancelledFibers[$fiber] = $exception;
+        if ($fiber === \Fiber::getCurrent()) {
+            throw $exception; // cancelling itself: as a throw
+        }
+        $this->wake($fiber);
+    }
+
+    /**
+     * A waiting coroutine a cancellation covers resumes with it. One that was preempted, or is
+     * shielded, goes on: it meets the cancellation at its next wait.
+     */
+    private function wake(\Fiber $fiber): void
+    {
+        if (!isset($this->pending[$fiber]) || isset($this->fiberExceptionHolders[$fiber]) || null === ($exception = $this->cancellationFor($fiber))) {
+            return;
+        }
+        if (0 !== $this->preempted && ($this->frozen[$this->rootContexts[$this->contexts[$fiber]]] ?? null) === $fiber) {
+            return;
+        }
+        if ($this->discard($fiber)) {
+            $this->enqueueWithException($fiber, $exception);
+        }
+    }
+
+    /** The cancellation $fiber's waits throw, if any. */
+    private function cancellationFor(\Fiber $fiber): ?\Throwable
+    {
+        if (isset($this->shielded[$fiber])) {
+            return null;
+        }
+        if (null !== ($exception = $this->cancelledFibers[$fiber] ?? null)) {
+            return $exception;
+        }
+        for ($c = $this->contexts[$fiber] ?? null; null !== $c; $c = $this->outerContexts[$c] ?? null) {
+            if (null !== ($exception = $this->cancelledContexts[$c] ?? null)) {
+                return $exception;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * At a wait: a cancelled coroutine throws its cancellation instead of waiting (callers check
+     * $cancellations first), and what it registered to wait for is dropped.
+     *
+     * @internal
+     */
+    public function checkCancelled(\Fiber $fiber): void
+    {
+        if (null !== ($exception = $this->cancellationFor($fiber))) {
+            $this->discard($fiber);
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * $fiber's waits are out of every cancellation's reach until unshield(): phasync::finally()
+     * callbacks complete also in a cancelled coroutine or context.
+     *
+     * @internal
+     */
+    public function shield(\Fiber $fiber): void
+    {
+        $this->shielded[$fiber] = ($this->shielded[$fiber] ?? 0) + 1;
+    }
+
+    /** @internal */
+    public function unshield(\Fiber $fiber): void
+    {
+        if (0 === --$this->shielded[$fiber]) {
+            unset($this->shielded[$fiber]);
+        }
     }
 
     /**
@@ -1329,7 +1471,10 @@ final class EventLoop implements \Countable
         foreach ($fibers as $id => $fiber) {
             unset($this->timeoutSlots[$id]);
             // FiberState::for($fiber)->log("timeout");
-            $this->cancel($fiber, new TimeoutException('Operation timed out for ' . Debug::getDebugInfo($fiber)));
+            // One wait timed out: thrown once, not sticky as a cancellation
+            if ($this->discard($fiber)) {
+                $this->enqueueWithException($fiber, new TimeoutException('Operation timed out for ' . Debug::getDebugInfo($fiber)));
+            }
         }
     }
 
@@ -1383,10 +1528,28 @@ final class EventLoop implements \Countable
         if (self::$exiting && $exception instanceof CancelledException) {
             return;
         }
+        if ($this->isCancellation($exception)) {
+            return; // it was cancelled; it did not fail
+        }
         for ($c = $context; null !== $c; $c = $this->outerContexts[$c] ?? null) {
             if ($c instanceof ExceptionHandlerInterface) {
-                // This may run in a destructor: the handler runs in the loop, from the next tick
-                $this->defer(static fn () => $c->handleException($exception));
+                // This may run in a destructor: the handler runs in the loop, from the next tick.
+                // One that returns has handled it; what it throws goes on outward.
+                $this->defer(function () use ($c, $exception) {
+                    try {
+                        $c->handleException($exception);
+                    } catch (\Throwable $e) {
+                        if (null !== ($outer = $this->outerContexts[$c] ?? null)) {
+                            $this->unhandled($outer, $e);
+                        } elseif (isset($this->runContexts[$c])) {
+                            $this->failRun($c, $e);
+                        } elseif (null !== $this->rootRunContext) {
+                            $this->failRun($this->rootRunContext, $e);
+                        } else {
+                            throw $e;
+                        }
+                    }
+                });
 
                 return;
             }
@@ -1439,6 +1602,15 @@ final class EventLoop implements \Countable
         }
         $failures = $this->runContexts[$context] ?? [];
         unset($this->runContexts[$context], $this->rootContexts[$context]);
+        if (0 !== $this->cancellations) {
+            // Its cancellation ends with it; the services' too, which outlive every run()
+            foreach ($context === $this->rootRunContext ? [$context, $this->serviceContext] : [$context] as $c) {
+                if (isset($this->cancelledContexts[$c])) {
+                    unset($this->cancelledContexts[$c]);
+                    --$this->cancellations;
+                }
+            }
+        }
         if ($context === $this->rootRunContext) {
             $this->rootRunContext = null;
         }
@@ -1459,45 +1631,83 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * A failure no handler took reached the run() with $context: the run fails. Its coroutines,
-     * those of the contexts nested in it, and for the outermost run() the services, are dropped
-     * by the loop at once and never resumed: PHP destroys them as their last references go
-     * (running their finally blocks, which can't suspend any more). run() then throws.
+     * A failure no handler took reached the run() with $context: the run fails. Its first failure
+     * cancels the run's scope (the coroutines of it and of the contexts nested in it, and for the
+     * outermost run() the services): they unwind with a CancelledException whose previous
+     * exception is that failure, and phasync::finally() callbacks complete. The cancellations they
+     * throw on are no further failures; anything else they throw is. run() then throws.
      */
     private function failRun(object $context, \Throwable $exception): void
     {
+        if (null !== ($cancellation = $this->runCancellations[$context] ?? null) && self::causedBy($exception, $cancellation)) {
+            return;
+        }
         $failures                    = $this->runContexts[$context];
         $failures[]                  = $exception;
         $this->runContexts[$context] = $failures;
         if (1 === \count($failures)) {
             // This may run in a destructor, and the loop may be iterating: from the next tick
-            $this->defer(fn () => $this->tearDown($context));
+            $this->defer(fn () => $this->cancelRun($context, $exception));
         }
     }
 
-    /** Drop the coroutines of the failed run() with $context: see failRun(). */
-    private function tearDown(object $context): void
+    /**
+     * The run() with $context has failed with $failure: its scope is cancelled (see failRun()).
+     * Also when its main coroutine fails, which run() itself then throws.
+     *
+     * @internal phasync::run()
+     */
+    public function cancelRun(object $context, \Throwable $failure): void
     {
-        if (!isset($this->runContexts[$context])) {
-            return; // the run ended meanwhile: its coroutines had all finished
+        if (!isset($this->runContexts[$context]) || isset($this->runCancellations[$context])) {
+            return;
         }
-        $fibers = $this->getFibers($context);
+        $cancellation                     = new CancelledException('Cancelled: the run failed with ' . \get_class($failure) . ': ' . $failure->getMessage(), 0, $failure);
+        $this->runCancellations[$context] = $cancellation;
+        $this->cancelContext($context, $cancellation, false);
         if ($context === $this->rootRunContext) {
-            \array_push($fibers, ...$this->getFibers($this->serviceContext));
+            $this->cancelContext($this->serviceContext, $cancellation, false);
         }
-        foreach ($fibers as $fiber) {
-            if ($fiber->isTerminated() || $fiber === $this->currentFiber) {
-                continue;
+    }
+
+    /**
+     * Whether $exception comes from the cancellation of the run() with $context.
+     *
+     * @internal phasync::run()
+     */
+    public function isRunCancellation(object $context, \Throwable $exception): bool
+    {
+        return null !== ($cancellation = $this->runCancellations[$context] ?? null) && self::causedBy($exception, $cancellation);
+    }
+
+    /**
+     * Whether $exception comes from a cancellation cancel() or a failed run() issued: a coroutine
+     * ending with it was cancelled, it did not fail (CAN-9).
+     *
+     * @internal
+     */
+    public function isCancellation(\Throwable $exception): bool
+    {
+        if (0 !== $this->issued->count()) {
+            for ($e = $exception; null !== $e; $e = $e->getPrevious()) {
+                if (isset($this->issued[$e])) {
+                    return true;
+                }
             }
-            $this->discard($fiber);
-            $context = $this->contexts[$fiber];
-            if (0 !== $this->preempted && ($this->frozen[$root = $this->rootContexts[$context]] ?? null) === $fiber) {
-                $this->thaw($root); // its held coroutines share its root: they go with this run too
-            }
-            unset($this->contextFibers[$context][$fiber]);
-            $this->leftContext($context);
-            unset($this->contexts[$fiber], $this->parentFibers[$fiber], $this->flagGraph[$fiber], $this->fiberExceptionHolders[$fiber]);
         }
+
+        return false;
+    }
+
+    private static function causedBy(\Throwable $exception, \Throwable $cause): bool
+    {
+        for ($e = $exception; null !== $e; $e = $e->getPrevious()) {
+            if ($e === $cause) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1510,6 +1720,10 @@ final class EventLoop implements \Countable
     {
         // FiberState::for($fiber)->log('handleTerminatedFiber');
         $context = $this->contexts[$fiber];
+        if (0 !== $this->cancellations && isset($this->cancelledFibers[$fiber])) {
+            unset($this->cancelledFibers[$fiber]);
+            --$this->cancellations;
+        }
         $this->raiseFlag($fiber);
         unset($this->contextFibers[$context][$fiber]);
         $this->leftContext($context);

@@ -6,6 +6,20 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Changed
 
+- Cancellation is sticky (CAN-4): once a coroutine or context is cancelled, every wait in it
+  throws the cancellation again until the coroutine ends or leaves the context, `catch` and
+  `finally` blocks included. `phasync::finally()` callbacks are shielded, so cleanup that must
+  do I/O completes. Timeouts stay one-shot. A coroutine cancelling itself gets the exception at
+  once, like a `throw`; a preempted coroutine meets it at its next wait (CAN-2).
+- A failed `run()` cancels its scope instead of dropping its coroutines (SCO-3): they unwind
+  with a `CancelledException` whose previous exception is the failure, and `run()` throws once
+  they have. The main coroutine failing does the same. Their cancellations are no failures;
+  anything else they throw is bundled (SCO-4).
+- A coroutine that ends with the cancellation it was given did not fail: `run()` no longer
+  throws it (CAN-9).
+- An `ExceptionHandlerInterface` handler that throws passes the exception on outward, as if it
+  had no handler; one that returns has handled it (SCO-3).
+
 - A `run()` owns its coroutines: a failure nobody took fails it when it ends, also while the
   failed coroutine's `Fiber` is still referenced (by the application, or by Xdebug's develop mode,
   which kept it, so `run()` returned normally and the exception surfaced later). Such a

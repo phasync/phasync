@@ -149,7 +149,7 @@ test('SCO-2: the main coroutine\'s return value is only delivered after the scop
 // SCO-3  First unhandled failure cancels the scope
 // ---------------------------------------------------------------------------
 
-test('SCO-3: an un-awaited failing child with no handler fails the run: siblings and parent are dropped, run() throws at once', function () {
+test('SCO-3: an un-awaited failing child with no handler fails the run: siblings and parent are cancelled, run() throws at once', function () {
     $log = [];
     $t   = \microtime(true);
     scoRun(function () use (&$log) {
@@ -169,7 +169,7 @@ test('SCO-3: an un-awaited failing child with no handler fails the run: siblings
         phasync::sleep(0.1);
         $log[] = 'parent finished';
     }, $log);
-    expect($log)->toBe(['run threw RuntimeException: boom']); // the sibling is never resumed
+    expect($log)->toBe(['sibling got phasync\CancelledException', 'run threw RuntimeException: boom']);
     // run() threw as soon as the failure had cancelled the scope, not after the parent's 0.1 s
     expect(\microtime(true) - $t)->toBeLessThan(0.09);
 });
