@@ -2,6 +2,16 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- `phasync\Util\Console`: terminal output from markup, styled on a terminal and plain when piped,
+  laid out the same in both. `<!red bold>…<!>` styles a span; `<!pad 20>`, `<!lpad 8>` and
+  `<!center 40>` (or `50%` of the terminal) pad it to a width, cutting longer content with "…"
+  (or without it given `clip`). Widths count display columns: wide characters and emoji take 2,
+  combining marks 0. `NO_COLOR` and `FORCE_COLOR` are honoured.
+
 ## 2.0.0-alpha25 (2026-09-30)
 
 ### Changed
