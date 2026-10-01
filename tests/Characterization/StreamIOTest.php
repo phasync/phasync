@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Characterization tests for non-blocking stream IO: phasync::stream/readable/writable/io(),
+ * Characterization tests for non-blocking stream IO: phasync::readable/writable,
  * the phasync\io helper functions
  * (docs/SEMANTICS.md section 10, IO-1 .. IO-3).
  *
@@ -430,51 +430,6 @@ test('IO-7: a signal arriving while the loop waits in stream_select() does not f
     expect($signals)->toBe(1);
     expect($result)->toBe('data');
 })->skip(!\function_exists('pcntl_signal'), 'needs pcntl');
-
-/* ------------------------------------------------------------------ io() wrapper */
-
-test('IO-1: io() returns anything that is not a stream unchanged, and never wraps twice', function () {
-    phasync::run(function () {
-        expect(phasync::io('text'))->toBe('text');
-        [$a, $b] = iochar_pair();
-        $wrapped = phasync::io($a);
-        expect(\stream_get_meta_data($wrapped)['wrapper_type'])->toBe('user-space');
-        expect(phasync::io($wrapped))->toBe($wrapped);
-    });
-});
-
-test('IO-1: fread() on an io() wrapped stream suspends the coroutine, and fwrite() passes data through', function () {
-    phasync::run(function () {
-        [$a, $b]  = iochar_pair();
-        $wrapped  = phasync::io($a);
-        $ticks    = 0;
-        $ticker   = phasync::go(function () use (&$ticks) {
-            for ($i = 0; $i < 5; ++$i) {
-                phasync::sleep(0.01);
-                ++$ticks;
-            }
-        });
-        phasync::go(function () use ($b) {
-            phasync::sleep(0.06);
-            \fwrite($b, 'late data');
-        });
-        expect(\fread($wrapped, 100))->toBe('late data');
-        expect($ticks)->toBeGreaterThanOrEqual(4);
-        phasync::await($ticker);
-
-        expect(\fwrite($wrapped, 'hello'))->toBe(5);
-        \stream_set_blocking($b, false);
-        expect(\fread($b, 100))->toBe('hello');
-    });
-});
-
-test('IO-1: an io() wrapped stream also works outside phasync::run()', function () {
-    [$a, $b] = iochar_pair();
-    $wrapped = phasync::io($a);
-    \fwrite($b, 'outside');
-    expect(\fread($wrapped, 100))->toBe('outside');
-    expect(\fwrite($wrapped, 'x'))->toBe(1);
-});
 
 /* ------------------------------------------------------------------ phasync\io helpers */
 /*

@@ -8,6 +8,41 @@ Earlier releases are listed on the GitHub releases page.
 
 - `phasync\Util\ConsoleLogger`: a PSR-3 logger writing `Console::log()` lines, with a minimum
   level. It satisfies psr/log 1, 2 and 3, so it pins no version on its dependants.
+- `phasync\Context\ContextFactoryInterface`: `phasync::withContext()` accepts a factory instead
+  of a context, and creates the context only when the closure first asks for it
+  (`getContext()`, `getRootContext()`, `go()`, `finally()`, a nested `run()` or `withContext()`).
+  A request handler that never does costs no context.
+
+### Removed
+
+The `phasync` class keeps what coroutines are made of; what nothing used, or what has a better
+home, is gone before the beta:
+
+- `phasync::enqueue()`, `enqueueWithException()` (internal, no callers), `defer()`, `idle()`,
+  `onEnter()` and `onExit()`.
+- `phasync::io()` and the `AsyncStream` stream wrapper behind it: `phasync::readable()` and
+  `writable()` do the job, and phasync-ext makes the blocking calls themselves cooperative.
+- `go()`'s `$concurrent` and `$run` parameters: start a coroutine per instance and `await()`
+  them. `go()` is now `go(Closure $fn, array $args = [], ?object $context = null)`.
+- `phasync::setPromiseHandler()` and `getPromiseHandler()` moved to the internal
+  `phasync\Internal\PromiseHandler`; `await()` of a promise-like object works as before.
+
+### Changed
+
+- A coroutine alone in its context is tracked without a set of its own, which makes
+  `withContext()` cheaper (about 45 ns).
+
+### Fixed
+
+- A coroutine that registered a `phasync::finally()` callback outside `withContext()` no longer
+  loses its failure: `run()` used to return normally instead of throwing it (#72). The event
+  loop now keeps every `finally()` callback and runs them when the coroutine ends, instead of
+  `phasync::finally()` keeping its own queue and a helper coroutine that swallowed the failure.
+  All of a coroutine's callbacks run even when one throws.
+- A `phasync::run()` that fails to start (for example with `ContextUsedException`) no longer leaves
+  its context registered in the event loop as the running root (#73). `run()` now ends its run
+  in a `finally` block, so every way out of it does. `phasync::isRunning()` and `getLoop()` ask
+  the event loop (`EventLoop::isRunning()`) instead of a depth counter in the `phasync` class.
 
 ## 2.0.0-alpha27 (2026-09-30)
 

@@ -441,6 +441,22 @@ test('ERR-5: phasync::finally() callbacks run after a coroutine that completed n
     expect($log)->toBe(['body', 'parent', 'finally callback']);
 });
 
+test('ERR-4: a coroutine that registered a finally() callback still has its failure reach run()', function () {
+    $log = [];
+    expect(function () use (&$log) {
+        phasync::run(function () use (&$log) {
+            phasync::go(function () use (&$log) {
+                phasync::finally(function () use (&$log) {
+                    $log[] = 'finally callback';
+                });
+                phasync::sleep(0.01);
+                throw new RuntimeException('boom');
+            });
+        });
+    })->toThrow(RuntimeException::class, 'boom');
+    expect($log)->toBe(['finally callback']);
+});
+
 test('ERR-5: phasync::finally() outside a coroutine throws LogicException', function () {
     expect(fn () => phasync::finally(fn () => null))->toThrow(LogicException::class);
 });

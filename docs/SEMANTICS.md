@@ -70,7 +70,7 @@ timers. See section 9.
 ## 2. Scheduling
 
 **SCH-1. Cooperative.** A coroutine runs until it suspends. Suspension points are:
-`await`, `sleep`, `yield`, `idle`, `awaitFlag`, `readable`/`writable`/`stream` and channel
+`await`, `sleep`, `yield`, `awaitFlag`, `readable`/`writable`/`stream` and channel
 operations (with phasync-ext also blocking PHP functions). Code that never suspends blocks
 every other coroutine. ⚠️
 
@@ -152,8 +152,10 @@ such services are freed with the request. A context entered from another (`withC
 or `go()` with a context of its own) is nested in it. `getRootContext()` gives the context's
 root: a `run()`'s context is its own root, and so is a context entered from it (a request);
 contexts nested deeper share that one's root. A context may implement
-`SwitchAwareInterface` to swap per-request state in and out. There is no storage API on
-the context (D4). ✅ ScopesTest, ContextTest, WithContextTest
+`SwitchAwareInterface` to swap per-request state in and out. `withContext()` may be given a
+`ContextFactoryInterface` instead: the context is created when the closure first needs it, and
+a closure that never does runs in its coroutine's own context. There is no storage API on
+the context (D4). ✅ ScopesTest, ContextTest, WithContextTest, LazyContextTest
 
 
 ## 4. Errors
@@ -634,7 +636,7 @@ fail on purpose and is reported before it is accepted.
 | PRC-6 | Once `isRunning()` or `getExitCode()` has seen the process exit, the pipes are closed and unread output is lost | Output remains readable |
 | RT-1 | `gc_enable()` is called unconditionally at exit even if the user had disabled GC; a channel end in a reference cycle is not released by `unset()` until the loop next collects (deliberate, P3) | Previous state restored |
 | RT-5 *new* | `logUnhandledException()` passes `$exception->getCode()` to `error_log()` as the message *type*, so a code of 1 would send email | Moot: `logUnhandledException()` is gone (phasync logs nothing, SCO-3) |
-| RT-6 *new* | `go(run: true)` outside a coroutine returns a Fiber that never started (`getReturn()` throws `FiberError`, `await()` throws `LogicException`) | Returns a usable result |
+| RT-6 *new* | `go(run: true)` outside a coroutine returned a Fiber that never started | Moot: the `run` parameter is gone, `go()` outside a coroutine throws `LogicException` |
 
 Not covered: `await()` on a still-pending fiber from outside a coroutine cannot be reached
 through the public API.

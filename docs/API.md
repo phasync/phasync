@@ -88,15 +88,6 @@ Parameters:
 Yield execution of the current coroutine. This function causes the coroutine to resume at the end of the next tick, and it does not affect the sleep-time between each tick. Yielding should be used whenever you are waiting for some event to occur inside other coroutines, unless `phasync::await()` or `phasync::awaitFlag()` can be used.
 
 
-### `phasync::idle(float $timeout = PHP_FLOAT_MAX): void`
-
-Pause the execution of the current coroutine until the timeout is reached, or until there are no coroutines that are about to run immediately.
-
-Parameters:
-
- * $timeout: The maximum number of seconds to wait.
-
-
 ### `phasync::readable(mixed $resource, float $timeout = PHP_FLOAT_MAX): mixed`
 
 Suspends the coroutine until the stream resource becomes readable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. One coroutine at a time may wait to read a stream; a second one gets LogicException.
@@ -147,35 +138,10 @@ $loop->unpark($slot);            // from elsewhere: true if it resumed a corouti
 
 What is parked must be unparked, or it waits until its timeout: nothing notices a forgotten slot, as the garbage collector notices a forgotten flag. Flags are for objects other code holds; slots are for waits inside one component.
 
-## Configuration Functions
-
-
-### `phasync::setPromiseHandler(Closure $promiseHandlerFunction): void`
-
-Set a promise handler function. The function allows phasync to interact with promise implementations from other frameworks in a configurable way. The function has the following signature:
-
-`function($object, ?Closure $onFulfilled, ?Closure $onRejected): bool`
-
-The function will return `false` if $object is not promise-like or `true` if it is promise like and the `$onFulfilled` and `$onRejected` callbacks were provided and successfully subscribed to the promise. The default promise handler function correctly works with objects having a `then($onFulfilled, $onRejected)` method, or objects having a `then($onFulfilled)` and a `catch($onRejected)` function.
-
-NOTE! The promise handler can be extended by getting the current promise handler via `phasync::getPromiseHandler()` and wrapping it in your new promise handler function.
-
-Parameters:
-
- * $promiseHandlerFunction: The new promise handler function to use.
-
-
-## Utility Functions
-
-### `phasync::getPromiseHandler(): Closure`
-
-Returns the currently configured promise handler function. This can be used to add support for additional promise-like objects, by first extracting the current promise handler and then setting a new promise handler that falls back to the previous promise handler.
-
-
 ### Notes
 
 The API is designed to be used with PHP's native Fiber class available from PHP 8.1 onwards.
 
 Exception handling is crucial, especially in asynchronous operations, to ensure that all errors are managed and do not lead to unhandled exceptions or resource leaks.
 
-This API provides a robust framework for building efficient and scalable asynchronous PHP applications, allowing developers to handle complex asynchronous workflows with ease.
+This API provides a robust framework for building efficient and scalable asynchronous PHP applications, allowing developers to handle complex asynchronous workflows with ease.

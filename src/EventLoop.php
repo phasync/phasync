@@ -3,11 +3,13 @@
 namespace phasync;
 
 use Fiber;
+use phasync\Context\ContextFactoryInterface;
 use phasync\Context\ExceptionHandlerInterface;
 use phasync\Context\SwitchAwareInterface;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
+use phasync\Internal\LazyContext;
 use phasync\Internal\Scheduler;
 use WeakMap;
 
@@ -34,9 +36,10 @@ final class EventLoop implements \Countable
     private \WeakMap $contexts;
 
     /**
-     * The fibers of each context.
+     * The fibers of each context: the fiber itself while it is the only one (a request's context),
+     * a set once another joins.
      *
-     * @var \WeakMap<object, \WeakMap<\Fiber, true>>
+     * @var \WeakMap<object, \Fiber|\WeakMap<\Fiber, true>>
      */
     private \WeakMap $contextFibers;
 
@@ -152,6 +155,22 @@ final class EventLoop implements \Countable
     private array $withContextFinally = [];
 
     /**
+     * phasync::finally() callbacks of the coroutines that registered them outside any
+     * withContext() call; run when the coroutine ends.
+     *
+     * @var \WeakMap<\Fiber, list<\Closure>>
+     */
+    private \WeakMap $fiberFinally;
+
+    /**
+     * The withContext() calls given a factory whose context does not exist yet, by spl_object_id()
+     * of the fiber: the fiber's context is still the one it entered the call with.
+     *
+     * @var array<int, LazyContext>
+     */
+    private array $lazyContexts = [];
+
+    /**
      * Holds a reference to all fibers that will be resumed by this event
      * loop, and their timeout timestamp.
      *
@@ -247,13 +266,6 @@ final class EventLoop implements \Countable
     private int $lastTimeoutSlot = 0;
 
     /**
-     * The time that we last activated tasks waiting for idle. Tasks waiting
-     * for idle time will never wait more than one second before they are
-     * activated.
-     */
-    private float $lastIdleRun = 0;
-
-    /**
      * This WeakMap traces which flag a fiber is waiting for.
      *
      * @var \WeakMap<\Fiber, object>
@@ -296,7 +308,6 @@ final class EventLoop implements \Countable
     /** PHP is shutting down: coroutines cancelled by it did not fail. */
     private static bool $exiting = false;
 
-    private \stdClass $idleFlag;
     private \stdClass $afterNextFlag;
 
     private ?\Fiber $currentFiber             = null;
@@ -357,8 +368,7 @@ final class EventLoop implements \Countable
             // The current fiber stays, alone in its context
             $context                               = $this->currentContext;
             $this->contexts[$fiber]                = $context;
-            $this->contextFibers[$context]         = new \WeakMap();
-            $this->contextFibers[$context][$fiber] = true;
+            $this->contextFibers[$context]         = $fiber;
             $this->usedContexts[$context]          = true;
             $this->rootContexts[$context]          = $context;
         }
@@ -366,6 +376,8 @@ final class EventLoop implements \Countable
         $this->pending                             = new \SplObjectStorage();
         $this->parentFibers                        = new \WeakMap();
         $this->withContextFinally                  = [];
+        $this->fiberFinally                        = new \WeakMap();
+        $this->lazyContexts                        = [];
         $this->fiberExceptionHolders               = new \WeakMap();
         $this->fiberExceptions                     = new \WeakMap();
         $this->scheduler                           = new Scheduler();
@@ -374,7 +386,6 @@ final class EventLoop implements \Countable
         $this->lastTimeoutSlot                     = (int) (\microtime(true) * 100);
         $this->flaggedFibers                       = new \WeakMap();
         $this->flagGraph                           = new \WeakMap();
-        $this->idleFlag                            = new \stdClass();
         $this->afterNextFlag                       = new \stdClass();
         $this->serviceContext                      = new \stdClass();
         $this->usedContexts[$this->serviceContext] = true;
@@ -471,16 +482,9 @@ final class EventLoop implements \Countable
         }
 
         $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
-        $idleCount      = isset($this->flaggedFibers[$this->idleFlag]) ? $this->flaggedFibers[$this->idleFlag]->count() : 0;
 
         if ($maxSleepTime > 0 && $afterNextCount > 0 && 0 === $queue->count() && $this->scheduler->isEmpty()) {
             $maxSleepTime = 0;
-        }
-
-        if ($now - $this->lastIdleRun > 1 || ($idleCount > 0 && $maxSleepTime > 0)) {
-            // Raise the idle flag
-            $this->lastIdleRun = $now;
-            $this->raiseFlag($this->idleFlag);
         }
 
         $this->poller->poll($maxSleepTime);
@@ -703,7 +707,10 @@ final class EventLoop implements \Countable
      */
     public function create(\Closure $closure, array $args = [], ?object $context = null): \Fiber
     {
-        $currentFiber   = $this->currentFiber;
+        $currentFiber = $this->currentFiber;
+        if (null !== $currentFiber && isset($this->lazyContexts[$id = \spl_object_id($currentFiber)])) {
+            $this->enterLazyContext($currentFiber, $id);
+        }
         $currentContext = $this->currentContext;
         if (null !== $context) {
             if ($context !== $this->serviceContext) { // services share theirs
@@ -764,6 +771,10 @@ final class EventLoop implements \Countable
      */
     public function getContext(\Fiber $fiber): ?object
     {
+        if ($fiber === $this->currentFiber && isset($this->lazyContexts[$id = \spl_object_id($fiber)])) {
+            $this->enterLazyContext($fiber, $id);
+        }
+
         return $this->contexts[$fiber] ?? null;
     }
 
@@ -905,22 +916,6 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Activate the Fiber when there is no immediately pending activity or when the timeout has
-     * occurred whichever comes first. The timeout should not throw a TimeoutException in the
-     * coroutine.
-     *
-     * @param float $timeout The number of seconds to allow the fiber to be suspended. Will raise a TimeoutException.
-     */
-    public function whenIdle(float $timeout, \Fiber $fiber): void
-    {
-        if (isset($this->pending[$fiber])) {
-            throw new \LogicException('Fiber is already pending in whenIdle');
-        }
-        // FiberState::for($fiber)->log('whenIdle timeout=' . $timeout);
-        $this->whenFlagged($this->idleFlag, $timeout, $fiber);
-    }
-
-    /**
      * A slot number no one else has, for {@see self::park()} and {@see self::unpark()}.
      */
     public function getSlot(): int
@@ -994,13 +989,61 @@ final class EventLoop implements \Countable
      * Run $fn in the current coroutine as a coroutine of $context: while $fn runs, $context is the
      * coroutine's context and counts it among its coroutines; afterwards the coroutine has its own
      * context again. Coroutines $fn starts belong to $context and keep running after $fn returns.
+     *
+     * Given a {@see ContextFactoryInterface} instead of a context, $fn runs in the coroutine's own
+     * context until it needs the context (see enterLazyContext()); a $fn that never does costs no
+     * context.
      */
     public function withContext(\Closure $fn, object $context): mixed
     {
-        $fiber                          = $this->currentFiber;
-        $id                             = \spl_object_id($fiber);
-        $previous                       = $this->contexts[$fiber];
-        // useContext() and joinContext(), inline: a request's context passes here once per request
+        $fiber = $this->currentFiber ?? throw ExceptionTool::popTrace(ExceptionTool::popTrace(new \LogicException('withContext() runs only inside a coroutine')));
+        $id    = \spl_object_id($fiber);
+        if (isset($this->lazyContexts[$id])) {
+            $this->enterLazyContext($fiber, $id); // this context is entered from the one being awaited
+        }
+        if ($context instanceof ContextFactoryInterface) {
+            $lazy = $this->lazyContexts[$id] = new LazyContext($context);
+            try {
+                return $fn();
+            } finally {
+                if (null === $lazy->context) {
+                    unset($this->lazyContexts[$id]);
+                } else {
+                    $this->leaveContext($fiber, $id, $lazy->context, $lazy->outerFinally);
+                }
+            }
+        }
+        $outerFinally = $this->enterContext($fiber, $id, $context);
+        try {
+            return $fn();
+        } finally {
+            $this->leaveContext($fiber, $id, $context, $outerFinally);
+        }
+    }
+
+    /**
+     * The running coroutine needs the context of the withContext() call it is in, which was given
+     * a factory: create it and enter it, as withContext() enters a context it is given.
+     */
+    private function enterLazyContext(\Fiber $fiber, int $id): void
+    {
+        $lazy               = $this->lazyContexts[$id];
+        $context            = $lazy->factory->createContext();
+        $lazy->outerFinally = $this->enterContext($fiber, $id, $context);
+        $lazy->context      = $context;
+        unset($this->lazyContexts[$id]);
+    }
+
+    /**
+     * The running $fiber enters $context from its own: useContext() and joinContext(), inline
+     * (a request's context passes here once per request). Returns the phasync::finally() list of
+     * the withContext() call it was in, for leaveContext().
+     *
+     * @return list<\Closure>|null
+     */
+    private function enterContext(\Fiber $fiber, int $id, object $context): ?array
+    {
+        $previous = $this->contexts[$fiber];
         if (isset($this->usedContexts[$context])) {
             throw new ContextUsedException();
         }
@@ -1012,41 +1055,49 @@ final class EventLoop implements \Countable
         $outerFinally                   = $this->withContextFinally[$id] ?? null;
         $this->contexts[$fiber]         = $context;
         $this->currentContext           = $context;
-        $this->contextFibers[$context]  = $fibers = new \WeakMap();
-        $fibers[$fiber]                 = true;
+        $this->contextFibers[$context]  = $fiber;
         if ($context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
             $this->switchAware = true;
             $this->makeLive($context);
         }
         $this->withContextFinally[$id]  = [];
+
+        return $outerFinally;
+    }
+
+    /**
+     * The running $fiber leaves $context, which it entered with enterContext(): the
+     * phasync::finally() callbacks registered in it run first, and the context it came from is
+     * restored.
+     *
+     * @param list<\Closure>|null $outerFinally
+     */
+    private function leaveContext(\Fiber $fiber, int $id, object $context, ?array $outerFinally): void
+    {
+        $callbacks = $this->withContextFinally[$id];
         try {
-            return $fn();
+            if ([] !== $callbacks) {
+                // phasync::finally() callbacks registered in $fn, last first, still in $context,
+                // and shielded: they complete also when $context was cancelled
+                $this->shield($fiber);
+                try {
+                    self::runFinally($callbacks);
+                } finally {
+                    $this->unshield($fiber);
+                }
+            }
         } finally {
-            $callbacks = $this->withContextFinally[$id];
-            try {
-                if ([] !== $callbacks) {
-                    // phasync::finally() callbacks registered in $fn, last first, still in $context,
-                    // and shielded: they complete also when $context was cancelled
-                    $this->shield($fiber);
-                    try {
-                        self::runFinally($callbacks);
-                    } finally {
-                        $this->unshield($fiber);
-                    }
-                }
-            } finally {
-                if (null === $outerFinally) {
-                    unset($this->withContextFinally[$id]);
-                } else {
-                    $this->withContextFinally[$id] = $outerFinally;
-                }
-                unset($fibers[$fiber]);
-                $this->leftContext($context, $fibers);
-                $this->contexts[$fiber] = $previous;
-                $this->currentContext   = $previous;
-                if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
-                    $this->makeLive($previous);
-                }
+            if (null === $outerFinally) {
+                unset($this->withContextFinally[$id]);
+            } else {
+                $this->withContextFinally[$id] = $outerFinally;
+            }
+            $previous = $this->outerContexts[$context];
+            $this->leftContext($context, $fiber);
+            $this->contexts[$fiber] = $previous;
+            $this->currentContext   = $previous;
+            if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
+                $this->makeLive($previous);
             }
         }
     }
@@ -1059,9 +1110,14 @@ final class EventLoop implements \Countable
      */
     public function getFibers(object $context): array
     {
-        $fibers = [];
-        foreach ($this->contextFibers[$context] ?? [] as $fiber => $_) {
-            $fibers[] = $fiber;
+        $fibers  = [];
+        $members = $this->contextFibers[$context] ?? null;
+        if ($members instanceof \Fiber) {
+            $fibers[] = $members;
+        } elseif (null !== $members) {
+            foreach ($members as $fiber => $_) {
+                $fibers[] = $fiber;
+            }
         }
         foreach ($this->outerContexts as $inner => $outer) {
             if ($outer === $context) {
@@ -1120,10 +1176,16 @@ final class EventLoop implements \Countable
 
     private function joinContext(object $context, \Fiber $fiber): void
     {
-        if (!isset($this->contextFibers[$context])) {
-            $this->contextFibers[$context] = new \WeakMap();
+        $members = $this->contextFibers[$context] ?? null;
+        if (null === $members) {
+            $this->contextFibers[$context] = $fiber;
+        } elseif ($members instanceof \Fiber) {
+            $this->contextFibers[$context]           = new \WeakMap();
+            $this->contextFibers[$context][$members] = true;
+            $this->contextFibers[$context][$fiber]   = true;
+        } else {
+            $members[$fiber] = true;
         }
-        $this->contextFibers[$context][$fiber] = true;
     }
 
     /**
@@ -1135,18 +1197,23 @@ final class EventLoop implements \Countable
         return $this->rootContexts[$context];
     }
 
-    /**
-     * A coroutine left $context: a root with none left drops its self-reference.
-     *
-     * @param \WeakMap<\Fiber, true> $fibers the coroutines $context has left
-     */
-    private function leftContext(object $context, \WeakMap $fibers): void
+    /** $fiber left $context: a root with none left drops its self-reference. */
+    private function leftContext(object $context, \Fiber $fiber): void
     {
+        $members = $this->contextFibers[$context];
+        if ($members instanceof \Fiber) {
+            unset($this->contextFibers[$context]);
+        } else {
+            unset($members[$fiber]);
+            if (0 !== \count($members)) {
+                return;
+            }
+        }
         // Cheapest first: coroutines of a run()'s context (most) leave it without this
-        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context && 0 === \count($fibers)) {
+        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context) {
             unset($this->rootContexts[$context]);
         }
-        if (0 !== $this->cancellations && isset($this->cancelledContexts[$context]) && 0 === \count($fibers)) {
+        if (0 !== $this->cancellations && isset($this->cancelledContexts[$context])) {
             // No coroutine can join a context that has none left
             unset($this->cancelledContexts[$context]);
             --$this->cancellations;
@@ -1163,20 +1230,26 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Register a phasync::finally() callback with the withContext() call $fiber is in: false
-     * when it is in none.
+     * Register a phasync::finally() callback: it runs as the withContext() call the running
+     * coroutine is in returns, or when the coroutine ends when it is in none.
      *
      * @internal
      */
-    public function finallyWithContext(\Fiber $fiber, \Closure $fn): bool
+    public function finally(\Closure $fn): void
     {
-        $id = \spl_object_id($fiber);
-        if (!isset($this->withContextFinally[$id])) {
-            return false;
+        $fiber = $this->currentFiber ?? throw ExceptionTool::popTrace(ExceptionTool::popTrace(new \LogicException('This function can not be used outside of a coroutine')));
+        $id    = \spl_object_id($fiber);
+        if (isset($this->lazyContexts[$id])) {
+            $this->enterLazyContext($fiber, $id);
         }
-        $this->withContextFinally[$id][] = $fn;
+        if (isset($this->withContextFinally[$id])) {
+            $this->withContextFinally[$id][] = $fn;
 
-        return true;
+            return;
+        }
+        $callbacks                  = $this->fiberFinally[$fiber] ?? [];
+        $callbacks[]                = $fn;
+        $this->fiberFinally[$fiber] = $callbacks;
     }
 
     /**
@@ -1448,6 +1521,10 @@ final class EventLoop implements \Countable
      */
     public function getCurrentContext(): ?object
     {
+        if (null !== ($fiber = $this->currentFiber) && isset($this->lazyContexts[$id = \spl_object_id($fiber)])) {
+            $this->enterLazyContext($fiber, $id);
+        }
+
         return $this->currentContext;
     }
 
@@ -1581,6 +1658,12 @@ final class EventLoop implements \Countable
         $this->failRun($this->rootRunContext, $exception);
     }
 
+    /** Whether a phasync::run() is in progress. */
+    public function isRunning(): bool
+    {
+        return null !== $this->rootRunContext;
+    }
+
     /**
      * A phasync::run() is in progress with $context: failures no handler takes fail it.
      *
@@ -1605,6 +1688,9 @@ final class EventLoop implements \Countable
      */
     public function endRun(object $context, ?\Fiber $main = null): array
     {
+        if (!isset($this->runContexts[$context])) {
+            return []; // it has ended
+        }
         // A failure nobody took is this run's, also while something still holds its coroutine;
         // run() takes its main coroutine's itself
         foreach ($this->fiberExceptionHolders as $fiber => $holder) {
@@ -1733,14 +1819,36 @@ final class EventLoop implements \Countable
     {
         // FiberState::for($fiber)->log('handleTerminatedFiber');
         $context = $this->contexts[$fiber];
+        if (isset($this->fiberFinally[$fiber])) {
+            // The callbacks may suspend: they run in a coroutine of their own, in the context the
+            // coroutine ended in (which waits for it), shielded so they complete also when that
+            // context was cancelled
+            $callbacks = $this->fiberFinally[$fiber];
+            unset($this->fiberFinally[$fiber]);
+            $outer                = $this->currentContext;
+            $this->currentContext = $context;
+            try {
+                $this->create(function () use ($callbacks): void {
+                    $fiber = $this->currentFiber;
+                    $this->shield($fiber);
+                    try {
+                        $this->enqueue($fiber); // after whatever else the ending coroutine's tick has to do
+                        \Fiber::suspend();
+                        self::runFinally($callbacks);
+                    } finally {
+                        $this->unshield($fiber);
+                    }
+                });
+            } finally {
+                $this->currentContext = $outer;
+            }
+        }
         if (0 !== $this->cancellations && isset($this->cancelledFibers[$fiber])) {
             unset($this->cancelledFibers[$fiber]);
             --$this->cancellations;
         }
         $this->raiseFlag($fiber);
-        $fibers = $this->contextFibers[$context];
-        unset($fibers[$fiber]);
-        $this->leftContext($context, $fibers);
+        $this->leftContext($context, $fiber);
         unset($this->contexts[$fiber], $this->parentFibers[$fiber]);
         $this->shouldGarbageCollect = true;
     }

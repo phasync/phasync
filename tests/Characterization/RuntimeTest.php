@@ -220,42 +220,6 @@ test('RT-3: an explicit context is used by run() and can not be reused', functio
         ->toThrow(ContextUsedException::class, "Can't use a context multiple times");
 });
 
-test('RT-3: onEnter/onExit hooks run once per outermost run(), not for nested run() calls', function () {
-    $enter    = new ReflectionProperty(phasync::class, 'onEnterCallbacks');
-    $exit     = new ReflectionProperty(phasync::class, 'onExitCallbacks');
-    $original = [$enter->getValue(), $exit->getValue()];
-    $log      = [];
-    try {
-        phasync::onEnter(static function () use (&$log) {
-            $log[] = 'enter';
-        });
-        phasync::onExit(static function () use (&$log) {
-            $log[] = 'exit';
-        });
-        phasync::run(static function () {
-            phasync::run(static fn () => 1);
-            phasync::sleep(0.01);
-        });
-        phasync::run(static fn () => 1);
-    } finally {
-        $enter->setValue(null, $original[0]);
-        $exit->setValue(null, $original[1]);
-    }
-
-    expect($log)->toBe(['enter', 'exit', 'enter', 'exit']);
-});
-
-test('RT-3: defer() outside a coroutine only queues the callback, it runs during the next run()', function () {
-    $ran = 0;
-    phasync::defer(static function () use (&$ran) {
-        ++$ran;
-    });
-    $before = $ran;
-    phasync::run(static fn () => phasync::sleep(0.01));
-
-    expect([$before, $ran])->toBe([0, 1]);
-});
-
 // ---------------------------------------------------------------------------
 // RT-4: unsupported use fails loudly
 // ---------------------------------------------------------------------------
@@ -289,19 +253,6 @@ test('RT-4: await() outside run() returns the result of a coroutine that already
     expect(phasync::await($finished))->toBe(42);
     expect(static fn () => phasync::await($failed))->toThrow(DomainException::class, 'failed');
 });
-
-test('RT-4: go() with run: true outside a coroutine runs the closure, but the returned Fiber can not be awaited [SURPRISE]', function () {
-    $ran   = false;
-    $fiber = phasync::go(static function () use (&$ran) {
-        $ran = true;
-
-        return 5;
-    }, [], 1, null, true);
-
-    expect($ran)->toBeTrue();
-    expect($fiber)->toBeInstanceOf(Fiber::class);
-    expect(static fn () => phasync::await($fiber))->toThrow(LogicException::class, "Can't await a coroutine not from phasync");
-})->group('surprise');
 
 test('RT-7: exit() inside run(), with coroutines waiting on channels, publishers and timers, ends the process cleanly', function () {
     $code = <<<'PHP'

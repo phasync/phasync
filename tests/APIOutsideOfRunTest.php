@@ -43,12 +43,6 @@ test('using phasync::yield() outside of phasync is cheap', function () {
     assertLessThan(50000, \hrtime(true) - $t);
 });
 
-test('using phasync::idle() outside of phasync is cheap', function () {
-    $t = \hrtime(true);
-    phasync::idle();
-    assertLessThan(30000, \hrtime(true) - $t);
-});
-
 test('using phasync::readable() outside of phasync is cheap', function () {
     $fp = \fopen(__FILE__, 'r');
     $t  = \microtime(true);

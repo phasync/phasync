@@ -455,11 +455,9 @@ test('TMO-1: sleep() outside a coroutine blocks the process for the full duratio
     expect($seconds)->toBeLessThan(0.5);
 });
 
-test('TMO-1: yield(), idle() and sleep(0) outside a coroutine return immediately', function () {
+test('TMO-1: yield() and sleep(0) outside a coroutine return immediately', function () {
     $start = \microtime(true);
     phasync::yield();
-    phasync::idle();
-    phasync::idle(1);
     phasync::sleep(0);
 
     expect(\microtime(true) - $start)->toBeLessThan(0.1);
@@ -478,10 +476,3 @@ test('TMO-1: readable() and writable() outside a coroutine return the resource a
     expect(phasync::writable($a, 0.5))->toBe($a);
     expect(\microtime(true) - $start)->toBeLessThan(0.3);
 })->group('surprise');
-
-test('TMO-1: idle() inside a coroutine resumes normally on timeout without throwing', function () {
-    [$outcome, $seconds] = phasync::run(static fn () => tmoTimed(static fn () => phasync::idle(0.05)));
-
-    expect($outcome)->toBe('ok');
-    expect($seconds)->toBeLessThan(1.5);
-});

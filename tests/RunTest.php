@@ -176,3 +176,17 @@ test('a failed run() stops its sleeping coroutines at once, without waiting for 
     }))->toThrow(RuntimeException::class, 'failed');
     expect(\microtime(true) - $start)->toBeLessThan(0.1);
 });
+
+test('a run that fails to start leaves nothing of itself in the loop', function () {
+    $context = new stdClass();
+    phasync::run(fn () => 1, [], $context);
+    try {
+        phasync::run(fn () => 1, [], $context);
+    } catch (phasync\ContextUsedException) {
+    }
+    $ref = WeakReference::create($context);
+    unset($context);
+    expect($ref->get())->toBeNull();
+    expect(phasync::isRunning())->toBeFalse();
+    expect(phasync::run(fn () => 2))->toBe(2);
+});

@@ -4,9 +4,9 @@ use phasync\AggregateException;
 use phasync\CancelledException;
 use phasync\Debug;
 use phasync\EventLoop;
-use phasync\Internal\AsyncStream;
 use phasync\Internal\Channel;
 use phasync\Internal\ExceptionTool;
+use phasync\Internal\PromiseHandler;
 use phasync\Internal\ReadChannel;
 use phasync\Internal\Subscribers;
 use phasync\Internal\WriteChannel;
@@ -47,28 +47,9 @@ final class phasync
 {
 
     /**
-     * The recursion depth of run statements that are active.
-     */
-    private static int $runDepth = 0;
-
-    /**
      * The currently set driver.
      */
     private static ?EventLoop $driver = null;
-
-    private static ?int $pid = null;
-
-    /**
-     * A function that sets an onFulfilled and/or an onRejected callback on
-     * a promise.
-     *
-     * @var null|Closure{object, ?Closure{mixed}, ?Closure{mixed}, false}
-     */
-    private static ?Closure $promiseHandlerFunction = null;
-
-
-    private static array $onEnterCallbacks = [];
-    private static array $onExitCallbacks = [];
 
     /**
      * Register a coroutine/Fiber to run in the event loop and await the result.
@@ -84,20 +65,14 @@ final class phasync
     public static function run(Closure $fn, ?array $args = [], ?object $context = null): mixed
     {
         $driver = self::getDriver();
+        $root   = !$driver->isRunning();
+        // Any object: the coroutines of this run belong to it
+        $context ??= new \stdClass();
+        $driver->beginRun($context, $root);
         try {
-            $runDepth = self::$runDepth++;
-            if (0 === $runDepth) {
+            if ($root) {
                 \gc_disable();
-
-                // Run hooks when async context is enabled
-                foreach (self::$onEnterCallbacks as $exitCallback) {
-                    $exitCallback();
-                }
             }
-
-            // Any object: the coroutines of this run belong to it
-            $context ??= new \stdClass();
-            $driver->beginRun($context, 0 === $runDepth);
 
             $exception = null;
 
@@ -114,7 +89,7 @@ final class phasync
                 }
             };
 
-            $start = static function () use ($driver, $main, $args, $context, $runDepth, &$fiber, &$exception) {
+            $start = static function () use ($driver, $main, $args, $context, $root, &$fiber, &$exception) {
                 try {
                     $fiber = $driver->create($main, $args, $context);
                 } catch (Throwable $e) {
@@ -122,7 +97,7 @@ final class phasync
                     $exception = $e;
                 }
 
-                if (0 === $runDepth) {
+                if ($root) {
                     while ($driver->count() > 0) {
                         $driver->tick();
                     }
@@ -135,12 +110,12 @@ final class phasync
 
             // With phasync-ext, a coroutine that runs a whole interval in a PHP loop yields to
             // other requests (EventLoop::preempt())
-            $preempting = 0 === $runDepth && \function_exists('phasync\ext\set_preempt_function');
+            $preempting = $root && \function_exists('phasync\ext\set_preempt_function');
             if ($preempting) {
                 $previousPreempt = \phasync\ext\set_preempt_function($driver->preempt(...), EventLoop::PREEMPT_INTERVAL);
             }
 
-            if (0 === $runDepth && \function_exists('phasync\ext\manage')) {
+            if ($root && \function_exists('phasync\ext\manage')) {
                 // With phasync-ext, blocking I/O and sleeps inside coroutines park them in the
                 // event loop instead of blocking the process. When PHP's own call has a timeout
                 // and the park times out, the extension finishes the call the way PHP does.
@@ -192,12 +167,9 @@ final class phasync
             if (isset($preempting) && $preempting) {
                 \phasync\ext\set_preempt_function($previousPreempt);
             }
-            if (0 === --self::$runDepth) {
+            $driver->endRun($context, $fiber ?? null);
+            if ($root) {
                 \gc_enable();
-                // Run hooks when async context is enabled
-                foreach (self::$onExitCallbacks as $exitCallback) {
-                    $exitCallback();
-                }
             }
         }
     }
@@ -207,66 +179,21 @@ final class phasync
      * with the current context, and will block the current coroutine from completing
      * until it is done by returning or throwing.
      *
-     * If parameter `$concurrent` is greater than 1, the returned coroutine will resolve
-     * into an array of return values or exceptions from each instance of the coroutine.
-     *
      * @param Closure               $fn         The function to run as a coroutine
      * @param array                 $args       The arguments to pass to the function
-     * @param int                   $concurrent Run the coroutine multiple times
      * @param object|null           $context    A context of its own: any object, used once
-     * @param bool                  $run        If true, the coroutine will be run in an event loop context
      *
      * @throws LogicException
      */
-    public static function go(Closure $fn, array $args = [], int $concurrent = 1, ?object $context = null, bool $run = false): Fiber
+    public static function go(Closure $fn, array $args = [], ?object $context = null): Fiber
     {
-        if ($concurrent > 1) {
-            if (null !== $context && 0 === self::$runDepth) {
-                throw new LogicException("Can't create concurrent root coroutines sharing a context");
-            }
-
-            if ($run) {
-                throw new LogicException("Can't combine `run=true` with multiple concurrency.");
-            }
-
-            return self::go(fn: static function ($fn, $args, $concurrent) {
-                $coroutines = [];
-                for ($i = 0; $i < $concurrent; ++$i) {
-                    $coroutines[] = self::go($fn, $args);
-                }
-                $results = [];
-                foreach ($coroutines as $fiber) {
-                    try {
-                        $results[] = self::await($fiber);
-                    } catch (Throwable $e) {
-                        $results[] = $e;
-                    }
-                }
-
-                return $results;
-            }, args: [$fn, $args, $concurrent]);
-        }
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (!$fiber) {
-            if ($run) {
-                $result = phasync::run($fn, $args, $context);
-
-                return new Fiber(static function () use ($result) {
-                    return $result;
-                });
-            }
             throw ExceptionTool::popTrace(new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context."));
         }
-        return $driver->create($fn, $args, $context);
-    }
 
-    /**
-     * Schedule a callback to be invoked immediately after the current (or next) tick.
-     */
-    public static function defer(Closure $callback): void
-    {
-        self::getDriver()->defer($callback);
+        return $driver->create($fn, $args, $context);
     }
 
     /**
@@ -324,7 +251,7 @@ final class phasync
                 // May be a Promise
                 $status = null;
                 $result = null;
-                if (!self::handlePromise($fiberOrPromise, static function (mixed $value) use (&$status, &$result) {
+                if (!PromiseHandler::handle($fiberOrPromise, static function (mixed $value) use (&$status, &$result) {
                     if (null !== $status) {
                         throw new LogicException('Promise resolved or rejected twice');
                     }
@@ -397,39 +324,7 @@ final class phasync
      */
     public static function finally(Closure $fn): void
     {
-        static $queues = null;
-        if (null === $queues) {
-            /**
-             * WeakMap allows this function to add more callbacks to the
-             * same coroutine.
-             *
-             * @var WeakMap<Fiber, Closure[]>
-             */
-            $queues = new WeakMap();
-        }
-        $fiber = self::getFiber();
-        if (self::getDriver()->finallyWithContext($fiber, $fn)) {
-            return; // runs as the withContext() call it was registered in returns
-        }
-
-        if (!isset($queues[$fiber])) {
-            $queues[$fiber] = [];
-        }
-        if (empty($queues[$fiber])) {
-            self::go(static function () use ($fiber, $queues) {
-                // Shielded: the callbacks complete also when the coroutine was cancelled
-                self::getDriver()->shield(Fiber::getCurrent());
-                try {
-                    self::await($fiber);
-                } catch (Throwable) {
-                }
-                while (!empty($queues[$fiber])) {
-                    \array_pop($queues[$fiber])();
-                }
-                unset($queues[$fiber]);
-            });
-        }
-        $queues[$fiber][] = $fn;
+        self::getDriver()->finally($fn);
     }
 
     /**
@@ -502,37 +397,6 @@ final class phasync
         }
         $driver->afterNext($fiber);
         self::suspend();
-    }
-
-    /**
-     * Suspend the current fiber until the event loop becomes empty or will sleeps while
-     * waiting for future events. The timeout does not raise an exception and instead
-     * resumes the coroutine normally.
-     */
-    public static function idle(float $timeout = \PHP_FLOAT_MAX): void
-    {
-        $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
-        if (null === $fiber) {
-            return;
-        }
-        $driver->whenIdle($timeout, $fiber);
-        self::suspend();
-    }
-
-    /**
-     * Make any stream resource context switch between coroutines when
-     * they would block.
-     *
-     * @return false|resource
-     */
-    public static function io($resource)
-    {
-        if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
-            return $resource;
-        }
-
-        return AsyncStream::wrap($resource);
     }
 
     /**
@@ -676,7 +540,7 @@ final class phasync
      */
     public static function isRunning(): bool
     {
-        return self::$runDepth > 0;
+        return self::getDriver()->isRunning();
     }
 
     /**
@@ -686,17 +550,17 @@ final class phasync
      * phasync::go(), it costs no coroutine of its own. A server gives each request a context of its
      * own this way.
      *
+     * Given a {@see \phasync\Context\ContextFactoryInterface} instead of a context, $fn runs in the
+     * coroutine's own context until it needs the context of its own: getContext(), getRootContext(),
+     * go(), finally(), run() and withContext() called inside create it, once, with the factory. A
+     * request handler that does none of these costs no context at all.
+     *
      * @throws LogicException       outside a coroutine
      * @throws \phasync\ContextUsedException if $context was used before
      */
     public static function withContext(Closure $fn, object $context): mixed
     {
-        $driver = self::getDriver();
-        if (null === $driver->getCurrentFiber()) {
-            throw ExceptionTool::popTrace(new LogicException('withContext() runs only inside a coroutine'));
-        }
-
-        return $driver->withContext($fn, $context);
+        return self::getDriver()->withContext($fn, $context);
     }
 
     /**
@@ -707,7 +571,7 @@ final class phasync
      */
     public static function getLoop(): EventLoop
     {
-        if (0 === self::$runDepth) {
+        if (!self::getDriver()->isRunning()) {
             throw ExceptionTool::popTrace(new LogicException('The event loop runs only inside phasync::run()'));
         }
 
@@ -760,116 +624,6 @@ final class phasync
     }
 
     /**
-     * Register a callback to be invoked whenever an application enters the event
-     * loop via the top level `phasync::run()` call.
-     *
-     * @see phasync::onExit()
-     */
-    public static function onEnter(Closure $enterCallback): void
-    {
-        self::$onEnterCallbacks[] = $enterCallback;
-    }
-
-    /**
-     * Register a callback to be invoked whenever an application exits the event
-     * loop after a `phasync::run()` call.
-     *
-     * @see phasync::onEnter()
-     */
-    public static function onExit(Closure $exitCallback): void
-    {
-        self::$onExitCallbacks[] = $exitCallback;
-    }
-
-    /**
-     * Configures handling of promises from other frameworks. The
-     * `$promiseHandlerFunction` returns `false` if the value in
-     * the first argument is not a promise. If it is a promise,
-     * it attaches the `onFulfilled` and/or `onRejected` callbacks
-     * from the second and third argument and returns true.
-     *
-     * @param Closure{mixed, Closure?, Closure?, bool} $promiseHandlerFunction
-     */
-    public static function setPromiseHandler(Closure $promiseHandlerFunction): void
-    {
-        self::$promiseHandlerFunction = $promiseHandlerFunction;
-    }
-
-    /**
-     * Returns the current promise handler function. This enables extending
-     * the functionality of the existing promise handler without losing the
-     * other integrations. {@see phasync::setPromiseHandler()} for documentation
-     * on the function signature.
-     */
-    public static function getPromiseHandler(): Closure
-    {
-        if (null === self::$promiseHandlerFunction) {
-            self::$promiseHandlerFunction = static function (mixed $promiseLike, ?Closure $onFulfilled = null, ?Closure $onRejected = null): bool {
-                if (!\is_object($promiseLike) || !\method_exists($promiseLike, 'then')) {
-                    return false;
-                }
-                $rm = new ReflectionMethod($promiseLike, 'then');
-                if ($rm->isStatic()) {
-                    return false;
-                }
-                $onRejectedHandled = false;
-                foreach ($rm->getParameters() as $index => $rp) {
-                    if ($rp->hasType()) {
-                        $rt = $rp->getType();
-                        if ($rt instanceof ReflectionNamedType) {
-                            if (
-                                'mixed' !== $rt->getName()
-                                && 'callable' !== $rt->getName()
-                                && Closure::class !== $rt->getName()
-                            ) {
-                                return false;
-                            }
-                        }
-                        // mixed type apparently
-                    }
-                    if ($rp->isVariadic()) {
-                        // Can handle many arguments of this type
-                        $onRejectedHandled = true;
-                        break;
-                    }
-                    if (1 === $index) {
-                        $onRejectedHandled = true;
-                        // Can handle at least two arguments of this type
-                        break;
-                    }
-                }
-
-                if (null !== $onRejected && !$onRejectedHandled) {
-                    // The promise does not handle $onRejected in the `then`
-                    // method, so see if we find a `catch` method.
-                    if (\method_exists($promiseLike, 'catch')) {
-                        if (null !== $onFulfilled) {
-                            $promiseLike->then($onFulfilled);
-                        }
-                        $promiseLike->catch($onRejected);
-
-                        return true;
-                    }
-
-                    return false;
-                }
-
-                if (null !== $onFulfilled && null !== $onRejected) {
-                    $promiseLike->then($onFulfilled, $onRejected);
-                } elseif (null !== $onFulfilled) {
-                    $promiseLike->then($onFulfilled);
-                } elseif (null !== $onRejected) {
-                    $promiseLike->then(null, $onRejected);
-                }
-
-                return true;
-            };
-        }
-
-        return self::$promiseHandlerFunction;
-    }
-
-    /**
      * Function is used internally to suspend coroutines and ensure
      * exceptions have a proper stack trace.
      *
@@ -896,51 +650,14 @@ final class phasync
     }
 
     /**
-     * Enqueue a Fiber with the event loop while throwing an exception in it. This is
-     * an internal function intended for advanced use cases and the API may change
-     * without notice.
-     *
-     * @internal
-     *
-     * @param Throwable|null $exception
-     */
-    public static function enqueueWithException(Fiber $fiber, Throwable $exception): void
-    {
-        self::getDriver()->enqueueWithException($fiber, $exception);
-    }
-
-    /**
-     * Enqueue a Fiber with the event loop. This is an internal function intended
-     * for advanced use cases and the API may change without notice.
-     *
-     * @internal
-     */
-    public static function enqueue(Fiber $fiber): void
-    {
-        self::getDriver()->enqueue($fiber);
-    }
-
-    /**
      * The event loop, made at first use.
      */
     private static function getDriver(): EventLoop
     {
         if (null === self::$driver) {
             self::$driver = new EventLoop();
-            // getmypid(), not posix_getpid(): they are documented aliases of each other, but
-            // getmypid() is a core function, available without the posix extension -- which
-            // never builds on Windows, where this line would otherwise fail to even load.
-            self::$pid = \getmypid();
         }
 
         return self::$driver;
-    }
-
-    /**
-     * Integrate with Promise like objects.
-     */
-    private static function handlePromise(mixed $promiseLike, ?Closure $onFulfilled = null, ?Closure $onRejected = null): bool
-    {
-        return (self::getPromiseHandler())($promiseLike, $onFulfilled, $onRejected);
     }
 }

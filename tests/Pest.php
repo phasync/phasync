@@ -24,23 +24,19 @@ if (!\function_exists('phasyncResetProcessState')) {
 
         // Leftover queues and flags go with the old driver.
         $set('phasync', 'driver', null);
-        $set('phasync', 'runDepth', 0);
-        $set('phasync', 'onEnterCallbacks', []);
-        $set('phasync', 'onExitCallbacks', []);
-        $set('phasync', 'promiseHandlerFunction', null);
+        $set('phasync\Internal\PromiseHandler', 'handler', null);
 
         $set('phasync\Internal\Channel', 'blockedCount', 0);
 
         \gc_enable();
 
         // Steady state: a driver that has just done its periodic maintenance. A brand new
-        // driver has lastIdleRun and lastGarbageCollect at 0, so its first
-        // tick raises the idle flag and runs the cycle collector at once.
-        // Most pinned behaviour (zero timeouts, idle(), cycles surviving unset()) is about a
-        // loop that is already running, where those happen at most every 0.1 s, 1 s and 0.5 s.
+        // driver has lastGarbageCollect at 0, so its first tick runs the cycle collector at once.
+        // Most pinned behaviour (zero timeouts, cycles surviving unset()) is about a loop that is
+        // already running, where that happens at most every 0.5 s.
         $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
         $now    = \microtime(true);
-        foreach (['lastIdleRun', 'lastGarbageCollect'] as $property) {
+        foreach (['lastGarbageCollect'] as $property) {
             (new ReflectionProperty($driver, $property))->setValue($driver, $now);
         }
         (new ReflectionProperty($driver, 'lastTimeoutSlot'))->setValue($driver, (int) ($now * 100));

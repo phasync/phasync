@@ -22,13 +22,10 @@ namespace phasync {
          * with the current context, and will block the current coroutine from completing
          * until it is done by returning or throwing.
          *
-         * If parameter `$concurrent` is greater than 1, the returned coroutine will resolve
-         * into an array of return values or exceptions from each instance of the coroutine.
-         *
          * @throws LogicException
          * @throws Throwable
          */
-        public static function go(Closure $fn, array $args=[], int $concurrent = 1, ?object $context=null): Fiber;
+        public static function go(Closure $fn, array $args=[], ?object $context=null): Fiber;
 
         /**
          * Launches a service coroutine independently of the context scope.
@@ -88,20 +85,6 @@ namespace phasync {
          * instead.
          */
         public static function yield(): void;
-
-        /**
-         * Suspend the current fiber until the event loop becomes empty or will sleeps while
-         * waiting for future events.
-         */
-        public static function idle(float $timeout = PHP_FLOAT_MAX): void;
-
-        /**
-         * Make any stream resource context switch between coroutines when
-         * they would block.
-         *
-         * @return false|resource
-         */
-        public static function io($resource);
 
         /**
          * Suspend the coroutine until the stream can be read without blocking. One coroutine at a
@@ -190,41 +173,6 @@ namespace phasync {
          */
         public static function getContext(): object;
 
-        /**
-         * Register a callback to be invoked whenever an application enters the event
-         * loop via the top level `phasync::run()` call.
-         *
-         * @see phasync::onExit()
-         */
-        public static function onEnter(Closure $enterCallback): void;
-
-        /**
-         * Register a callback to be invoked whenever an application exits the event
-         * loop after a `phasync::run()` call.
-         *
-         * @see phasync::onEnter()
-         */
-        public static function onExit(Closure $exitCallback): void;
-
-
-        /**
-         * Configures handling of promises from other frameworks. The
-         * `$promiseHandlerFunction` returns `false` if the value in
-         * the first argument is not a promise. If it is a promise,
-         * it attaches the `onFulfilled` and/or `onRejected` callbacks
-         * from the second and third argument and returns true.
-         *
-         * @param Closure{mixed, Closure?, Closure?, bool} $promiseHandlerFunction
-         */
-        public static function setPromiseHandler(Closure $promiseHandlerFunction): void;
-
-        /**
-         * Returns the current promise handler function. This enables extending
-         * the functionality of the existing promise handler without losing the
-         * other integrations. {@see phasync::setPromiseHandler()} for documentation
-         * on the function signature.
-         */
-        public static function getPromiseHandler(): Closure;
     }
     class io
     {

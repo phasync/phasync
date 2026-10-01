@@ -50,7 +50,6 @@ dataset('sch suspension points', [
     'sleep(0.01)'                     => [fn () => phasync::sleep(0.01)],
     'sleep(0)'                        => [fn () => phasync::sleep(0)],
     'yield()'                         => [fn () => phasync::yield()],
-    'idle(0.01)'                      => [fn () => phasync::idle(0.01)],
     'awaitFlag() with a timeout'      => [fn () => schTimedOut(fn () => heldFlagWait(0.01))],
     'await() of a sleeping child'     => [function () {
         phasync::await(phasync::go(fn () => phasync::sleep(0.01)));
@@ -170,28 +169,6 @@ test('SCH-2: a child started by go() receives its arguments', function () {
     expect($result)->toBe(5);
 });
 
-test('SCH-2: go() with $concurrent > 1 returns one fiber that resolves to an array, exceptions included as values', function () {
-    $results = phasync::run(function () {
-        $n     = 0;
-        $fiber = phasync::go(function () use (&$n) {
-            $i = $n++;
-            if (1 === $i) {
-                throw new RuntimeException('second');
-            }
-
-            return $i;
-        }, concurrent: 3);
-        expect($fiber)->toBeInstanceOf(Fiber::class);
-
-        return phasync::await($fiber);
-    });
-    expect($results)->toHaveCount(3);
-    expect($results[0])->toBe(0);
-    expect($results[1])->toBeInstanceOf(RuntimeException::class);
-    expect($results[1]->getMessage())->toBe('second');
-    expect($results[2])->toBe(2);
-});
-
 // ---------------------------------------------------------------------------
 // SCH-3  No spurious wake-ups
 // ---------------------------------------------------------------------------
@@ -305,33 +282,6 @@ test('SCH-3: readable() on a quiet stream ends with TimeoutException, not a norm
         }
     });
     expect($outcome)->toBe(TimeoutException::class);
-});
-
-test('SCH-3: idle() is the exception to "timeouts throw": it resumes normally, by its timeout\'s slot at the latest', function () {
-    $result  = 'unset';
-    $elapsed = null;
-    phasync::run(function () use (&$result, &$elapsed) {
-        $t       = \microtime(true);
-        $result  = phasync::idle(0.05);
-        $elapsed = \microtime(true) - $t;
-    });
-    expect($result)->toBeNull();
-    // The idle flag is raised while the loop is about to sleep; the loop sleeps no longer
-    // than to the next timeout slot (SEMANTICS.md D11)
-    expect($elapsed)->toBeLessThan(0.3);
-});
-
-test('SCH-3: idle() resumes when the loop is about to sleep for a timer, before that timer fires', function () {
-    $log = [];
-    phasync::run(function () use (&$log) {
-        phasync::go(function () use (&$log) {
-            phasync::sleep(0.05);
-            $log[] = 'timer';
-        });
-        phasync::idle(0.5);
-        $log[] = 'idle returned';
-    });
-    expect($log)->toBe(['idle returned', 'timer']);
 });
 
 // ---------------------------------------------------------------------------
@@ -494,12 +444,10 @@ test('PARITY: sleep(seconds) outside a coroutine blocks the process for that lon
     expect($elapsed)->toBeLessThan(0.5);
 });
 
-test('PARITY: sleep(0), yield() and idle() outside a coroutine return immediately', function () {
+test('PARITY: sleep(0) and yield() outside a coroutine return immediately', function () {
     $t = \microtime(true);
     phasync::sleep(0);
     phasync::yield();
-    $idle = phasync::idle(5);
-    expect($idle)->toBeNull();
     expect(\microtime(true) - $t)->toBeLessThan(0.05);
 });
 
@@ -515,29 +463,6 @@ test('PARITY: getFiber() and getContext() outside a coroutine throw LogicExcepti
 
 test('PARITY: go() outside a coroutine throws LogicException', function () {
     expect(fn () => phasync::go(fn () => 1))->toThrow(LogicException::class);
-});
-
-test('PARITY: go($run: true) outside a coroutine runs the child to completion inside run(), but returns a Fiber that was never started [SURPRISE]', function () {
-    $ran   = false;
-    $fiber = phasync::go(function () use (&$ran) {
-        phasync::sleep(0.01);
-        $ran = true;
-
-        return 7;
-    }, run: true);
-    expect($ran)->toBeTrue();
-    expect($fiber)->toBeInstanceOf(Fiber::class);
-    // The returned Fiber wraps the finished result but is not a started fiber:
-    expect($fiber->isTerminated())->toBeFalse();
-    expect(fn () => $fiber->getReturn())->toThrow(FiberError::class);
-    // ... and phasync itself rejects it.
-    expect(fn () => phasync::await($fiber))->toThrow(LogicException::class);
-})->group('surprise');
-
-test('PARITY: go($run: true) outside a coroutine throws the child\'s exception from go()', function () {
-    expect(fn () => phasync::go(function () {
-        throw new RuntimeException('from child');
-    }, run: true))->toThrow(RuntimeException::class, 'from child');
 });
 
 test('PARITY: await() outside a coroutine returns the result of a terminated phasync coroutine, again and again', function () {

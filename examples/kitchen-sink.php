@@ -54,21 +54,6 @@ try {
         phasync::channel($reader, $writer, 4); // Buffer up to 4 messages
 
         /*
-         * `phasync::idle()` allows you to perform blocking tasks when the event
-         * loop is about to wait for IO or timers. It is an opportunity to perform
-         * blocking operations, such as calling the {@see \glob()} function or use
-         * other potentially blocking functions with minimal disruption.
-         */
-        phasync::go(function () {
-            echo elapsed() . "Idle work: Started idle work coroutine\n";
-            for ($i = 0; $i < 10; ++$i) {
-                phasync::idle(0.1); // Wait until the event loop is waiting for IO, or at most 0.1 seconds. Useful before running costly functions.
-                $fib32 = fibonacci(32);
-                echo elapsed() . "Idle work: Fib 32 = $fib32\n";
-            }
-        });
-
-        /*
          * `WriteChannel::write()` Writing to a channel will either immediately buffer the message,
          * or the coroutine is suspended if no buffer space is available.
          * The reading coroutine (if any) is immediately resumed.
