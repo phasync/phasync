@@ -55,6 +55,15 @@ Parameters:
  * $timeout: Maximum time in seconds to wait before timing out.
 
 
+### `phasync::awaitContext(object $context, float $timeout = PHP_FLOAT_MAX): void`
+
+Suspends the calling coroutine until every coroutine started in `$context` has ended, including those of nested contexts and any started while waiting. The calling coroutine itself is not waited for. Throws `TimeoutException` if some are still running when the timeout expires; the call can be repeated.
+
+Parameters:
+
+ * $context: The context object given to `phasync::withContext()` or `phasync::run()`.
+ * $timeout: Maximum time in seconds to wait.
+
 ### `phasync::service(Closure $coroutine): void`
 
 Creates a long-running and context-free coroutine which can be used to extend the functionality of phasync by for example polling `curl_multi_*` functions. The coroutine should terminate itself if it no longer provides such services. Also it should use the `phasync::yield()` function to sleep between each tick efficiently, or if a guaranteed polling frequency is needed `phasync::sleep(0.1)` would sleep 0.1 seconds between each tick.
@@ -68,7 +77,7 @@ Parameters:
 
 Cancels a coroutine, or every waiting coroutine of a context. Sticky: the coroutine's waits throw a `CancelledException` until it ends, so a coroutine that catches it and waits again is cancelled again. `$previous` is what caused the cancellation, such as the failure that tears a context down.
 
-Parameters:
+### `phasync::throw(Fiber $fiber, Throwable $exception): void`
 
 Interrupts the wait of a suspended coroutine with an exception, once. The coroutine can catch it and carry on; nothing is remembered. Throws `LogicException` if the coroutine is not waiting.
 
@@ -77,7 +86,7 @@ Interrupts the wait of a suspended coroutine with an exception, once. The corout
 
 Suspends the current coroutine for the specified number of seconds. If called without a fiber context, it defaults to a simple sleep.
 
-### `phasync::throw(Fiber $fiber, Throwable $exception): void`
+Parameters:
 
  * $seconds: Time in seconds to suspend the execution.
 

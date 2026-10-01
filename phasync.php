@@ -565,6 +565,21 @@ final class phasync
     }
 
     /**
+     * Wait until every coroutine of $context, and of the contexts nested in it, has ended; a
+     * server that lets requests start coroutines of their own waits for them this way before it
+     * exits. Coroutines started in the meantime are waited for too. Nothing is thrown for
+     * their failures: those go where they always go, see {@see phasync::run()}. The calling
+     * coroutine does not wait for itself.
+     *
+     * @throws LogicException   outside a coroutine
+     * @throws TimeoutException if coroutines of the context still run after $timeout seconds
+     */
+    public static function awaitContext(object $context, float $timeout = PHP_FLOAT_MAX): void
+    {
+        self::getDriver()->awaitContext($context, $timeout);
+    }
+
+    /**
      * Returns true when called from within a coroutine context.
      */
     public static function isRunning(): bool

@@ -1107,6 +1107,31 @@ final class EventLoop implements \Countable
     }
 
     /**
+     * Wait until every coroutine of $context, and of the contexts nested in it, has ended; see
+     * phasync::awaitContext().
+     *
+     * @throws TimeoutException
+     */
+    public function awaitContext(object $context, float $timeout): void
+    {
+        $caller   = $this->currentFiber ?? throw ExceptionTool::popTrace(new \LogicException('Can only await a context from within a coroutine'));
+        $deadline = \microtime(true) + $timeout;
+        while (true) {
+            $pending = null;
+            foreach ($this->getFibers($context) as $fiber) {
+                if ($fiber !== $caller && !$fiber->isTerminated()) {
+                    $pending = $fiber;
+                    break;
+                }
+            }
+            if (null === $pending) {
+                return;
+            }
+            \phasync::awaitFlag($pending, \max(0.0, $deadline - \microtime(true)));
+        }
+    }
+
+    /**
      * The coroutines of $context, and of the contexts nested in it: those entered from it with
      * withContext() or given to go() by its coroutines.
      *
@@ -1301,6 +1326,10 @@ final class EventLoop implements \Countable
     }
 
     /**
+     * Sticky cancellation of $fiber with $exception, see phasync::cancel().
+     *
+     * @internal
+     *
      * @throws \RuntimeException
      * @throws \LogicException
      */
@@ -1325,13 +1354,28 @@ final class EventLoop implements \Countable
     }
 
     /**
+     * Interrupt the wait of $fiber with $exception, once; see phasync::throw().
+     *
+     * @throws \LogicException
+     */
+    public function throw(\Fiber $fiber, \Throwable $exception): void
+    {
+        if (!isset($this->contexts[$fiber])) {
+            throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
+        }
+        $this->issued[$exception] = true;
+        if ($fiber === \Fiber::getCurrent()) {
+            throw $exception;
+        }
+        if (!$this->deliver($fiber, $exception)) {
+            throw new \LogicException('The coroutine (' . Debug::getDebugInfo($fiber) . ') is not waiting');
+        }
+    }
+
+    /**
      * A waiting coroutine a cancellation covers resumes with it. One that was preempted, or is
      * shielded, goes on: it meets the cancellation at its next wait.
      */
-     * Sticky cancellation of $fiber with $exception, see phasync::cancel().
-     *
-     * @internal
-     *
     private function wake(\Fiber $fiber): void
     {
         if (null !== ($exception = $this->cancellationFor($fiber))) {
@@ -1354,6 +1398,9 @@ final class EventLoop implements \Countable
         if (!$this->discard($fiber)) {
             return false;
         }
+        $this->enqueueWithException($fiber, $exception);
+
+        return true;
     }
 
     /** The cancellation $fiber's waits throw, if any. */
@@ -1366,25 +1413,6 @@ final class EventLoop implements \Countable
             return $exception;
         }
         for ($c = $this->contexts[$fiber] ?? null; null !== $c; $c = $this->outerContexts[$c] ?? null) {
-    /**
-     * Interrupt the wait of $fiber with $exception, once; see phasync::throw().
-     *
-     * @throws \LogicException
-     */
-    public function throw(\Fiber $fiber, \Throwable $exception): void
-    {
-        if (!isset($this->contexts[$fiber])) {
-            throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
-        }
-        $this->issued[$exception] = true;
-        if ($fiber === \Fiber::getCurrent()) {
-            throw $exception;
-        }
-        if (!$this->deliver($fiber, $exception)) {
-            throw new \LogicException('The coroutine (' . Debug::getDebugInfo($fiber) . ') is not waiting');
-        }
-    }
-
             if (null !== ($exception = $this->cancelledContexts[$c] ?? null)) {
                 return $exception;
             }
@@ -1400,9 +1428,6 @@ final class EventLoop implements \Countable
      * @internal
      */
     public function checkCancelled(\Fiber $fiber): void
-        $this->enqueueWithException($fiber, $exception);
-
-        return true;
     {
         if (null !== ($exception = $this->cancellationFor($fiber))) {
             $this->discard($fiber);
