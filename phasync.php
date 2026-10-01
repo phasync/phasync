@@ -2,7 +2,7 @@
 
 use phasync\AggregateException;
 use phasync\CancelledException;
-use phasync\Debug;
+use phasync\Internal\Debug;
 use phasync\EventLoop;
 use phasync\Internal\Channel;
 use phasync\Internal\ExceptionTool;
