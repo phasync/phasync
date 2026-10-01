@@ -354,7 +354,7 @@ test('ERR-5: a finally block runs when the coroutine is cancelled, and the await
     expect($log)->toBe(['finally', 'awaiter got phasync\CancelledException']);
 });
 
-test('ERR-5: a finally block runs when an exception is thrown into the suspended coroutine via cancel($fiber, $exception)', function () {
+test('ERR-5: a finally block runs when an exception is thrown into the suspended coroutine via throw($fiber, $exception)', function () {
     $log = [];
     phasync::run(function () use (&$log) {
         $c = phasync::go(function () use (&$log) {
@@ -365,7 +365,7 @@ test('ERR-5: a finally block runs when an exception is thrown into the suspended
             }
         });
         phasync::sleep(0.01);
-        phasync::cancel($c, new DomainException('custom'));
+        phasync::throw($c, new DomainException('custom'));
         try {
             phasync::await($c);
         } catch (Throwable $e) {
@@ -481,7 +481,7 @@ test('ERR-6: cancel() throws CancelledException("Operation cancelled") into the 
     expect($seen)->toBe([CancelledException::class, 'Operation cancelled']);
 });
 
-test('ERR-6: cancel($fiber, $exception) throws that very exception instance into the coroutine', function () {
+test('ERR-6: throw($fiber, $exception) throws that very exception instance into the coroutine', function () {
     $sent = new DomainException('custom');
     $seen = null;
     phasync::run(function () use (&$seen, $sent) {
@@ -493,7 +493,7 @@ test('ERR-6: cancel($fiber, $exception) throws that very exception instance into
             }
         });
         phasync::sleep(0.01);
-        phasync::cancel($c, $sent);
+        phasync::throw($c, $sent);
     });
     expect($seen)->toBe($sent);
 });

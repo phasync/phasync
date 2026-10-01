@@ -328,28 +328,57 @@ final class phasync
     }
 
     /**
-     * Cancel a suspended coroutine. This will throw an exception inside the
-     * coroutine. If the coroutine handles the exception, it has the opportunity
-     * to clean up any resources it is using. The coroutine MUST be suspended
-     * using either {@see phasync::await()}, {@see phasync::sleep()}, {@see phasync::readable()}
-     * or {@see phasync::awaitFlag()}.
+     * Cancel a coroutine, or every coroutine of a context. The cancellation is sticky: the
+     * coroutine's waits throw a {@see CancelledException} until it ends (or leaves the context),
+     * so that a coroutine which catches it and waits again is cancelled again. It is a teardown,
+     * not a signal: to interrupt a wait once with an exception of your own, use
+     * {@see phasync::throw()}.
      *
      * Given a context, cancels every waiting coroutine of it and of the contexts nested in it,
      * the deepest first, except the calling coroutine.
      *
-     * @throws RuntimeException if the fiber is not currently blocked
+     * @param string|Stringable $message The message of the CancelledException; a Throwable is refused, see {@see phasync::throw()}
+     * @param int             $code     The code of the CancelledException
+     * @param \Throwable|null $previous What caused the cancellation, such as the failure that tears a context down
+     *
+     * @throws InvalidArgumentException if the fiber is terminated, or the message is a Throwable
      */
-    public static function cancel(object $fiber, ?Throwable $exception = null): void
+    public static function cancel(object $fiber, string|Stringable $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void
     {
+        if ($message instanceof Throwable) {
+            throw new InvalidArgumentException('cancel() takes a message, not an exception: use phasync::throw() to throw an exception into a coroutine, or pass it as $previous');
+        }
+        $cancellation = new CancelledException((string) $message, $code, $previous);
         if (!$fiber instanceof Fiber) {
-            self::getDriver()->cancelContext($fiber, $exception);
+            self::getDriver()->cancelContext($fiber, $cancellation);
 
             return;
         }
         if ($fiber->isTerminated()) {
             throw new InvalidArgumentException('Fiber is already terminated');
         }
-        self::getDriver()->cancel($fiber, $exception);
+        self::getDriver()->cancel($fiber, $cancellation);
+    }
+
+    /**
+     * Interrupt the wait of a suspended coroutine with an exception, once. The coroutine can
+     * catch it and carry on: nothing is remembered, its next wait is an ordinary wait. A
+     * coroutine that ends with the exception is no failure of the run, as with
+     * {@see phasync::cancel()}.
+     *
+     * The coroutine MUST be waiting (see {@see phasync::await()}, {@see phasync::sleep()},
+     * {@see phasync::readable()}, {@see phasync::awaitFlag()}) and not shielded; throwing into
+     * the calling coroutine itself throws at once.
+     *
+     * @throws InvalidArgumentException if the fiber is terminated
+     * @throws LogicException           if the coroutine is not waiting
+     */
+    public static function throw(Fiber $fiber, Throwable $exception): void
+    {
+        if ($fiber->isTerminated()) {
+            throw new InvalidArgumentException('Fiber is already terminated');
+        }
+        self::getDriver()->throw($fiber, $exception);
     }
 
     /**

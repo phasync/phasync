@@ -111,22 +111,22 @@ test('CAN-1: cancel() of a runnable coroutine (suspended in sleep(0)) is deliver
     expect($log)->toBe([CancelledException::class]);
 });
 
-test('CAN-1: cancel($fiber, $exception) delivers that exception instead of CancelledException', function () {
+test('CAN-1: cancel($fiber, $message, $code, $previous) delivers a CancelledException carrying them', function () {
     $caught = phasync::run(function () {
         $child = phasync::go(static function () {
             try {
                 phasync::sleep(5);
             } catch (Throwable $e) {
-                return $e::class . ':' . $e->getMessage();
+                return $e::class . ':' . $e->getMessage() . ':' . $e->getCode() . ':' . $e->getPrevious()?->getMessage();
             }
         });
         phasync::sleep(0.01);
-        phasync::cancel($child, new RuntimeException('custom'));
+        phasync::cancel($child, 'custom', 7, new RuntimeException('cause'));
 
         return phasync::await($child);
     });
 
-    expect($caught)->toBe('RuntimeException:custom');
+    expect($caught)->toBe('phasync\\CancelledException:custom:7:cause');
 });
 
 test('CAN-1: cancel() of a Fiber that phasync did not create throws LogicException', function () {
@@ -142,10 +142,10 @@ test('CAN-1: cancel() of a Fiber that phasync did not create throws LogicExcepti
 // CAN-2 / CAN-3: what cancel() does to a running or terminated coroutine
 // ---------------------------------------------------------------------------
 
-test('CAN-2: a coroutine cancelling itself gets the exception at once, as a throw', function () {
+test('CAN-2: a coroutine cancelling itself gets the cancellation at once, as a throw', function () {
     $message = phasync::run(static function () {
         try {
-            phasync::cancel(Fiber::getCurrent(), new LogicException('self'));
+            phasync::cancel(Fiber::getCurrent(), 'self');
 
             return 'no exception';
         } catch (Throwable $e) {
@@ -153,7 +153,7 @@ test('CAN-2: a coroutine cancelling itself gets the exception at once, as a thro
         }
     });
 
-    expect($message)->toBe('LogicException: self');
+    expect($message)->toBe('phasync\\CancelledException: self');
 });
 
 test('CAN-2: a coroutine cancelled while it runs meets the cancellation at its next wait', function () {
@@ -271,8 +271,8 @@ test('CAN-4: cancelled twice before it resumes, a coroutine gets the first excep
                 $log[] = 'then ' . $e->getMessage();
             }
         });
-        phasync::cancel($child, new RuntimeException('one'));
-        phasync::cancel($child, new LogicException('two'));
+        phasync::cancel($child, 'one');
+        phasync::cancel($child, 'two');
         phasync::await($child);
     });
 
@@ -577,12 +577,15 @@ test('CAN-9: a coroutine that ends with the cancellation it was given did not fa
     expect($thrown)->toBeNull();
 });
 
-test('CAN-9: also with a custom cancellation exception', function () {
+test('CAN-9: also with a custom cancellation message, and with an exception thrown in', function () {
     $thrown = null;
     try {
         phasync::run(static function () {
             $child = phasync::go(static fn () => phasync::sleep(5));
-            phasync::cancel($child, new DomainException('boom'));
+            phasync::cancel($child, 'boom');
+            $child = phasync::go(static fn () => phasync::sleep(5));
+            phasync::sleep(0.01);
+            phasync::throw($child, new DomainException('boom'));
         });
     } catch (Throwable $e) {
         $thrown = $e::class . ':' . $e->getMessage();

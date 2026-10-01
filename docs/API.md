@@ -64,21 +64,20 @@ Parameters:
  * $coroutine: The function that performs the polling in a loop.
 
 
-### `phasync::cancel(Fiber $fiber, ?Throwable $exception = null): void`
+### `phasync::cancel(object $fiberOrContext, string|Stringable $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void`
 
-Cancels a suspended coroutine, optionally throwing an exception within the coroutine to signal cancellation.
+Cancels a coroutine, or every waiting coroutine of a context. Sticky: the coroutine's waits throw a `CancelledException` until it ends, so a coroutine that catches it and waits again is cancelled again. `$previous` is what caused the cancellation, such as the failure that tears a context down.
 
 Parameters:
 
- * $fiber: The fiber to cancel.
- * $exception: Optional exception to throw within the fiber.
+Interrupts the wait of a suspended coroutine with an exception, once. The coroutine can catch it and carry on; nothing is remembered. Throws `LogicException` if the coroutine is not waiting.
 
 
 ### `phasync::sleep(float $seconds = 0): void`
 
 Suspends the current coroutine for the specified number of seconds. If called without a fiber context, it defaults to a simple sleep.
 
-Parameters:
+### `phasync::throw(Fiber $fiber, Throwable $exception): void`
 
  * $seconds: Time in seconds to suspend the execution.
 
