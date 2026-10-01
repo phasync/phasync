@@ -2,6 +2,24 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-beta2 (2026-10-01)
+
+### Added
+
+- `phasync::throw(Fiber $fiber, Throwable $exception)`: interrupts a waiting coroutine with an
+  exception, once. It is not sticky: the coroutine can catch it and go on.
+- `phasync::awaitContext(object $context, float $timeout)`: waits until every coroutine of a
+  context has ended, including nested contexts and coroutines started while waiting.
+- `@internal` on `EventLoop` (except `getSlot()`, `park()`, `unpark()`), `Internal\*` and
+  `StreamSelectPoller`: they may change in any release. `ApiSurfaceTest` pins the signatures of
+  the `phasync` class.
+
+### Changed
+
+- `phasync::cancel()` is always sticky, like tearing down a context: it takes a message (`string|Stringable`), a
+  code and a previous exception, and the coroutine gets a `CancelledException` that stays until
+  it ends. A custom exception passed as the message is refused; use `throw()`, or pass it as `$previous`.
+
 ## 2.0.0-beta1 (2026-10-01)
 
 ### Added
