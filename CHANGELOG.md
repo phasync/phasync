@@ -2,7 +2,7 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.0-beta1 (2026-10-01)
 
 ### Added
 
@@ -24,11 +24,17 @@ home, is gone before the beta:
   `writable()` do the job, and phasync-ext makes the blocking calls themselves cooperative.
 - `go()`'s `$concurrent` and `$run` parameters: start a coroutine per instance and `await()`
   them. `go()` is now `go(Closure $fn, array $args = [], ?object $context = null)`.
+- `phasync\Util\FastCGI\Record` (the FastCGI code lives in swerve) and the unfinished
+  `phasync\Wrappers\PDO\MySQL` / `MySQLStatement`, a start on a PDO-compatible mysqli wrapper.
+  `phasync\Services\MySQLiPoll` stays: it does for mysqli what `CurlMulti` does for curl, for
+  users without phasync-ext.
 - `phasync::setPromiseHandler()` and `getPromiseHandler()` moved to the internal
   `phasync\Internal\PromiseHandler`; `await()` of a promise-like object works as before.
 
 ### Changed
 
+- Moved to `phasync\Internal`: `Debug`, `DeadmanSwitch`, `DeadmanSwitchTrait`, `DeadmanException`.
+  Moved to `phasync\Util`: `Process`, `ProcessInterface` and `ProcessRunner` (from `phasync\Process`).
 - A coroutine alone in its context is tracked without a set of its own, which makes
   `withContext()` cheaper (about 45 ns).
 

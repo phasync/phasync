@@ -2,8 +2,6 @@
 
 namespace phasync\Internal;
 
-use phasync\Debug;
-
 final class FiberState
 {
     private static ?\WeakMap $fibers = null;

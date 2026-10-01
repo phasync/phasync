@@ -4,7 +4,6 @@ namespace phasync\Internal;
 
 use Fiber;
 use phasync\CancelledException;
-use phasync\Debug;
 use phasync\EventLoop;
 use WeakMap;
 

@@ -516,7 +516,7 @@ APIOutsideOfRunTest
 
 ## 14. Process
 
-`phasync\Process\Process::run()` launches a background process and returns a
+`phasync\Util\Process::run()` launches a background process and returns a
 `ProcessInterface` for interacting with its STDIN, STDOUT and STDERR. It returns the same
 class, `ProcessRunner`, on POSIX and on Windows (issue #45; Windows support returned, unified
 with POSIX rather than rebuilt separately, superseding the version-floor plan in

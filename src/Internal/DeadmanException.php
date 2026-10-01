@@ -1,8 +1,8 @@
 <?php
 
-namespace phasync;
+namespace phasync\Internal;
 
-use phasync\Internal\RethrowExceptionTrait;
+use phasync\RethrowExceptionInterface;
 
 /**
  * Exception thrown when attempting to use a resource after its

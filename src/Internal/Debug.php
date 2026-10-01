@@ -4,7 +4,7 @@
  * @codeCoverageIgnore
  */
 
-namespace phasync;
+namespace phasync\Internal;
 
 use Closure;
 use Fiber;

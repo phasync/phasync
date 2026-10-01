@@ -1,6 +1,6 @@
 <?php
 
-namespace phasync\Process;
+namespace phasync\Util;
 
 /**
  * Launches and manages a child process on POSIX and Windows alike.

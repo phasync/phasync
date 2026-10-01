@@ -1,6 +1,6 @@
 <?php
 
-use phasync\Process\Process;
+use phasync\Util\Process;
 
 /**
  * A child process built from `php -r <script>`, so these tests run identically on POSIX and

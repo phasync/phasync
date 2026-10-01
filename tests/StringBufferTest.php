@@ -949,7 +949,7 @@ test('getDeadmanSwitch() returns DeadmanSwitch instance', function () {
     $sb      = new StringBuffer();
     $deadman = $sb->getDeadmanSwitch();
 
-    expect($deadman)->toBeInstanceOf(phasync\DeadmanSwitch::class);
+    expect($deadman)->toBeInstanceOf(phasync\Internal\DeadmanSwitch::class);
 });
 
 test('getDeadmanSwitch() returns same instance while alive', function () {
@@ -978,7 +978,7 @@ test('deadman switch triggers on garbage collection', function () {
 
         // But trying to read more (which would block) throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\DeadmanException::class);
+            ->toThrow(phasync\Internal\DeadmanException::class);
     });
 });
 
@@ -1016,7 +1016,7 @@ test('read() can get existing data after deadman triggered', function () {
 
         // But blocking read for more throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\DeadmanException::class);
+            ->toThrow(phasync\Internal\DeadmanException::class);
     });
 });
 
@@ -1033,7 +1033,7 @@ test('readFixed() throws when would block after deadman triggered', function () 
 
         // Asking for more than available, would need to block
         expect(fn () => $sb->readFixed(10))
-            ->toThrow(phasync\DeadmanException::class);
+            ->toThrow(phasync\Internal\DeadmanException::class);
     });
 });
 
@@ -1056,7 +1056,7 @@ test('deadman switch allows reading buffered data before throwing', function () 
 
         // Blocking read throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\DeadmanException::class);
+            ->toThrow(phasync\Internal\DeadmanException::class);
     });
 });
 
@@ -1101,14 +1101,14 @@ test('DeadmanSwitch can be manually triggered', function () {
 
         // Blocking read throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\DeadmanException::class);
+            ->toThrow(phasync\Internal\DeadmanException::class);
         expect($deadman->isTriggered())->toBeTrue();
     });
 });
 
 test('DeadmanSwitch trigger is idempotent', function () {
     $callCount = 0;
-    $deadman   = new phasync\DeadmanSwitch(function () use (&$callCount) {
+    $deadman   = new phasync\Internal\DeadmanSwitch(function () use (&$callCount) {
         ++$callCount;
     });
 

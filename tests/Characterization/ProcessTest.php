@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Characterization tests for phasync\Process\Process and ProcessRunner, exercised here through
+ * Characterization tests for phasync\Util\Process and ProcessRunner, exercised here through
  * POSIX-only commands (sh, true, printf) (docs/SEMANTICS.md section 14, PRC-1 .. PRC-6). The
  * Windows equivalents live in ProcessWindowsTest.php, since Windows command resolution and
  * signal semantics differ enough that mirroring these one for one, in the same file, would
@@ -12,9 +12,9 @@
  */
 
 use phasync\IOException;
-use phasync\Process\Process;
-use phasync\Process\ProcessInterface;
-use phasync\Process\ProcessRunner;
+use phasync\Util\Process;
+use phasync\Util\ProcessInterface;
+use phasync\Util\ProcessRunner;
 
 uses()->group('characterization');
 

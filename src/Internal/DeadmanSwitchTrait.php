@@ -1,6 +1,6 @@
 <?php
 
-namespace phasync;
+namespace phasync\Internal;
 
 /**
  * Trait that provides deadman switch functionality to a class.

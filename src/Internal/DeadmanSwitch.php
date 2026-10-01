@@ -1,6 +1,6 @@
 <?php
 
-namespace phasync;
+namespace phasync\Internal;
 
 /**
  * A safety mechanism that triggers a callback when garbage collected.

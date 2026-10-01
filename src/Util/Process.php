@@ -1,6 +1,6 @@
 <?php
 
-namespace phasync\Process;
+namespace phasync\Util;
 
 /**
  * The factory class for launching phasync background processes.

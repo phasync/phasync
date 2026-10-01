@@ -9,7 +9,7 @@
  * BUF-5 ("shortcuts allowed") is a permission, not a behaviour, so it has no test here.
  */
 
-use phasync\DeadmanException;
+use phasync\Internal\DeadmanException;
 use phasync\TimeoutException;
 use phasync\Util\StringBuffer;
 
