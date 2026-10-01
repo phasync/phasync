@@ -4,6 +4,9 @@ namespace phasync\Internal;
 
 use Exception;
 
+/**
+ * @internal not part of the public API; may change in any release
+ */
 final class ExceptionTool
 {
     /**

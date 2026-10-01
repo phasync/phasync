@@ -10,6 +10,9 @@ use Closure;
 use Fiber;
 use ReflectionFunction;
 
+/**
+ * @internal not part of the public API; may change in any release
+ */
 final class Debug
 {
     /**

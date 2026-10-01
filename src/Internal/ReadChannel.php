@@ -9,6 +9,8 @@ use phasync\ReadChannelInterface;
  * collected, the writable end of the channel will also be closed. Messages
  * can be read via the {@see ReadChannel::read()} method, or by using the
  * ReadChannel as an iterator, for example with foreach().
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
 {

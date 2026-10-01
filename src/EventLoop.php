@@ -18,6 +18,8 @@ use WeakMap;
 /**
  * phasync's event loop: runs coroutines, and waits for timers, flags and (through its poller)
  * streams.
+ *
+ * @internal not part of the public API, except getSlot(), park() and unpark() as documented for phasync::getLoop(); may change in any release
  */
 final class EventLoop implements \Countable
 {

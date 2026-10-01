@@ -5,6 +5,9 @@ namespace phasync\Internal;
 use phasync\ChannelException;
 use phasync\TimeoutException;
 
+/**
+ * @internal not part of the public API; may change in any release
+ */
 final class Channel implements ChannelBackendInterface, \IteratorAggregate
 {
     private static int $blockedCount = 0;

@@ -5,6 +5,8 @@ namespace phasync;
 /**
  * A poller on stream_select(), or on phasync-ext's stream_select() when the extension is loaded
  * (no FD_SETSIZE limit there).
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class StreamSelectPoller implements PollerInterface
 {

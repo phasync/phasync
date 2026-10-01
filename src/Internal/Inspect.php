@@ -5,6 +5,8 @@ namespace phasync\Internal;
 /**
  * A small library of utility functions for enabling features in
  * phasync.
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class Inspect
 {

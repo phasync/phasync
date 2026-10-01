@@ -6,6 +6,8 @@ use phasync\WriteChannelInterface;
 
 /**
  * This object is the writable end of a phasync channel.
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class WriteChannel implements WriteChannelInterface
 {
