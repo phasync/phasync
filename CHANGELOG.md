@@ -2,6 +2,13 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- `phasync\Util\Event`: a small event object with `listen()`, `once()`, `off()`, `trigger()` and
+  `hasListeners()`.
+
 ## 2.0.0-beta3 (2026-10-01)
 
 ### Changed
