@@ -56,6 +56,14 @@ final class EventLoop implements \Countable
     private \WeakMap $outerContexts;
 
     /**
+     * The contexts another was entered from: the others have no coroutine but their own, and
+     * need no search for nested ones.
+     *
+     * @var \WeakMap<object, true>
+     */
+    private \WeakMap $hasInner;
+
+    /**
      * The contexts of the phasync::run() calls in progress, with the failures that reached each:
      * a failure no handler took fails the nearest run() it is nested in.
      *
@@ -356,6 +364,7 @@ final class EventLoop implements \Countable
         $this->contexts          = new \WeakMap();
         $this->contextFibers     = new \WeakMap();
         $this->outerContexts     = new \WeakMap();
+        $this->hasInner          = new \WeakMap();
         $this->usedContexts      = new \WeakMap();
         $this->rootContexts      = new \WeakMap();
         $this->frozen            = new \WeakMap();
@@ -1006,22 +1015,28 @@ final class EventLoop implements \Countable
             $this->enterLazyContext($fiber, $id); // this context is entered from the one being awaited
         }
         if ($context instanceof ContextFactoryInterface) {
-            $lazy = $this->lazyContexts[$id] = new LazyContext($context);
+            $lazy    = $this->lazyContexts[$id] = new LazyContext($context);
+            $failure = null;
             try {
                 return $fn();
+            } catch (\Throwable $e) {
+                throw $failure = $e;
             } finally {
                 if (null === $lazy->context) {
                     unset($this->lazyContexts[$id]);
                 } else {
-                    $this->leaveContext($fiber, $id, $lazy->context, $lazy->outerFinally);
+                    $this->leaveContext($fiber, $id, $lazy->context, $lazy->outerFinally, $failure);
                 }
             }
         }
         $outerFinally = $this->enterContext($fiber, $id, $context);
+        $failure      = null;
         try {
             return $fn();
+        } catch (\Throwable $e) {
+            throw $failure = $e;
         } finally {
-            $this->leaveContext($fiber, $id, $context, $outerFinally);
+            $this->leaveContext($fiber, $id, $context, $outerFinally, $failure);
         }
     }
 
@@ -1053,6 +1068,7 @@ final class EventLoop implements \Countable
         }
         $this->usedContexts[$context]   = true;
         $this->outerContexts[$context]  = $previous;
+        $this->hasInner[$previous]      = true;
         if (!isset($this->rootContexts[$context])) {
             $this->rootContexts[$context] = isset($this->runContexts[$previous]) ? $context : $this->rootContexts[$previous];
         }
@@ -1076,7 +1092,7 @@ final class EventLoop implements \Countable
      *
      * @param list<\Closure>|null $outerFinally
      */
-    private function leaveContext(\Fiber $fiber, int $id, object $context, ?array $outerFinally): void
+    private function leaveContext(\Fiber $fiber, int $id, object $context, ?array $outerFinally, ?\Throwable $failure): void
     {
         $callbacks = $this->withContextFinally[$id];
         try {
@@ -1090,6 +1106,7 @@ final class EventLoop implements \Countable
                     $this->unshield($fiber);
                 }
             }
+            $this->endScope($fiber, $context, $failure);
         } finally {
             if (null === $outerFinally) {
                 unset($this->withContextFinally[$id]);
@@ -1103,6 +1120,42 @@ final class EventLoop implements \Countable
             if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
                 $this->makeLive($previous);
             }
+        }
+    }
+
+    /**
+     * withContext() returns only when the coroutines of $context have ended, as run() does. When
+     * $fn failed, or the caller is cancelled while waiting, they are cancelled and waited for
+     * (shielded: they must unwind) before the failure goes on.
+     */
+    private function endScope(\Fiber $fiber, object $context, ?\Throwable $failure): void
+    {
+        if (self::$exiting) {
+            return; // PHP destroys the suspended coroutines, which unwind here: a destroyed one can't wait
+        }
+        $members = $this->contextFibers[$context] ?? null;
+        if ((null === $members || $members === $fiber) && !isset($this->hasInner[$context])) {
+            return; // the caller alone: a request that started nothing (most)
+        }
+        $cancelled = null;
+        if (null === $failure) {
+            try {
+                $this->awaitContext($context, \PHP_FLOAT_MAX);
+
+                return;
+            } catch (CancelledException $e) {
+                $failure = $cancelled = $e;
+            }
+        }
+        $this->cancelContext($context, new CancelledException('Cancelled: the context ended with ' . \get_class($failure) . ': ' . $failure->getMessage(), 0, $failure), false);
+        $this->shield($fiber);
+        try {
+            $this->awaitContext($context, \PHP_FLOAT_MAX);
+        } finally {
+            $this->unshield($fiber);
+        }
+        if (null !== $cancelled) {
+            throw $cancelled;
         }
     }
 
@@ -1197,6 +1250,7 @@ final class EventLoop implements \Countable
         $this->usedContexts[$context] = true;
         if (null !== $outer) {
             $this->outerContexts[$context] = $outer;
+            $this->hasInner[$outer]        = true;
         }
         if (!isset($this->rootContexts[$context])) { // a run()'s context is set by beginRun()
             $this->rootContexts[$context] = null === $outer || isset($this->runContexts[$outer]) ? $context : $this->rootContexts[$outer];

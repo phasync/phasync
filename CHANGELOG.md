@@ -2,6 +2,18 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-beta3 (2026-10-01)
+
+### Changed
+
+- **Behaviour change:** `phasync::withContext()` waits like `phasync::run()` does, without the
+  coroutine: it returns once the coroutines the closure started in the context, and in contexts
+  nested in it, have ended. When the closure throws they are cancelled first; when the caller is
+  cancelled while waiting, so are they. It used to return at once, leaving them running, so a
+  caller could not tell when a request's work was done. `finally()` callbacks registered inside it
+  still run when the closure returns, before the wait. Code that relied on background coroutines
+  outliving `withContext()` should use `phasync::service()` or a context of its own.
+
 ## 2.0.0-beta2 (2026-10-01)
 
 ### Added

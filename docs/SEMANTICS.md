@@ -154,7 +154,9 @@ root: a `run()`'s context is its own root, and so is a context entered from it (
 contexts nested deeper share that one's root. A context may implement
 `SwitchAwareInterface` to swap per-request state in and out. `withContext()` may be given a
 `ContextFactoryInterface` instead: the context is created when the closure first needs it, and
-a closure that never does runs in its coroutine's own context. There is no storage API on
+a closure that never does runs in its coroutine's own context. `withContext()` is `run()` without
+the coroutine: it returns when the coroutines the closure started have ended, and cancels them
+when the closure throws or the caller is cancelled. There is no storage API on
 the context (D4). ✅ ScopesTest, ContextTest, WithContextTest, LazyContextTest
 
 

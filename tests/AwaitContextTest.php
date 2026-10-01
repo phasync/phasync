@@ -57,9 +57,11 @@ test('awaitContext() throws TimeoutException while coroutines still run, and can
     $log = phasync::run(static function () {
         $log     = [];
         $context = new stdClass();
-        phasync::withContext(static function () {
-            phasync::go(static fn () => phasync::sleep(0.1));
-        }, $context);
+        phasync::go(static function () use ($context) {
+            phasync::withContext(static function () {
+                phasync::go(static fn () => phasync::sleep(0.1));
+            }, $context);
+        });
         try {
             phasync::awaitContext($context, 0.01);
         } catch (phasync\TimeoutException) {

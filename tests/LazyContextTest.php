@@ -56,7 +56,7 @@ test('getContext() creates the context once, and it stays the context across sus
     expect($factory->calls)->toBe(1);
 });
 
-test('a coroutine started inside gets the context created, and it keeps running after the closure returns', function () {
+test('a coroutine started inside gets the context created, and the call returns once it has ended', function () {
     $factory = lazyFactory();
     expect(phasync::run(function () use ($factory) {
         $child   = phasync::withContext(fn () => phasync::go(function () {
@@ -67,7 +67,7 @@ test('a coroutine started inside gets the context created, and it keeps running 
         $running = !$child->isTerminated();
 
         return [$running, phasync::await($child) === $factory->last];
-    }))->toBe([true, true]);
+    }))->toBe([false, true]);
     expect($factory->calls)->toBe(1);
 });
 

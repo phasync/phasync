@@ -318,9 +318,10 @@ final class phasync
      * efficient to use a try {} finally {} statement.
      *
      * Inside withContext() the callbacks run in the calling coroutine, still in the context, also
-     * when the closure threw, and may suspend; no coroutine is started for them. A server that
-     * runs each request in withContext() and sends the response inside it thereby runs them
-     * after the response, as fastcgi_finish_request() allows under PHP-FPM.
+     * when the closure threw, and may suspend; no coroutine is started for them. They run before
+     * withContext() waits for the coroutines the closure started. A server that runs each
+     * request in withContext() and sends the response inside it thereby runs them after the
+     * response, as fastcgi_finish_request() allows under PHP-FPM.
      */
     public static function finally(Closure $fn): void
     {
@@ -588,11 +589,12 @@ final class phasync
     }
 
     /**
-     * Run $fn in the current coroutine as if it were a coroutine of $context, without starting a
-     * coroutine: coroutines $fn starts belong to $context and keep running after $fn returns.
-     * Returns what $fn returns. Unlike phasync::run(), it does not wait for them; unlike
-     * phasync::go(), it costs no coroutine of its own. A server gives each request a context of its
-     * own this way.
+     * Run $fn in the current coroutine as if it were the main coroutine of a phasync::run() of
+     * $context, without starting a coroutine, which costs far more: it returns what $fn returns,
+     * once the coroutines $fn started in the context have ended too. When $fn throws, those are
+     * cancelled first, and the exception is rethrown; when the calling coroutine is cancelled
+     * while waiting, so are they. A server gives each request a context of its own this way.
+     * Unlike run(), the failure of a coroutine that nobody awaited is not thrown.
      *
      * Given a {@see \phasync\Context\ContextFactoryInterface} instead of a context, $fn runs in the
      * coroutine's own context until it needs the context of its own: getContext(), getRootContext(),

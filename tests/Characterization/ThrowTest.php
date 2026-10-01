@@ -237,19 +237,22 @@ test('CAN-10: cancelling a context passes the message, code and cause to every c
     $seen = [];
     phasync::run(static function () use (&$seen) {
         $context = new stdClass();
-        phasync::withContext(static function () use (&$seen) {
-            phasync::go(static function () use (&$seen) {
-                try {
-                    phasync::sleep(5);
-                } catch (CancelledException $e) {
-                    $seen[] = [$e->getMessage(), $e->getCode(), $e->getPrevious()?->getMessage()];
-                }
-            });
+        phasync::go(static function () use ($context) {
             phasync::sleep(0.01);
-        }, $context);
-        phasync::sleep(0.01);
-        phasync::cancel($context, 'teardown', 9, new RuntimeException('cause'));
-        phasync::sleep(0.01);
+            phasync::cancel($context, 'teardown', 9, new RuntimeException('cause'));
+        });
+        try {
+            phasync::withContext(static function () use (&$seen) {
+                phasync::go(static function () use (&$seen) {
+                    try {
+                        phasync::sleep(5);
+                    } catch (CancelledException $e) {
+                        $seen[] = [$e->getMessage(), $e->getCode(), $e->getPrevious()?->getMessage()];
+                    }
+                });
+            }, $context);
+        } catch (CancelledException) {
+        }
     });
 
     expect($seen)->toBe([['teardown', 9, 'cause']]);

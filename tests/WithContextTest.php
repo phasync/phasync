@@ -30,7 +30,7 @@ test('returns what the closure returns, and runs it in the calling coroutine', f
     }))->toBe([true, 42]);
 });
 
-test('coroutines started inside belong to the context and keep running after it returns', function () {
+test('coroutines started inside belong to the context, and the call returns once they have ended', function () {
     expect(phasync::run(function () {
         $context = new stdClass();
         $child   = phasync::withContext(fn () => phasync::go(function () use ($context) {
@@ -41,7 +41,7 @@ test('coroutines started inside belong to the context and keep running after it 
         $running = !$child->isTerminated();
 
         return [$running, phasync::await($child)];
-    }))->toBe([true, true]);
+    }))->toBe([false, true]);
 });
 
 test('the context counts the calling coroutine only while the closure runs', function () {
@@ -167,7 +167,7 @@ test('finally() in a coroutine started inside withContext() still runs when that
         phasync::sleep(0.05);
 
         return $log;
-    }))->toBe(['withContext finally', 'caller', 'coroutine finally']);
+    }))->toBe(['withContext finally', 'coroutine finally', 'caller']);
 });
 
 test('finally() in nested withContext() runs as each returns', function () {
@@ -261,4 +261,74 @@ test('switch-aware contexts keep their own value of a global across interleaved 
         'a end a changed', 'b end b changed', 'c end c changed',
         "withContext w's",
     ]);
+});
+
+test('withContext() cancels the coroutines it started when the closure fails, waits for them to unwind, and rethrows', function () {
+    $log = phasync::run(static function () {
+        $log = [];
+        try {
+            phasync::withContext(static function () use (&$log) {
+                phasync::go(static function () use (&$log) {
+                    try {
+                        phasync::sleep(5);
+                    } finally {
+                        $log[] = 'child unwound';
+                    }
+                });
+                phasync::yield();
+                throw new RuntimeException('boom');
+            }, new stdClass());
+        } catch (RuntimeException $e) {
+            $log[] = $e->getMessage();
+        }
+
+        return $log;
+    });
+
+    expect($log)->toBe(['child unwound', 'boom']);
+});
+
+test('withContext() cancelled while it waits cancels what it started, waits for it to unwind, and rethrows the cancellation', function () {
+    $log = phasync::run(static function () {
+        $log   = [];
+        $outer = phasync::go(static function () use (&$log) {
+            try {
+                phasync::withContext(static function () use (&$log) {
+                    phasync::go(static function () use (&$log) {
+                        try {
+                            phasync::sleep(5);
+                        } finally {
+                            $log[] = 'child unwound';
+                        }
+                    });
+                }, new stdClass());
+            } catch (CancelledException) {
+                $log[] = 'cancelled';
+            }
+        });
+        phasync::sleep(0.01);
+        phasync::cancel($outer);
+        phasync::await($outer);
+
+        return $log;
+    });
+
+    expect($log)->toBe(['child unwound', 'cancelled']);
+});
+
+test('withContext() waits for coroutines in contexts nested in its own', function () {
+    $log = phasync::run(static function () {
+        $log = [];
+        phasync::withContext(static function () use (&$log) {
+            phasync::go(static function () use (&$log) {
+                phasync::sleep(0.02);
+                $log[] = 'nested';
+            }, [], new stdClass());
+        }, new stdClass());
+        $log[] = 'after';
+
+        return $log;
+    });
+
+    expect($log)->toBe(['nested', 'after']);
 });
