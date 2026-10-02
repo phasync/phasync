@@ -2,6 +2,11 @@
 
 namespace phasync;
 
+/**
+ * The implementation behind the functions of functions.php.
+ *
+ * @internal not part of the public API; may change in any release
+ */
 class io
 {
     /**

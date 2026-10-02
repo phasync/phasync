@@ -8,6 +8,8 @@ use Psr\Http\Message\StreamInterface;
  * A PSR-7 StreamInterface containing an empty stream response.
  * The implementation is immutable, so a singleton is available
  * via {@see EmptyStream::create()}.
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class EmptyStream implements StreamInterface
 {

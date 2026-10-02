@@ -8,6 +8,8 @@ use phasync;
  * Provides asynchronous running of curl_handles within phasync. To
  * run the curl handle, use `CurlMulti::await($curlHandle)` from inside
  * a coroutine.
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class CurlMulti
 {

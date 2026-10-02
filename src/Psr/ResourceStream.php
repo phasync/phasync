@@ -10,6 +10,8 @@ use Psr\Http\Message\StreamInterface;
  * A PSR-7 StreamInterface which maps directly to a PHP stream resource.
  * This implementation integrates with phasync for read and write
  * operations
+ *
+ * @internal not part of the public API; may change in any release
  */
 class ResourceStream implements StreamInterface
 {

@@ -16,6 +16,8 @@ use Psr\Http\Message\StreamInterface;
  *
  * @see http://www.ietf.org/rfc/rfc7230.txt
  * @see http://www.ietf.org/rfc/rfc7231.txt
+ *
+ * @internal not part of the public API; may change in any release
  */
 trait MessageTrait
 {

@@ -4,6 +4,11 @@ namespace phasync\Psr;
 
 use Psr\Http\Message\StreamInterface;
 
+/**
+ * A PSR-7 stream put together from callbacks.
+ *
+ * @internal not part of the public API; may change in any release
+ */
 class ComposableStream implements StreamInterface
 {
     private bool $eof   = false;

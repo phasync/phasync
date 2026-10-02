@@ -20,6 +20,8 @@ namespace phasync\Internal;
  *     // If coroutine exits without calling end(), $deadman triggers on GC
  * });
  * ```
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class DeadmanSwitch
 {

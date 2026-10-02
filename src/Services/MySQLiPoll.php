@@ -7,6 +7,8 @@ use mysqli;
 /**
  * Provides asynchronous running of MySQLi queries within the phasync framework.
  * To run a MySQLi query asynchronously, use `MySQLiPoll::poll($mysqli)` from inside a coroutine.
+ *
+ * @internal not part of the public API; may change in any release
  */
 final class MySQLiPoll
 {

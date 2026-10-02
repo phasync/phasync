@@ -15,6 +15,11 @@ use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
 
+/**
+ * PSR-17 factories for the classes of phasync\Psr, in one object.
+ *
+ * @internal not part of the public API; may change in any release
+ */
 class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryInterface, ResponseFactoryInterface, RequestFactoryInterface, StreamFactoryInterface, UriFactoryInterface
 {
     public function createUploadedFile(StreamInterface $stream, ?int $size = null, int $error = \UPLOAD_ERR_OK, ?string $clientFilename = null, ?string $clientMediaType = null): UploadedFileInterface

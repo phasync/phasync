@@ -33,6 +33,8 @@ namespace phasync;
  *    wondering why nothing sped up. If the extension IS already active via php.ini for
  *    that SAPI, this still returns true, no exception -- it works there too, harmlessly.
  *
+ * @internal not part of the public API; may change in any release
+ *
  * @throws \RuntimeException if called from a non-CLI SAPI without the extension already
  *                           active via php.ini (propagated from ensure_loaded())
  *
