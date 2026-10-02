@@ -42,6 +42,29 @@ use phasync\WriteChannelInterface;
  */
 final class phasync
 {
+    /**
+     * The context-local state: the array of the running coroutine's context, while {@see phasync::enableContextState()} or {@see phasync::adoptContextState()} has turned the swapping on.
+     *
+     * Every context has an array of its own, which this property is bound to by reference as a coroutine of the context runs: writes land in it, are not seen by other contexts, and are seen again after the coroutine has waited. The coroutines of a context share its array. Until the swapping is turned on this is an ordinary static array shared by all coroutines.
+     *
+     * ```php
+     * phasync::enableContextState();
+     * phasync::run(function () {
+     *     phasync::go(function () { phasync::$contextState['user'] = 'ann'; phasync::sleep(0.01); echo phasync::$contextState['user']; }, [], new stdClass());
+     *     phasync::go(function () { phasync::$contextState['user'] = 'bob'; phasync::sleep(0.01); echo phasync::$contextState['user']; }, [], new stdClass());
+     * });   // annbob
+     * ```
+     *
+     * @see phasync::$contextStateDefaults
+     */
+    public static array $contextState = [];
+
+    /**
+     * What a context's array starts as when it is first made live (a copy: arrays are copy-on-write).
+     *
+     * @see phasync::$contextState
+     */
+    public static array $contextStateDefaults = [];
 
     /**
      * The currently set driver.
@@ -894,6 +917,40 @@ final class phasync
     public static function withContext(Closure $fn, object $context): mixed
     {
         return self::getDriver()->withContext($fn, $context);
+    }
+
+    /**
+     * Turns the swapping of the context-local state on; calling it again does nothing.
+     *
+     * From then on, whenever the loop runs a coroutine of another context than the one that ran last, {@see phasync::$contextState} is bound to that context's array. Before it, a switch checks one flag. Inside a coroutine, its context gets its array at once.
+     *
+     * @see phasync::$contextState
+     * @see phasync::adoptContextState
+     */
+    public static function enableContextState(): void
+    {
+        self::getDriver()->enableContextState();
+    }
+
+    /**
+     * Makes `$state`, by reference, the context-local state of the running coroutine's context, effective at once and for every later resume of it.
+     *
+     * The caller keeps `$state` and may adopt it into another context later. A `withContext()` given a factory creates its context here. It also turns the swapping on. Outside a coroutine it only binds {@see phasync::$contextState} to `$state`.
+     *
+     * ```php
+     * $shared = ['count' => 0];
+     * phasync::run(function () use (&$shared) {
+     *     phasync::adoptContextState($shared);
+     *     phasync::$contextState['count']++;
+     *     echo $shared['count'];   // 1
+     * });
+     * ```
+     *
+     * @see phasync::$contextState
+     */
+    public static function adoptContextState(array &$state): void
+    {
+        self::getDriver()->adoptContextState($state);
     }
 
     /**

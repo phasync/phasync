@@ -6,6 +6,7 @@ use Fiber;
 use phasync\Context\ContextFactoryInterface;
 use phasync\Context\ExceptionHandlerInterface;
 use phasync\Context\SwitchAwareInterface;
+use phasync\Internal\ContextState;
 use phasync\Internal\DeadmanException;
 use phasync\Internal\Debug;
 use phasync\Internal\ExceptionTool;
@@ -331,6 +332,19 @@ final class EventLoop implements \Countable
     /** Whether a switch-aware context was ever used: until then, switches check nothing. */
     private bool $switchAware = false;
 
+    /** Whether context-local state is on (see phasync::enableContextState()): until then, switches check this only. */
+    private bool $stateOn = false;
+
+    /** The context whose state phasync::$contextState is, while the state is on. */
+    private ?object $stateContext = null;
+
+    /**
+     * The context-local state of each context seen since it was turned on.
+     *
+     * @var \WeakMap<object, ContextState>
+     */
+    private \WeakMap $states;
+
     /**
      * The phasync extension's poll()-based stream_select() when it is loaded. It takes the
      * same arguments as the native one but is not limited by FD_SETSIZE, which caps the
@@ -361,6 +375,7 @@ final class EventLoop implements \Countable
      */
     public function clear(): void
     {
+        $this->states            = new \WeakMap();
         $this->contexts          = new \WeakMap();
         $this->contextFibers     = new \WeakMap();
         $this->outerContexts     = new \WeakMap();
@@ -528,6 +543,9 @@ final class EventLoop implements \Countable
                 if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
                     $this->makeLive($this->currentContext);
                 }
+                if ($this->stateOn && $this->currentContext !== $this->stateContext) {
+                    $this->liveState($this->currentContext);
+                }
 
                 if (isset($fiberExceptionHolders[$fiber])) {
                     // We got an opportunity to throw the exception inside the coroutine
@@ -643,6 +661,9 @@ final class EventLoop implements \Countable
             if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
                 $this->makeLive($this->currentContext);
             }
+            if ($this->stateOn && $this->currentContext !== $this->stateContext) {
+                $this->liveState($this->currentContext);
+            }
             if (isset($this->fiberExceptionHolders[$fiber])) {
                 $eh = $this->fiberExceptionHolders[$fiber];
                 unset($this->fiberExceptionHolders[$fiber]);
@@ -754,6 +775,9 @@ final class EventLoop implements \Countable
                 $this->switchAware = true;
                 $this->makeLive($context);
             }
+            if ($this->stateOn && $context !== $this->stateContext) {
+                $this->liveState($context);
+            }
             $fiber->start(...$args);
         } catch (\Throwable $e) {
             // $e = ExceptionTool::popTrace($e, __FILE__);
@@ -763,6 +787,9 @@ final class EventLoop implements \Countable
             $this->currentContext = $currentContext;
             if ($this->switchAware && null !== $currentFiber && $currentContext instanceof SwitchAwareInterface && $currentContext !== $this->liveContext) {
                 $this->makeLive($currentContext); // the creating coroutine goes on
+            }
+            if ($this->stateOn && null !== $currentFiber && $currentContext !== $this->stateContext) {
+                $this->liveState($currentContext); // likewise
             }
             if ($fiber->isTerminated()) {
                 $this->handleTerminatedFiber($fiber);
@@ -1080,6 +1107,9 @@ final class EventLoop implements \Countable
             $this->switchAware = true;
             $this->makeLive($context);
         }
+        if ($this->stateOn && $context !== $this->stateContext) {
+            $this->liveState($context);
+        }
         $this->withContextFinally[$id]  = [];
 
         return $outerFinally;
@@ -1119,6 +1149,9 @@ final class EventLoop implements \Countable
             $this->currentContext   = $previous;
             if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
                 $this->makeLive($previous);
+            }
+            if ($this->stateOn && $previous !== $this->stateContext) {
+                $this->liveState($previous);
             }
         }
     }
@@ -1310,6 +1343,44 @@ final class EventLoop implements \Countable
         $this->liveContext = $context;
         $was?->suspend();
         $context->resume();
+    }
+
+    /** $context's coroutine runs next: phasync::$contextState becomes its array, a copy of the defaults at first. */
+    private function liveState(object $context): void
+    {
+        $this->stateContext     = $context;
+        $holder                 = $this->states[$context] ??= new ContextState(\phasync::$contextStateDefaults);
+        \phasync::$contextState = &$holder->a;
+    }
+
+    /**
+     * Turn context-local state on; the running coroutine's context gets its array at once.
+     */
+    public function enableContextState(): void
+    {
+        if (!$this->stateOn) {
+            $this->stateOn = true;
+            if (null !== $this->currentContext) {
+                $this->liveState($this->currentContext);
+            }
+        }
+    }
+
+    /**
+     * Make $state, by reference, the context-local state of the running coroutine's context (which a
+     * lazy withContext() creates now), and of the loop's live state at once. Outside a coroutine it
+     * only becomes phasync::$contextState.
+     */
+    public function adoptContextState(array &$state): void
+    {
+        $this->stateOn = true;
+        $context       = $this->getCurrentContext();
+        if (null !== $context) {
+            $holder             = $this->states[$context] ??= new ContextState([]);
+            $holder->a          = &$state;
+            $this->stateContext = $context;
+        }
+        \phasync::$contextState = &$state;
     }
 
     /**
@@ -1961,6 +2032,9 @@ final class EventLoop implements \Countable
                 });
             } finally {
                 $this->currentContext = $outer;
+                if ($this->stateOn && null !== $outer && $outer !== $this->stateContext) {
+                    $this->liveState($outer);
+                }
             }
         }
         if (0 !== $this->cancellations && isset($this->cancelledFibers[$fiber])) {
