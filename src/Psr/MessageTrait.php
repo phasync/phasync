@@ -83,7 +83,7 @@ trait MessageTrait
     }
 
     /**
-     * Get message headers
+     * Returns the message headers.
      *
      * @return array<string, string[]>
      */

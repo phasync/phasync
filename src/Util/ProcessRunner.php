@@ -356,7 +356,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Returns true if the process is paused by a stop signal. Always false on Windows.
+     * Returns true if the process is paused by a stop signal.
+     *
+     * Always false on Windows.
      */
     public function isStopped(): bool
     {
@@ -396,7 +398,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Sends SIGTERM, which a process can catch to shut down. On Windows it ends the process at once.
+     * Sends SIGTERM, which a process can catch to shut down.
+     *
+     * On Windows it ends the process at once.
      *
      * @see ProcessRunner::sendSignal
      */
@@ -416,7 +420,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Sends SIGINT, the signal of Ctrl+C. On Windows it ends the process at once.
+     * Sends SIGINT, the signal of Ctrl+C.
+     *
+     * On Windows it ends the process at once.
      *
      * @see ProcessRunner::sendSignal
      */
@@ -426,7 +432,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Sends SIGSTOP, which pauses the process until `sigcont()`. On Windows it ends the process instead.
+     * Sends SIGSTOP, which pauses the process until `sigcont()`.
+     *
+     * On Windows it ends the process instead.
      *
      * @see ProcessRunner::sigcont
      */
@@ -436,7 +444,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Sends SIGCONT, which resumes a process paused by `sigstop()`. Not supported on Windows.
+     * Sends SIGCONT, which resumes a process paused by `sigstop()`.
+     *
+     * Not supported on Windows.
      *
      * @see ProcessRunner::sigstop
      */
@@ -446,7 +456,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Sends SIGHUP, which many daemons take as a request to reload their configuration. On Windows it ends the process at once.
+     * Sends SIGHUP, which many daemons take as a request to reload their configuration.
+     *
+     * On Windows it ends the process at once.
      *
      * @see ProcessRunner::sendSignal
      */

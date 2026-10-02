@@ -59,7 +59,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the scheme of the url
+     * Returns the scheme of the URI, lower case.
      *
      * @see Psr\Http\Message\UriInterface::getScheme()
      */
@@ -69,9 +69,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the hostname of the url
-     *
-     * @return mixed
+     * Returns the host of the URI, lower case.
      */
     public function getHost(): string
     {
@@ -79,7 +77,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the user of the url
+     * Returns the user of the URI.
      */
     public function getUser(): string
     {
@@ -87,7 +85,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the password of the url
+     * Returns the password of the URI.
      */
     public function getPassword(): ?string
     {
@@ -163,7 +161,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Returns the path section of the URL up until the query parameter and fragment
+     * Returns the path of the URI, up to the query and fragment.
      */
     public function getPath(): string
     {
@@ -171,7 +169,7 @@ class Uri implements UriInterface
     }
 
     /**
-     *	Get the entire query part of the url (from the ? until the fragment #)
+     * Returns the query of the URI: what follows the "?", up to the fragment.
      *
      *  @see Psr\Http\Message\UriInterface::getQuery()
      */
@@ -255,7 +253,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Set the path
+     * Returns a copy of the URI with the path replaced.
      *
      * @see Psr\Http\Message\UriInterface::withPath()
      */

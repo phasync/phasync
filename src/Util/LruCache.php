@@ -91,8 +91,10 @@ final class LruCache implements \Countable
     }
 
     /**
-     * Store $value, making room as needed. False when it alone is larger than $maxBytes: it is
-     * not stored, and an older value under $key is removed.
+     * Stores `$value` under `$key`, making room as needed.
+     *
+     * Returns false when the value alone is larger than `$maxBytes`: it is not stored, and an
+     * older value under `$key` is removed.
      *
      * @param T          $value
      * @param float|null $ttl   seconds until it expires; null for never

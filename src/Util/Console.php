@@ -80,14 +80,17 @@ final class Console
     }
 
     /**
-     * A log line, in one format everywhere: the local time to hundredths of a second, $source
-     * when given, the level from warning up, and the message. `{key}` placeholders take the
-     * values in $context (underlined when styled). Nothing is parsed as markup, and control
-     * characters are escaped, so the line shows what was logged and can't reach a terminal as
-     * escape sequences. A line that can't be written (a full disk, a reader gone) is lost
-     * silently: logging never throws.
+     * Writes a log line, in one format everywhere.
      *
-     *     2026-09-30 08:02:12.43 3 warning   disk /var is full
+     * The line has the local time to hundredths of a second, `$source` when given, the level from
+     * warning up, and the message. `{key}` placeholders take the values in `$context` (underlined
+     * when styled). Nothing is parsed as markup, and control characters are escaped, so the line
+     * shows what was logged and can't reach a terminal as escape sequences. A line that can't be
+     * written (a full disk, a reader gone) is lost silently: logging never throws.
+     *
+     * ```
+     * 2026-09-30 08:02:12.43 3 warning   disk /var is full
+     * ```
      *
      * @param string              $level   a PSR-3 level: debug, info, notice, warning, error,
      *                                     critical, alert or emergency
@@ -269,8 +272,10 @@ final class Console
     }
 
     /**
-     * $markup padded with $pad to $width columns: left-aligned (STR_PAD_RIGHT, the default),
-     * right-aligned (STR_PAD_LEFT) or centered (STR_PAD_BOTH). Wider markup is returned as it is.
+     * Returns `$markup` padded with `$pad` to `$width` columns.
+     *
+     * `$align` is `STR_PAD_RIGHT` (the default, left-aligned), `STR_PAD_LEFT` (right-aligned) or
+     * `STR_PAD_BOTH` (centered). Wider markup is returned as it is.
      */
     public static function pad(string $markup, int $width, int $align = \STR_PAD_RIGHT, string $pad = ' '): string
     {

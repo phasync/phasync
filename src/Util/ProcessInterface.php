@@ -41,7 +41,9 @@ interface ProcessInterface
     public function isRunning(): bool;
 
     /**
-     * Returns true if the process is paused by a stop signal. Always false on Windows.
+     * Returns true if the process is paused by a stop signal.
+     *
+     * Always false on Windows.
      *
      * @see ProcessInterface::isRunning
      */

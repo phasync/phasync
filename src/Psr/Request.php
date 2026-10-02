@@ -58,8 +58,9 @@ class Request implements RequestInterface
     }
 
     /**
-     * Create a request from a URI, deriving the request-target and Host
-     * header from it. This is the shape used by {@see PsrFactory::createRequest()}.
+     * Creates a request from a URI, deriving the request-target and Host header from it.
+     *
+     * This is the shape used by the PSR-17 request factory.
      *
      * @param string|\Stringable|UriInterface $uri full or relative URI
      */
@@ -89,8 +90,9 @@ class Request implements RequestInterface
     }
 
     /**
-     * Retrieves the message's request target. The request target is stored
-     * directly and returned as-is; it does not get constructed from the URI.
+     * Returns the request target of the message.
+     *
+     * The request target is stored directly and returned as it is; it is not constructed from the URI.
      */
     public function getRequestTarget(): string
     {
