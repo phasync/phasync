@@ -6,13 +6,22 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\UriInterface;
 
 /**
- * Representation of an outgoing, client-side request.
+ * A PSR-7 outgoing, client-side request.
  *
- * The request-target and the URI are independent, per PSR-7: the
- * request-target is the source of truth (as it arrived, or as set via
- * {@see self::withRequestTarget()}), and {@see self::getUri()} derives a
- * URI from it plus the Host header unless a URI was explicitly attached via
- * {@see self::withUri()}.
+ * The request-target and the URI are independent, as PSR-7 has them: the request-target is the
+ * source of truth, and {@see Request::getUri()} derives a URI from it and the Host header, unless one
+ * was set with {@see Request::withUri()}.
+ *
+ * ```php
+ * $request = new Request('POST', '/search?q=phasync', '{"limit":10}', [
+ *     'Host'         => 'example.com',
+ *     'Content-Type' => 'application/json',
+ * ]);
+ * (string) $request->getUri();   // "http://example.com/search?q=phasync"
+ * ```
+ *
+ * @see ServerRequest
+ * @see Response
  */
 class Request implements RequestInterface
 {
@@ -23,8 +32,10 @@ class Request implements RequestInterface
     protected ?UriInterface $uriOverride = null;
 
     /**
+     * Creates a request.
+     *
      * @param string $method          case-sensitive HTTP method
-     * @param string $requestTarget   request target, e.g. "/path?query=value"
+     * @param string $requestTarget   request target, e.g. "/path?query=value"; '' becomes "/"
      * @param mixed  $body            body, see {@see StreamFactory::create()}
      * @param array  $headers         array of header names => values
      * @param string $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
@@ -36,6 +47,9 @@ class Request implements RequestInterface
         $this->MessageTrait($body, $headers, $protocolVersion);
     }
 
+    /**
+     * Clones the URI set with `withUri()`, so a copy does not share it.
+     */
     public function __clone()
     {
         if (null !== $this->uriOverride) {

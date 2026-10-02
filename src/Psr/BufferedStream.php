@@ -8,35 +8,30 @@ use phasync\TimeoutException;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * PSR-7 StreamInterface
+ * A seekable PSR-7 stream for a body that is still being produced, kept in memory and then in a temporary file.
  *
- * Designed for returning a response which has not been completed yet. A
- * coroutine can continue appending to the stream. Once the stream buffer
- * reaches 2 MB, the stream is converted to a disk backed tempfile.
+ * One coroutine appends with {@see BufferedStream::append()} and ends with {@see BufferedStream::end()}.
+ * Content is kept in memory up to `$bufferSize` bytes, and then moved to a temporary file. Nothing
+ * is discarded when it has been read, so memory or disk use grows with the content; use
+ * {@see UnbufferedStream} for a body that is not needed after it was read. `getSize()` waits until
+ * `end()`.
  *
- * This is not suitable for streaming unlimited amounts of data; use the
- * UnbufferedStream class or a ComposableStream instead - which won't be
- * seekable and won't provide a stream length.
- *
- * Usage:
+ * Known limitation: after `end()`, `read()`, `seek()` and `getContents()` throw a `LogicException`
+ * ("No updates will occur in an ended stream"), so the content has to be read before `end()` is called.
  *
  * ```php
- * $s = new BufferedStream();
+ * $stream = new BufferedStream();
  *
- * // Create a coroutine which appends to the stream
- * phasync::go(function() use ($s) {
- *     // Append chunks as much as you need
- *     $s->append("A chunk");
- *     // Signal that the stream is complete
- *     $s->end();
+ * phasync::go(function () use ($stream) {
+ *     $stream->append('A chunk');
+ *     $stream->end();
  * });
  *
- * // Return the stream
- * return $response->withStream($s);
+ * $size = $stream->getSize();   // waits for end(): 7
  * ```
  *
- * By default, content up to 2 MB is buffered in memory, after which
- * content will be moved to a temporary disk file.
+ * @see UnbufferedStream
+ * @see StringStream
  */
 class BufferedStream implements StreamInterface
 {
@@ -59,12 +54,21 @@ class BufferedStream implements StreamInterface
     private bool $locked   = false;
     private bool $detached = false;
 
+    /**
+     * Creates an empty stream.
+     *
+     * @param int   $bufferSize      the content size in bytes above which it moves from memory to a temporary file
+     * @param float $deadlockTimeout seconds that a read or `getSize()` waits for the writer before throwing a `TimeoutException`
+     */
     public function __construct(int $bufferSize = 2 * 1024 * 1024, float $deadlockTimeout = 60)
     {
         $this->bufferSize      = $bufferSize;
         $this->deadlockTimeout = $deadlockTimeout;
     }
 
+    /**
+     * Returns the content from the start, or a message starting with "Stream Error" when that fails.
+     */
     public function __toString(): string
     {
         try {
@@ -263,13 +267,13 @@ class BufferedStream implements StreamInterface
     }
 
     /**
-     * Append more data to the stream
+     * Adds `$chunk` to the end of the stream, without waiting for a reader.
      *
-     * @throws \RuntimeException
-     * @throws TimeoutException
-     * @throws \Throwable
-     * @throws \LogicException
-     * @throws \FiberError
+     * The content moves from memory to a temporary file when it would pass `$bufferSize` bytes.
+     *
+     * @throws \LogicException after `end()`
+     *
+     * @see BufferedStream::end
      */
     public function append(string $chunk): void
     {
@@ -299,10 +303,11 @@ class BufferedStream implements StreamInterface
     }
 
     /**
-     * Inform that no more content will be appended to the stream,
-     * effectively declaring the end-of-file position.
+     * Declares that nothing more will be appended, which fixes the size of the stream.
      *
-     * @throws \LogicException
+     * @throws \LogicException when called twice
+     *
+     * @see BufferedStream::append
      */
     public function end(): void
     {

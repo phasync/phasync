@@ -6,10 +6,19 @@ use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 
 /**
- * PSR-7 UploadedFileInterface implementation.
+ * A PSR-7 file uploaded with a request.
  *
- * Accepts a stream resource, a file path (as $_FILES['tmp_name'] gives it),
- * or a StreamInterface (as the PSR-17 factory contract requires).
+ * Made from a stream resource, a file path (as `$_FILES['tmp_name']` gives it) or a `StreamInterface`.
+ * The client's file name and media type are what the client sent: do not trust them.
+ *
+ * ```php
+ * $file = new UploadedFile($_FILES['avatar']['tmp_name'], $_FILES['avatar']['name'], $_FILES['avatar']['type'], $_FILES['avatar']['size'], $_FILES['avatar']['error']);
+ * if (UPLOAD_ERR_OK === $file->getError()) {
+ *     $file->moveTo('/var/uploads/avatar.png');
+ * }
+ * ```
+ *
+ * @see ServerRequest::getUploadedFiles
  */
 class UploadedFile implements UploadedFileInterface
 {
@@ -38,12 +47,16 @@ class UploadedFile implements UploadedFileInterface
     protected bool $moved = false;
 
     /**
+     * Creates an uploaded file.
+     *
      * @param resource|string|StreamInterface $source          stream resource, file path (tmp_name), or stream
      * @param ?string                         $clientFilename  client-reported filename
      * @param ?string                         $clientMediaType client-reported MIME type
      * @param ?int                            $size            file size in bytes
-     * @param ?int                            $error           upload error code (an UPLOAD_ERR_* constant)
-     * @param bool                            $isUploadedFile  override is_uploaded_file() for testing
+     * @param ?int                            $error           upload error code (an UPLOAD_ERR_* constant); null is UPLOAD_ERR_OK
+     * @param bool                            $isUploadedFile  true to let `moveTo()` move a path that PHP did not receive as an upload (`rename()`); a path is otherwise moved only with `move_uploaded_file()`, or in the CLI with `rename()`
+     *
+     * @throws \InvalidArgumentException when `$source` is a path that does not exist (not for an upload that failed)
      */
     public function __construct(
         mixed $source,

@@ -902,8 +902,6 @@ final class phasync
      * Application code does not need it: the other methods of this class are the API of the loop.
      *
      * @throws \LogicException outside `phasync::run()`
-     *
-     * @see EventLoop
      */
     public static function getLoop(): EventLoop
     {

@@ -8,8 +8,11 @@ use Psr\Log\LoggerInterface;
 /**
  * A PSR-3 logger writing Console::log() lines: to a terminal styled, piped plain.
  *
- *     $logger = new ConsoleLogger();                                  // STDERR, every level
- *     $logger = new ConsoleLogger(new Console(STDOUT), 'warning');    // warning and up
+ * ```php
+ * $logger = new ConsoleLogger();                                  // STDERR, every level
+ * $logger = new ConsoleLogger(new Console(STDOUT), 'warning');    // warning and up
+ * $logger->error('disk {path} is full', ['path' => '/var']);
+ * ```
  *
  * It satisfies psr/log 1, 2 and 3 alike: untyped parameters where earlier versions have them,
  * `void` returns as 3 requires.
@@ -22,9 +25,13 @@ final class ConsoleLogger implements LoggerInterface
     private readonly int $minimum;
 
     /**
+     * Creates a logger.
+     *
      * @param Console|null $console where the lines go; null: STDERR
      * @param string       $level   the lowest level written
      * @param string       $source  a column after the time, such as a worker number
+     *
+     * @throws InvalidArgumentException for a level that is not a PSR-3 level
      */
     public function __construct(?Console $console = null, string $level = 'debug', private readonly string $source = '')
     {

@@ -16,8 +16,11 @@ namespace phasync\Util;
  *   `lpad 20` pads on the left; `center 20` centers. Longer content is cut with "…", or
  *   without it given clip. A width may be a percentage of the terminal's: `pad 50%`.
  *
- *     $out->write("<!bold pad 12>--http<!><!dim>Serve HTTP here<!>\n");
- *     $out->write("<!lpad 8>1.2 MB<!> <!pad 40>$name<!>\n");
+ * ```php
+ * $out = new Console();
+ * $out->write("<!bold pad 12>--http<!><!dim>Serve HTTP here<!>\n");
+ * $out->write("<!lpad 8>1.2 MB<!> <!pad 40>$name<!>\n");
+ * ```
  *
  * Text from elsewhere goes through escape() first. Widths count terminal columns: East Asian
  * wide characters and emoji take 2, combining marks and zero-width characters 0.
@@ -47,15 +50,30 @@ final class Console
     private string $time = '';
 
     /**
-     * @param resource  $stream where write() writes
-     * @param bool|null $color  styled output; null: when $stream is a terminal, unless the
-     *                          NO_COLOR environment variable is set (or FORCE_COLOR is)
+     * Creates a console writing to `$stream`.
+     *
+     * @param resource  $stream where `write()` and `log()` write
+     * @param bool|null $color  styled output; null: when `$stream` is a terminal, unless the NO_COLOR environment variable is set (or FORCE_COLOR is)
      */
     public function __construct(private $stream = \STDOUT, ?bool $color = null)
     {
         $this->color = $color ?? self::detectColor($stream);
     }
 
+    /**
+     * Writes `$markup` to the stream, styled or plain as the console is.
+     *
+     * ```php
+     * $out = new Console();
+     * $out->write("<!bold pad 12>--http<!><!dim>Serve HTTP here<!>\n");
+     * ```
+     *
+     * @param string $markup text with `<!...>` spans, see the class description
+     *
+     * @throws \InvalidArgumentException for a `pad`, `lpad`, `rpad` or `center` without a width
+     *
+     * @see Console::log
+     */
     public function write(string $markup): void
     {
         \fwrite($this->stream, $this->render($markup));
@@ -122,6 +140,9 @@ final class Console
         return $this->color ? self::ansi($markup) : self::plain($markup);
     }
 
+    /**
+     * Returns whether this console writes styled output.
+     */
     public function hasColor(): bool
     {
         return $this->color;

@@ -26,6 +26,8 @@ namespace phasync;
 final class AggregateException extends \RuntimeException
 {
     /**
+     * Wraps `$exceptions`, which the library does when several unawaited coroutines fail.
+     *
      * @param non-empty-list<\Throwable> $exceptions the failures, in the order they happened
      */
     public function __construct(private readonly array $exceptions)

@@ -33,6 +33,14 @@ final class LruCache implements \Countable
 
     private int $bytes = 0;
 
+    /**
+     * Creates an empty cache.
+     *
+     * @param int $maxEntries the most entries held; the least recently used go first
+     * @param int $maxBytes   the most bytes held, counting keys and string values
+     *
+     * @throws \InvalidArgumentException when either is below 1
+     */
     public function __construct(
         private readonly int $maxEntries = \PHP_INT_MAX,
         private readonly int $maxBytes = \PHP_INT_MAX,
@@ -43,7 +51,15 @@ final class LruCache implements \Countable
     }
 
     /**
-     * @return T|mixed the value, or $default when there is none (or it expired)
+     * Returns the value stored under `$key`, and makes it the most recently used.
+     *
+     * @param string $key     the key
+     * @param mixed  $default returned when there is no entry, or it expired
+     *
+     * @return T|mixed the value, or `$default`
+     *
+     * @see LruCache::has
+     * @see LruCache::set
      */
     public function get(string $key, mixed $default = null): mixed
     {
@@ -57,6 +73,11 @@ final class LruCache implements \Countable
         return $value;
     }
 
+    /**
+     * Returns whether there is an entry for `$key`, and makes it the most recently used if there is.
+     *
+     * @see LruCache::get
+     */
     public function has(string $key): bool
     {
         if (!\array_key_exists($key, $this->values) || $this->expired($key)) {
@@ -113,6 +134,9 @@ final class LruCache implements \Countable
         return true;
     }
 
+    /**
+     * Removes every entry.
+     */
     public function clear(): void
     {
         $this->values  = [];

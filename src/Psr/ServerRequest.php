@@ -8,6 +8,23 @@ use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriInterface;
 
+/**
+ * A PSR-7 request as a server received it.
+ *
+ * Adds the server and cookie parameters, the query parameters, the uploaded files, the parsed body
+ * and the attributes to {@see Request}. Like all PSR-7 messages it is immutable. The body, the
+ * uploaded files and the parsed body can be given as closures, so that a server parses them only when
+ * the application asks.
+ *
+ * ```php
+ * $request = new ServerRequest('POST', '/login?next=/home', 'user=ann', ['Host' => 'example.com'], parsedBody: ['user' => 'ann']);
+ * $request->getQueryParams();   // ['next' => '/home']
+ * $request->getParsedBody();    // ['user' => 'ann']
+ * ```
+ *
+ * @see Request
+ * @see UploadedFile
+ */
 class ServerRequest extends Request implements ServerRequestInterface
 {
     protected array $serverParams           = [];
@@ -19,20 +36,23 @@ class ServerRequest extends Request implements ServerRequestInterface
     private ?\Closure $bodySource           = null;
 
     /**
-     * @param string                           $method          case-sensitive HTTP method
-     *                                                          A Closure given for the body, the uploaded files or the parsed body is called each time that
-     *                                                          is asked for, until a with...() replaces it: a server can parse the body on demand, and every
-     *                                                          clone sees the same state.
-     * @param string                           $requestTarget   request target, e.g. "/path?query=value"
-     * @param mixed                            $body            body, see {@see StreamFactory::create()}, or a Closure returning it
-     * @param array                            $headers         array of header names => values
-     * @param ?array                           $queryParams     query params override; null derives them from the request target
-     * @param array                            $serverParams    server params, like $_SERVER
-     * @param array                            $cookieParams    cookie params, like $_COOKIE
+     * Creates a server request.
+     *
+     * A Closure given for the body, the uploaded files or the parsed body is called each time that is asked for, until a `with...()` method replaces it: a server can parse the body on demand, and every clone sees the same state.
+     *
+     * @param string                          $method          case-sensitive HTTP method
+     * @param string                          $requestTarget   request target, e.g. "/path?query=value"
+     * @param mixed                           $body            body, see {@see StreamFactory::create()}, or a Closure returning it
+     * @param array                           $headers         array of header names => values
+     * @param ?array                          $queryParams     query params override; null derives them from the request target
+     * @param array                           $serverParams    server params, like $_SERVER
+     * @param array                           $cookieParams    cookie params, like $_COOKIE
      * @param UploadedFileInterface[]|\Closure $uploadedFiles   tree of uploaded file instances, or a Closure returning it
-     * @param array|object|\Closure|null       $parsedBody      deserialized body data, or a Closure returning it
-     * @param array                            $attributes      attributes derived from the request
-     * @param string                           $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     * @param array|object|\Closure|null      $parsedBody      deserialized body data, or a Closure returning it
+     * @param array                           $attributes      attributes derived from the request
+     * @param string                          $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     *
+     * @throws \InvalidArgumentException when `$uploadedFiles` is not a tree of `UploadedFileInterface`
      */
     public function __construct(
         string $method,
@@ -65,6 +85,9 @@ class ServerRequest extends Request implements ServerRequestInterface
         $this->attributes    = $attributes;
     }
 
+    /**
+     * Clones a parsed body that is an object, so a copy does not share it.
+     */
     public function __clone()
     {
         parent::__clone();

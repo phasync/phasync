@@ -8,6 +8,22 @@ use phasync\TimeoutException;
 /**
  * An object that runs a closure while holding a lock that other coroutines wait for.
  *
+ * ```php
+ * class Counter implements phasync\Util\LockInterface
+ * {
+ *     use phasync\Util\LockTrait;
+ *
+ *     public int $value = 0;
+ * }
+ *
+ * phasync::run(function () {
+ *     $counter = new Counter();
+ *     $counter->lock(function () use ($counter) {
+ *         $counter->value++;
+ *     });
+ * });
+ * ```
+ *
  * @see phasync\Util\LockTrait
  * @see phasync\Util\Synchronized
  */

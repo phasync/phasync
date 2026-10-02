@@ -6,7 +6,17 @@ use function parse_url;
 use Psr\Http\Message\UriInterface;
 
 /**
- *	Class simplifies working with URIs
+ * A PSR-7 URI.
+ *
+ * Built from a string or another `UriInterface`. Immutable: the `with...()` methods return a modified copy.
+ *
+ * ```php
+ * $uri = new Uri('https://example.com/search?q=phasync');
+ * $uri->getHost();                      // "example.com"
+ * (string) $uri->withPath('/docs');     // "https://example.com/docs?q=phasync"
+ * ```
+ *
+ * @see Request::getUri
  */
 class Uri implements UriInterface
 {
@@ -39,9 +49,9 @@ class Uri implements UriInterface
     ];
 
     /**
-     * Configure the UriTrait
+     * Creates a URI from `$uri`.
      *
-     * @param string|Stringable|UriInterface $uri An absolute URL
+     * @param string|UriInterface $uri an absolute URL, or a relative reference
      */
     public function __construct(string|UriInterface $uri)
     {
@@ -294,7 +304,9 @@ class Uri implements UriInterface
     }
 
     /**
-     * @see \JsonSerializable::jsonSerialize()
+     * Returns the URI as a string, like `__toString()`.
+     *
+     * Uri does not implement `JsonSerializable`, so `json_encode()` does not call this.
      */
     public function jsonSerialize()
     {

@@ -5,6 +5,14 @@ namespace phasync\Util;
 /**
  * A first-in first-out queue that coroutines may share.
  *
+ * ```php
+ * $queue = new phasync\Util\Queue();
+ * $queue->enqueue('job');
+ * if ($queue->tryDequeue($job)) {
+ *     echo $job;          // job
+ * }
+ * ```
+ *
  * @template TType
  *
  * @see phasync\Util\Queue

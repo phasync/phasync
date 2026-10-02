@@ -8,31 +8,36 @@ use phasync\TimeoutException;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * Unbuffered streaming PSR-7 StreamInterface
+ * A PSR-7 stream for a body that is still being produced, read once and in order.
  *
- * Designed for returning a response which has not been completed yet. A
- * coroutine can continue appending to the stream.
+ * One coroutine appends with {@see UnbufferedStream::append()} and ends with {@see UnbufferedStream::end()};
+ * another reads. `read()` waits while there is nothing to read and the stream is not ended, and
+ * `append()` waits while more than `$bufferSize` bytes are unread. The stream is not seekable or writable,
+ * and `getSize()` is null.
  *
- * Usage:
+ * Both sides wait with `phasync::awaitFlag()`: after `$deadlockTimeout` seconds without the other side
+ * making progress, the waiting call throws a `TimeoutException`.
+ *
+ * The coroutine that created the stream cannot convert it to a string: `__toString()` returns an
+ * error message instead of waiting for itself.
  *
  * ```php
- * $s = new UnbufferedStream();
+ * $stream = new UnbufferedStream();
  *
- * // Create a coroutine which appends to the stream
- * phasync::go(function() use ($s) {
- *     // Append chunks as much as you need
- *     $s->append("A chunk");
- *
- *     // Signal that the stream is complete
- *     $s->end();
+ * phasync::go(function () use ($stream) {
+ *     foreach (['one', 'two', 'three'] as $chunk) {
+ *         $stream->append($chunk . "\n");
+ *         phasync::sleep(0.1);
+ *     }
+ *     $stream->end();
  * });
  *
- * // Return the stream
- * return $response->withStream($s);
+ * // A server sends this body to the client, reading it from another coroutine
+ * $response = $response->withBody($stream);
  * ```
  *
- * By default the stream will buffer up to 64 KB of data, to improve
- * performance and reduce context switching.
+ * @see BufferedStream when the body must be seekable or have a size
+ * @see StringStream for a body that is complete
  */
 class UnbufferedStream implements StreamInterface
 {
@@ -52,6 +57,12 @@ class UnbufferedStream implements StreamInterface
     private object $readFlag;
     private object $writeFlag;
 
+    /**
+     * Creates an empty stream, owned by the current coroutine.
+     *
+     * @param int   $bufferSize      the number of unread bytes after which `append()` waits for the reader
+     * @param float $deadlockTimeout seconds that `read()` and `append()` wait for the other side before throwing a `TimeoutException`
+     */
     public function __construct(int $bufferSize = 64 * 1024, float $deadlockTimeout = 60)
     {
         $this->bufferSize      = $bufferSize;
@@ -61,6 +72,10 @@ class UnbufferedStream implements StreamInterface
         $this->writeFlag       = new \stdClass();
     }
 
+    /**
+     * Returns the rest of the stream, or a message starting with "Stream Error" when it cannot: it was
+     * closed or detached, or this is the coroutine that created the stream.
+     */
     public function __toString(): string
     {
         if ($this->creator->get() === \phasync::getFiber()) {
@@ -76,6 +91,12 @@ class UnbufferedStream implements StreamInterface
         return $this->getContents();
     }
 
+    /**
+     * Discards the unread content.
+     *
+     * Reads until `end()` has been called, so that the appending coroutine is not left waiting, and then
+     * releases the buffer. It waits as long as the writer takes.
+     */
     public function close(): void
     {
         // Ensure the writer is not blocked indefinitely
@@ -193,13 +214,15 @@ class UnbufferedStream implements StreamInterface
     }
 
     /**
-     * Append more data to the stream
+     * Adds `$chunk` to the end of the stream.
      *
-     * @throws \RuntimeException
-     * @throws TimeoutException
-     * @throws \Throwable
-     * @throws \LogicException
-     * @throws \FiberError
+     * Returns at once while no more than `$bufferSize` bytes are unread, and otherwise waits until the
+     * reader has read enough.
+     *
+     * @throws \RuntimeException after `end()`
+     * @throws TimeoutException when the reader makes no progress for `$deadlockTimeout` seconds
+     *
+     * @see UnbufferedStream::end
      */
     public function append(string $chunk): void
     {
@@ -218,10 +241,11 @@ class UnbufferedStream implements StreamInterface
     }
 
     /**
-     * Inform that no more content will be appended to the stream,
-     * effectively declaring the end-of-file position.
+     * Declares that nothing more will be appended, which lets a reader reach the end of the stream.
      *
-     * @throws \LogicException
+     * @throws \RuntimeException when called twice
+     *
+     * @see UnbufferedStream::append
      */
     public function end(): void
     {

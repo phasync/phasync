@@ -5,7 +5,18 @@ namespace phasync\Psr;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * A PSR-7 StreamInterface containing a constant string.
+ * A readable, seekable PSR-7 stream over a string that is known in full.
+ *
+ * Never blocks. {@see StreamFactory::create()} returns one for a string body.
+ *
+ * ```php
+ * $stream = new StringStream('Hello');
+ * $stream->read(2);        // "He"
+ * $stream->getSize();      // 5
+ * ```
+ *
+ * @see UnbufferedStream
+ * @see BufferedStream
  */
 class StringStream implements StreamInterface
 {
@@ -14,11 +25,19 @@ class StringStream implements StreamInterface
     private bool $detached  = false;
     private string $buffer;
 
+    /**
+     * Creates a stream with `$contents`.
+     *
+     * @param string $contents the entire content of the stream
+     */
     public function __construct(string $contents)
     {
         $this->buffer = $contents;
     }
 
+    /**
+     * Returns the whole content, and moves the read position to its end.
+     */
     public function __toString(): string
     {
         $this->readOffset = \strlen($this->buffer);

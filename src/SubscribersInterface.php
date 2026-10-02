@@ -7,6 +7,18 @@ namespace phasync;
  *
  * Iterating over it reads the messages of a new subscription.
  *
+ * ```php
+ * phasync::run(function () {
+ *     phasync::publisher($subscribers, $publisher);
+ *
+ *     $subscription = $subscribers->subscribe();
+ *     $publisher->write('first');
+ *     $publisher->close();
+ *
+ *     echo $subscription->read();   // first
+ * });
+ * ```
+ *
  * @see phasync::publisher
  * @see phasync\SubscriberInterface
  */

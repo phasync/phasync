@@ -11,6 +11,14 @@ namespace phasync\Util;
  *
  * Standard input, output and error are sockets that are set to non-blocking, so a coroutine waiting for the child does not block the others. Use `Process::run()` instead of constructing it. The signal methods are shortcuts for `sendSignal()`.
  *
+ * ```php
+ * phasync::run(function () {
+ *     $process = phasync\Util\Process::run('sleep', ['10']);
+ *     phasync::sleep(0.1);
+ *     $process->sigterm();
+ * });
+ * ```
+ *
  * @see phasync\Util\Process::run
  * @see phasync\Util\ProcessInterface
  */
