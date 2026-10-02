@@ -152,12 +152,15 @@ such services are freed with the request. A context entered from another (`withC
 or `go()` with a context of its own) is nested in it. `getRootContext()` gives the context's
 root: a `run()`'s context is its own root, and so is a context entered from it (a request);
 contexts nested deeper share that one's root. A context may implement
-`SwitchAwareInterface` to swap per-request state in and out. `withContext()` may be given a
+`SwitchAwareInterface` to swap per-request state in and out; or, without implementing anything,
+use `phasync::$contextState`, an array bound to the running coroutine's context once
+`phasync::enableContextState()` or `phasync::adoptContextState($array)` has turned that on
+(`phasync::$contextStateDefaults` is what a new context starts with). `withContext()` may be given a
 `ContextFactoryInterface` instead: the context is created when the closure first needs it, and
 a closure that never does runs in its coroutine's own context. `withContext()` is `run()` without
 the coroutine: it returns when the coroutines the closure started have ended, and cancels them
 when the closure throws or the caller is cancelled. There is no storage API on
-the context (D4). ✅ ScopesTest, ContextTest, WithContextTest, LazyContextTest
+the context (D4). ✅ ScopesTest, ContextTest, WithContextTest, LazyContextTest, ContextStateTest
 
 
 ## 4. Errors

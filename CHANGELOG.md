@@ -2,6 +2,16 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Added
+
+- Context-local state: `phasync::$contextState` is bound, by reference, to the array of the running
+  coroutine's context, so contexts do not see each other's writes. `phasync::enableContextState()`
+  or `phasync::adoptContextState(array &$state)` (use a caller's array as the context's state) turn
+  it on; `phasync::$contextStateDefaults` is what a new context starts with. Until then a switch
+  checks one flag.
+
 ## 2.0.0-beta4 (2026-10-02)
 
 ### Added
