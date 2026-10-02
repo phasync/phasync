@@ -2,29 +2,17 @@
 
 namespace phasync\Util;
 
+// The standard descriptors are `['socket']`, not `['pipe', ...]`: a pipe cannot be made non-blocking or
+// polled on Windows, a socket can, so POSIX and Windows share one implementation. For the child a
+// socketpair behaves as a pipe does: EOF on close, SIGPIPE on a write after the parent closed, and
+// no tty either way; only a program that tests for S_ISFIFO sees a difference.
 /**
- * Launches and manages a child process on POSIX and Windows alike.
+ * The implementation behind `Process::run()`: starts a child process and controls it.
  *
- * STDIN/STDOUT/STDERR are `['socket']` descriptors (proc_open() has supported these since PHP
- * 8.0, php-src 547d98b / GH-5777), not `['pipe', ...]`. A pipe cannot be made non-blocking or
- * polled by `stream_select()`/`WaitForMultipleObjects` on Windows; a socket can, on every
- * platform phasync supports (>= 8.2). Using sockets everywhere, instead of pipes on POSIX and
- * something else on Windows, keeps this one implementation and one behaviour: no per-platform
- * branch anywhere below this class except command resolution and `proc_open()`'s own
- * Windows-only `bypass_shell` option.
+ * Standard input, output and error are sockets that are set to non-blocking, so a coroutine waiting for the child does not block the others. Use `Process::run()` instead of constructing it. The signal methods are shortcuts for `sendSignal()`.
  *
- * Measured/considered behaviour differences of a socketpair vs. a pipe, for the child:
- * - EOF on close: identical. Closing the parent's end of either a pipe or a socketpair delivers
- *   EOF (a zero-length read) to the child, and vice versa.
- * - SIGPIPE/EPIPE: identical on POSIX. A child that writes after the parent has closed its end
- *   gets SIGPIPE (default action: terminate) exactly as it would writing to a closed pipe; the
- *   kernel raises SIGPIPE for a broken connection on a stream socket the same way it does for a
- *   pipe. Nothing here changes a child's signal disposition.
- * - `fstat()`/`isatty()` on the child's fd: a socket reports `S_ISSOCK`, a pipe `S_ISFIFO` --
- *   neither is a tty, so libc's default (fully buffered, non-interactive) stdio buffering is the
- *   same either way. A program that specifically branches on `S_ISFIFO` (rare; e.g. to decide
- *   whether `splice()`/`sendfile()` applies) would see a difference, but none of phasync's own
- *   code or tests do this, and it is not a documented assumption of `ProcessInterface`.
+ * @see phasync\Util\Process::run
+ * @see phasync\Util\ProcessInterface
  */
 final class ProcessRunner implements ProcessInterface
 {
@@ -57,13 +45,14 @@ final class ProcessRunner implements ProcessInterface
     private ?array $status = null;
 
     /**
-     * Launch a new process.
+     * Starts the process.
      *
-     * @param string[]              $command The command and arguments as array elements
-     * @param string                $cwd     The working directory of the process
-     * @param array<string, string> $env     The environment for the process (or null to inherit env from the PHP process)
+     * @param string[]              $command the executable and its arguments, one element each
+     * @param string|null           $cwd     the working directory of the child; null: the current one
+     * @param array<string,string>|null $env the environment of the child, replacing the current one; null: inherit it
      *
-     * @return void
+     * @throws \RuntimeException if the command is not found or not executable, or cannot be started
+     * @throws \LogicException   on Windows before PHP 8.3
      */
     public function __construct(array $command, ?string $cwd = null, ?array $env = null)
     {
@@ -306,11 +295,23 @@ final class ProcessRunner implements ProcessInterface
         return null;
     }
 
+    /**
+     * Returns the stream of a standard descriptor.
+     *
+     * @param int $fd `ProcessInterface::STDIN`, `STDOUT` or `STDERR`
+     *
+     * @return resource|null null for any other number
+     */
     public function getStream(int $fd): mixed
     {
         return $this->pipes[$fd] ?? null;
     }
 
+    /**
+     * Ends the process: SIGTERM, then SIGKILL after one second, and waits up to five seconds in all.
+     *
+     * @return bool true if the process is no longer running
+     */
     public function stop(): bool
     {
         if ($this->isRunning()) {
@@ -335,7 +336,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Returns true if the process is still running.
+     * Returns true if the process is running.
+     *
+     * Once it has ended, the standard streams are closed.
      */
     public function isRunning(): bool
     {
@@ -345,11 +348,7 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Returns true if the process is stopped (generally via
-     * {@see Process::sigstop()}).
-     *
-     * Always false on Windows: there is no signal there that pauses a process the way SIGSTOP
-     * does (see sigstop()).
+     * Returns true if the process is paused by a stop signal. Always false on Windows.
      */
     public function isStopped(): bool
     {
@@ -359,8 +358,7 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Return the exitcode of the process, or false if the process
-     * is still running.
+     * Returns the exit code of the process, or false while it runs.
      */
     public function getExitCode(): int|false
     {
@@ -372,20 +370,13 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Send a POSIX signal to the process.
+     * Sends a signal to the process, and returns false without sending it if the process is not running.
      *
-     * Sends a specified POSIX signal to the running process. If the process
-     * is not running, the function will return false without sending a signal.
+     * On Windows the signal cannot be chosen: `$signal` is ignored and every call ends the process at once, as `sigkill()` does on POSIX.
      *
-     * On Windows, proc_terminate() (what this calls) cannot deliver a specific signal: $signal
-     * is accepted for interface compatibility but ignored, and every call forcibly ends the
-     * process outright, the same as sigkill() on POSIX. This means sigstop()/sigcont() cannot
-     * pause or resume a process there, and sigterm()/sigint()/sighup() cannot ask a Windows
-     * child to shut down gracefully -- they hard-kill it, same as sigkill().
+     * @param int $signal the signal number; 15 is SIGTERM
      *
-     * @param int $signal the signal number to send (default: SIGTERM); ignored on Windows
-     *
-     * @return bool true if the signal was successfully sent, false otherwise
+     * @return bool true if the signal was sent
      */
     public function sendSignal(int $signal = 15): bool
     {
@@ -397,13 +388,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * SIGTERM requests a process to terminate. It is a polite way to tell
-     * a process to stop running. Unlike SIGKILL, this signal can be caught,
-     * handled, and ignored, allowing a process to shut down gracefully.
+     * Sends SIGTERM, which a process can catch to shut down. On Windows it ends the process at once.
      *
-     * On Windows this hard-kills the process instead; see sendSignal().
-     *
-     * @throws \LogicException
+     * @see ProcessRunner::sendSignal
      */
     public function sigterm(): bool
     {
@@ -411,13 +398,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * This signal forces a process to terminate immediately. Operating
-     * systems typically use SIGKILL to deal with unresponsive processes.
-     * It cannot be caught, handled, or ignored, making it a surefire
-     * but potentially unsafe way to stop a process as it does not allow
-     * for clean-up operations.
+     * Sends SIGKILL, which a process cannot catch or ignore.
      *
-     * @throws \LogicException
+     * @see ProcessRunner::sendSignal
      */
     public function sigkill(): bool
     {
@@ -425,15 +408,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * This signal is typically sent when the user types the interrupt
-     * character (usually Ctrl+C). It tells the process to interrupt
-     * its current activity. SIGINT allows the process to clean up
-     * nicely, releasing resources and saving state if necessary before
-     * exiting.
+     * Sends SIGINT, the signal of Ctrl+C. On Windows it ends the process at once.
      *
-     * On Windows this hard-kills the process instead; see sendSignal().
-     *
-     * @throws \LogicException
+     * @see ProcessRunner::sendSignal
      */
     public function sigint(): bool
     {
@@ -441,14 +418,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * This signal pauses a process's execution. It can be used to
-     * temporarily stop a process for later resumption with SIGCONT. Like
-     * SIGKILL, SIGSTOP cannot be caught, handled, or ignored.
+     * Sends SIGSTOP, which pauses the process until `sigcont()`. On Windows it ends the process instead.
      *
-     * Not supported on Windows: proc_terminate() has no way to pause a process, so this
-     * hard-kills it instead of pausing it; see sendSignal().
-     *
-     * @throws \LogicException
+     * @see ProcessRunner::sigcont
      */
     public function sigstop(): bool
     {
@@ -456,13 +428,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * SIGCONT is used to resume a process previously stopped by SIGSTOP
-     * or another stop signal. This signal allows for job control as well
-     * as pausing and resuming processes.
+     * Sends SIGCONT, which resumes a process paused by `sigstop()`. Not supported on Windows.
      *
-     * Not supported on Windows; see sigstop() and sendSignal().
-     *
-     * @throws \LogicException
+     * @see ProcessRunner::sigstop
      */
     public function sigcont(): bool
     {
@@ -470,13 +438,9 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Originally sent when a terminal was closed, today SIGHUP is often
-     * used to instruct background processes to reload their configuration
-     * files or to gracefully restart. It can be caught and handled, which
-     * allows applications to perform specific actions, such as re-reading
-     * a configuration file.
+     * Sends SIGHUP, which many daemons take as a request to reload their configuration. On Windows it ends the process at once.
      *
-     * On Windows this hard-kills the process instead; see sendSignal().
+     * @see ProcessRunner::sendSignal
      */
     public function sighup(): bool
     {
@@ -506,11 +470,11 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Perform a Fiber-blocking read from the given process pipe.
+     * Waits until the stream has something to read, and returns what is there; an empty string at the end of the stream.
      *
-     * @param int $fd The file descriptor number
+     * @param int $fd `ProcessInterface::STDOUT` or `STDERR`
      *
-     * @return string|null
+     * @throws \phasync\IOException if the stream is closed
      */
     public function read(int $fd = ProcessInterface::STDOUT): string|false
     {
@@ -520,10 +484,14 @@ final class ProcessRunner implements ProcessInterface
     }
 
     /**
-     * Perform a Fiber-blocking write to the given process pipe.
+     * Waits until the stream can take data, and writes as much as it takes; false if the process is not running.
      *
-     * @throws \FiberError
-     * @throws \Throwable
+     * @param string $data what to write
+     * @param int    $fd   `ProcessInterface::STDIN`
+     *
+     * @return int|false the number of bytes written, which may be less than all of `$data`
+     *
+     * @throws \phasync\IOException if the stream is closed
      */
     public function write(string $data, int $fd = ProcessInterface::STDIN): int|false
     {

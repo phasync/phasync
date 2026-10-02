@@ -8,33 +8,31 @@ use phasync\SelectableInterface;
 use phasync\TimeoutException;
 
 /**
- * A high performance string buffer for buffering streaming data that can be
- * parsed efficiently. Designed for protocol parsing in servers (HTTP, FastCGI,
- * WebSocket) where you need to read fixed-size frames from a byte stream.
+ * A buffer of streamed bytes that one coroutine fills and another reads, for parsing protocols that arrive in frames.
  *
- * For safe coroutine-to-coroutine communication, use Channels instead.
+ * Designed for servers (HTTP, FastCGI, WebSocket) that read fixed-size frames from a byte stream. A reader waits for data, `readFixed()` waits for a whole frame, and `end()` marks the end of the stream. Unbounded by default: a writer that outpaces its reader grows the buffer without limit. With `$maxSize`, `write()` waits until the reader has made room. For passing values between coroutines, use a channel.
  *
- * To prevent readers from waiting forever if the writer crashes, use the
- * deadman switch feature:
+ * If the writing coroutine exits without calling `end()`, readers must not wait forever. Ask for `getDeadmanSwitch()` in the writer and keep the object until it ends: when it is destroyed without `end()` having been called, a reader that has read the buffered data gets an exception instead of waiting.
  *
  * ```php
- * phasync::go(function() use ($sb, $socket) {
- *     $deadman = $sb->getDeadmanSwitch();
- *     while ($data = fread($socket, 8192)) {
- *         $sb->write($data);
- *     }
- *     $sb->end(); // Always end properly - deadman is just a safety net
+ * phasync::run(function () {
+ *     $buffer = new phasync\Util\StringBuffer();
+ *
+ *     phasync::go(function () use ($buffer) {
+ *         $buffer->write("he");
+ *         phasync::sleep(0.01);
+ *         $buffer->write("llo\n");
+ *         $buffer->end();
+ *     });
+ *
+ *     var_dump($buffer->readFixed(5));   // string(5) "hello", after both writes
+ *     var_dump($buffer->read(10));       // string(1) "\n"
+ *     var_dump($buffer->read(10));       // string(0) "": the buffer has ended
  * });
  * ```
  *
- * If the writer exits without calling end(), the deadman switch triggers and
- * any blocking read will throw DeadmanException. Buffered data can still be
- * read before the exception is thrown.
- *
- * By default the buffer is unbounded: a writer that outpaces its reader grows
- * it without limit. Pass $maxSize to the constructor for backpressure instead
- * -- write() then blocks until enough has been read to make room, the same
- * way read() blocks until there is enough to return.
+ * @see phasync::channel
+ * @see phasync\SelectableInterface
  */
 class StringBuffer implements SelectableInterface
 {
@@ -98,11 +96,11 @@ class StringBuffer implements SelectableInterface
     private ?int $maxSize = null;
 
     /**
-     * Create a new StringBuffer instance.
+     * Creates an empty buffer.
      *
-     * @param int<1,max>|null $maxSize Backpressure limit; null (the default) is unbounded
+     * @param int<1,max>|null $maxSize the most bytes `write()` lets accumulate unread before it waits; null: no limit
      *
-     * @throws \OutOfBoundsException if $maxSize is given and is less than 1
+     * @throws \OutOfBoundsException if `$maxSize` is given and below 1
      */
     public function __construct(?int $maxSize = null)
     {
@@ -114,10 +112,13 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Wait until the buffer has data available to read or has been ended.
-     * Returns when data is available, buffer is ended, or timeout expires.
+     * Waits until the buffer has data to read or has ended.
      *
-     * @param float $timeout Maximum time to wait in seconds (default: infinity)
+     * Returns when data is available, the buffer has ended or failed, or the timeout has passed: it does not throw on a timeout, so check `isReady()` after it.
+     *
+     * @param float $timeout seconds to wait at most
+     *
+     * @see StringBuffer::isReady
      */
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -136,14 +137,9 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Check if a read operation would not block.
+     * Returns true if a read would not wait: data is buffered, or the buffer has ended or failed.
      *
-     * Returns true if:
-     * - The buffer has data available to read, OR
-     * - The buffer has been ended (reading returns empty string or data), OR
-     * - The buffer has failed (reading will throw DeadmanException)
-     *
-     * @return bool True if reading would not block
+     * @see StringBuffer::await
      */
     public function isReady(): bool
     {
@@ -155,7 +151,7 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Returns true if there is no data currently available to read.
+     * Returns true if no data is buffered for reading.
      */
     public function isEmpty(): bool
     {
@@ -163,13 +159,17 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Write data to the buffer. If a $maxSize was given to the constructor and
-     * the buffer currently holds that much unread data, this blocks until the
-     * reader has consumed enough to make room, the same way read() blocks
-     * until there is enough to return.
+     * Appends `$chunk` to the buffer, and wakes the reader.
      *
-     * @throws \RuntimeException if the buffer has already been ended
-     * @throws TimeoutException  if $maxSize is set and $timeout expires before there is room
+     * With a `$maxSize` and that much data unread, it waits until the reader has consumed enough. A `$timeout` of 0 never waits and writes past `$maxSize`, so the limit is backpressure and not a ceiling.
+     *
+     * @param string $chunk   the bytes to append
+     * @param float  $timeout seconds to wait for room at most
+     *
+     * @throws \RuntimeException if the buffer has ended
+     * @throws TimeoutException  if there was no room in time
+     *
+     * @see StringBuffer::end
      */
     public function write(string $chunk, float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -199,12 +199,20 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Read up to $maxLength bytes from the buffer.
+     * Returns up to `$maxLength` bytes, and waits while the buffer is empty and not ended.
      *
-     * @throws \OutOfBoundsException
-     * @throws DeadmanException      If would block and the writer terminated unexpectedly
-     * @throws TimeoutException      If no data arrived before $timeout expired (a $timeout of 0
-     *                               never blocks and returns whatever is buffered)
+     * Returns what is buffered when there is any, which may be less than `$maxLength`, and an empty string once the buffer has ended and is empty. A `$timeout` of 0 never waits: it returns what is buffered, possibly an empty string.
+     *
+     * @param int   $maxLength the most bytes to return
+     * @param float $timeout   seconds to wait for data at most
+     *
+     * @return string the bytes read
+     *
+     * @throws \OutOfBoundsException if `$maxLength` is negative
+     * @throws TimeoutException      if no data arrived in time
+     * @throws DeadmanException      if the writer exited without ending the buffer, once the buffered data is read
+     *
+     * @see StringBuffer::readFixed
      */
     public function read(int $maxLength, float $timeout = \PHP_FLOAT_MAX): string
     {
@@ -240,8 +248,17 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Asynchronously read data from the stream resource into the
-     * buffer.
+     * Starts a coroutine that reads the stream into the buffer, and ends the buffer when the stream ends.
+     *
+     * Sets the stream to non-blocking. The coroutine stops reading while more than 1 MiB is unread.
+     *
+     * @param resource $resource a stream to read from
+     *
+     * @return \Fiber the coroutine; await it to see a read error
+     *
+     * @throws \InvalidArgumentException if `$resource` is not a stream
+     *
+     * @see StringBuffer::writeToResource
      */
     public function readFromResource($resource): \Fiber
     {
@@ -277,10 +294,11 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Signal the equivalent of an end of file. No further writes
-     * will be accepted.
+     * Marks the end of the stream: no more writes are accepted, and readers get the data left and then the end.
      *
-     * @throws \LogicException If the buffer has already been ended
+     * @throws \LogicException if the buffer has ended already
+     *
+     * @see StringBuffer::eof
      */
     public function end(): void
     {
@@ -302,7 +320,9 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * True if the end of file has been reached.
+     * Returns true if the buffer has ended and all its data has been read.
+     *
+     * @see StringBuffer::end
      */
     public function eof(): bool
     {
@@ -310,13 +330,20 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Read a fixed number of bytes from the buffer, and return null
-     * if the buffer is or becomes ended with too little data left.
+     * Returns exactly `$length` bytes, and waits until that many are buffered.
      *
-     * @param int<1,max> $length
+     * Returns null if the buffer ends with fewer than `$length` bytes left; they stay in the buffer. A `$timeout` of 0 never waits: it returns null when `$length` bytes are not there yet.
      *
-     * @throws DeadmanException If the deadman switch was triggered
-     * @throws TimeoutException If $timeout expires before $length bytes are available
+     * @param int<1,max> $length  the number of bytes
+     * @param float      $timeout seconds to wait at most
+     *
+     * @return string|null the bytes, or null at the end of the buffer
+     *
+     * @throws TimeoutException if `$length` bytes were not there in time
+     * @throws DeadmanException if the writer exited without ending the buffer
+     *
+     * @see StringBuffer::read
+     * @see StringBuffer::unread
      */
     public function readFixed(int $length, float $timeout = \PHP_FLOAT_MAX): ?string
     {
@@ -367,9 +394,17 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Data that enters the buffer will be written asynchronously to the
-     * stream resource. If reading to multiple resources, there is no way
-     * to control which data is routed to which resource.
+     * Starts a coroutine that writes the buffer to the stream until the buffer has ended and been read.
+     *
+     * With several streams on one buffer, there is no control over which data goes where.
+     *
+     * @param resource $resource a stream to write to
+     *
+     * @return \Fiber the coroutine; its result is the number of bytes written
+     *
+     * @throws \InvalidArgumentException if `$resource` is not a stream
+     *
+     * @see StringBuffer::readFromResource
      */
     public function writeToResource($resource): \Fiber
     {
@@ -398,7 +433,13 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Prepend data to the buffer.
+     * Puts `$chunk` back at the front of the buffer, to be read first.
+     *
+     * @param string $chunk bytes that were read and not used
+     *
+     * @throws \LogicException if the buffer has ended and is empty
+     *
+     * @see StringBuffer::readFixed
      */
     public function unread(string $chunk): void
     {
