@@ -5,12 +5,17 @@ namespace phasync\Util;
 use phasync\TimeoutException;
 
 /**
- * A pool of interchangeable resources that only so many of may exist at once: database
- * connections, sockets to a service, workers. A coroutine borrows one, uses it alone, and
- * releases it; while all are out, the next borrower waits for one.
+ * A pool of interchangeable resources, of which only so many may exist at once.
+ *
+ * For database connections, sockets to a service, workers. A coroutine borrows one, uses it alone, and releases it; while all are out, the next borrower waits for one.
+ *
+ * - Instances are made by `$create` when one is needed and none is free, up to `$size`; they are reused after that.
+ * - Borrowers waiting are served in the order they came: a released instance goes to the one that waited longest.
+ * - An instance that broke (a lost database connection) is given back with `discard()` instead: the pool forgets it, and makes a new one when needed.
+ * - An instance dropped by its borrower without `release()` or `discard()` is noticed when it is destroyed: the pool warns (`E_USER_WARNING`) and makes a new one in its place. A borrower waiting meanwhile finds out within a second.
  *
  * ```php
- * $db = new Pool(fn () => new PDO($dsn, $user, $password), 10);
+ * $db = new phasync\Util\Pool(fn () => new PDO($dsn, $user, $password), 10);
  *
  * $rows = $db->use(fn (PDO $pdo) => $pdo->query('SELECT ...')->fetchAll());
  *
@@ -22,17 +27,10 @@ use phasync\TimeoutException;
  * }
  * ```
  *
- * - Instances are made by $create when one is needed and none is free, up to $size; they are
- *   reused after that.
- * - Borrowers waiting are served in the order they came: a released instance goes to the one
- *   that waited longest.
- * - An instance that broke (a lost database connection) is given back with discard() instead:
- *   the pool forgets it, and makes a new one when needed.
- * - An instance that is lost, dropped by its borrower without release() or discard(), is noticed
- *   when it is destroyed: the pool warns (E_USER_WARNING) and makes a new one in its place.
- *   A borrower waiting meanwhile finds out within a second.
- *
  * @template T of object
+ *
+ * @see phasync\Util\Synchronized
+ * @see phasync\Util\RateLimiter
  */
 final class Pool implements \Countable
 {
@@ -52,8 +50,12 @@ final class Pool implements \Countable
     private \SplQueue $waiting;
 
     /**
-     * @param \Closure(): T $create makes an instance, in the borrowing coroutine (it may wait)
-     * @param int           $size   the most instances at once
+     * Creates an empty pool; instances are made when they are needed.
+     *
+     * @param \Closure(): T $create makes an instance, in the borrowing coroutine, so it may wait
+     * @param int           $size   the most instances in existence at once
+     *
+     * @throws \InvalidArgumentException if `$size` is below 1
      */
     public function __construct(private readonly \Closure $create, private readonly int $size)
     {
@@ -65,12 +67,17 @@ final class Pool implements \Countable
     }
 
     /**
-     * An instance of your own until you release() or discard() it: waits while all are out.
+     * Lends an instance to the caller until it calls `release()` or `discard()`, and waits while all are out.
      *
-     * @throws TimeoutException when none became free within $timeout seconds
-     * @throws \Throwable       what $create threw
+     * @param float $timeout seconds to wait for an instance at most
      *
-     * @return T
+     * @return T an instance that no other coroutine has
+     *
+     * @throws TimeoutException if no instance became free in time
+     * @throws \Throwable       what `$create` threw
+     *
+     * @see Pool::use
+     * @see Pool::release
      */
     public function borrow(float $timeout = \PHP_FLOAT_MAX): object
     {
@@ -124,11 +131,13 @@ final class Pool implements \Countable
     }
 
     /**
-     * Give a borrowed instance back, for the next borrower.
+     * Gives a borrowed instance back, for the next borrower.
      *
-     * @param T $instance
+     * @param T $instance an instance from `borrow()`
      *
-     * @throws \LogicException when it is not lent out by this pool
+     * @throws \LogicException if the pool did not lend it
+     *
+     * @see Pool::discard
      */
     public function release(object $instance): void
     {
@@ -146,12 +155,13 @@ final class Pool implements \Countable
     }
 
     /**
-     * Give a borrowed instance back as broken: it is forgotten, and a new one is made when
-     * needed.
+     * Gives a borrowed instance back as broken: the pool forgets it, and makes a new one when needed.
      *
-     * @param T $instance
+     * @param T $instance an instance from `borrow()`
      *
-     * @throws \LogicException when it is not lent out by this pool
+     * @throws \LogicException if the pool did not lend it
+     *
+     * @see Pool::release
      */
     public function discard(object $instance): void
     {
@@ -160,14 +170,21 @@ final class Pool implements \Countable
     }
 
     /**
-     * $fn with an instance of its own, released afterwards (also when $fn throws; discard() it
-     * inside $fn if it broke).
+     * Runs `$fn` with an instance of its own, and releases the instance afterwards, also when `$fn` throws.
+     *
+     * Call `discard()` inside `$fn` if the instance broke.
      *
      * @template R
      *
-     * @param \Closure(T): R $fn
+     * @param \Closure(T): R $fn      what to run with the instance
+     * @param float          $timeout seconds to wait for an instance at most
      *
-     * @return R
+     * @return R what `$fn` returned
+     *
+     * @throws TimeoutException if no instance became free in time
+     * @throws \Throwable       what `$create` or `$fn` threw
+     *
+     * @see Pool::borrow
      */
     public function use(\Closure $fn, float $timeout = \PHP_FLOAT_MAX): mixed
     {
@@ -181,7 +198,9 @@ final class Pool implements \Countable
         }
     }
 
-    /** Instances in existence: lent out, being made, and idle. */
+    /**
+     * Returns the number of instances in existence: lent out, being made, and idle.
+     */
     public function count(): int
     {
         $this->noticeLost();

@@ -277,7 +277,7 @@ final class phasync
      *
      * A coroutine can be awaited any number of times, by any number of coroutines, and each call returns the same value or throws the same exception. Awaiting a failed coroutine counts as handling its failure: it no longer fails the run. A timeout throws in the caller only: the awaited coroutine keeps running.
      *
-     * Given a {@see SelectableInterface} (a channel end, a WaitGroup, a StringBuffer, a RateLimiter), it waits until the object `isReady()` and returns the object. Given an object with a `then()` method, such as a promise from another library, it waits until the promise settles, and returns its value or throws its rejection; a rejection that is not a Throwable is thrown as an Exception with its string form as message.
+     * Given a {@see SelectableInterface} (a channel end, a WaitGroup, a StringBuffer, a RateLimiter), it waits until the object `isReady()` and returns the object. How a timeout ends depends on the object, see its `await()`. Given an object with a `then()` method, such as a promise from another library, it waits until the promise settles, and returns its value or throws its rejection; a rejection that is not a Throwable is thrown as an Exception with its string form as message.
      *
      * ```php
      * phasync::run(function () {
@@ -297,7 +297,7 @@ final class phasync
      *
      * @return mixed the coroutine's return value; for a SelectableInterface, the object
      *
-     * @throws TimeoutException        if the wait takes longer than `$timeout`
+     * @throws TimeoutException        if a coroutine or promise does not end within `$timeout`
      * @throws \InvalidArgumentException for an object that is none of the above
      * @throws \LogicException         for a Fiber that phasync did not start
      * @throws \Throwable              what the coroutine threw
@@ -897,7 +897,7 @@ final class phasync
     }
 
     /**
-     * Returns the event loop, for code that waits with its low-level API ({@see EventLoop::park()}).
+     * Returns the event loop, for code that waits with its low-level API (`getSlot()`, `park()` and `unpark()` of the returned object).
      *
      * Application code does not need it: the other methods of this class are the API of the loop.
      *

@@ -7,6 +7,32 @@ use Fiber;
 use phasync\Internal\ExceptionTool;
 use phasync\TimeoutException;
 
+/**
+ * Implements LockInterface: a lock that is reentrant for the coroutine holding it and fair for the others.
+ *
+ * Use it in a class that needs to protect state across waits. The coroutines asking while the lock is held are served in the order they asked: the holder hands the lock to the first in line.
+ *
+ * ```php
+ * class Account
+ * {
+ *     use phasync\Util\LockTrait;
+ *
+ *     private int $balance = 100;
+ *
+ *     public function withdraw(int $amount): void
+ *     {
+ *         $this->lock(function () use ($amount) {
+ *             $balance = $this->balance;
+ *             phasync::sleep(0.01);              // another coroutine would interleave here, without the lock
+ *             $this->balance = $balance - $amount;
+ *         });
+ *     }
+ * }
+ * ```
+ *
+ * @see phasync\Util\LockInterface
+ * @see phasync\Util\Synchronized
+ */
 trait LockTrait
 {
     private ?\Fiber $lockHolder = null;
@@ -16,19 +42,17 @@ trait LockTrait
     private array $lockLine = [];
 
     /**
-     * Lock the implementing object while the provided Closure is invoked.
-     * The lock is reentrant from within the current Fiber. Other fibers
-     * will block until the lock is released, and get it in the order they
-     * asked: the holder hands it to the first in line.
+     * Runs `$callable` while holding the lock of this object, and returns what it returns.
      *
-     * Note that this implementation is not currently thread safe if threading
-     * is enabled in PHP. This trait is meant to facilitate thread safe locking
-     * in the future.
+     * The lock is reentrant for the coroutine that holds it. Other coroutines wait, and get it in the order they asked.
      *
-     * @throws TimeoutException if the lock was not aquired
-     * @throws Throwable        if the closure throws
+     * @param \Closure   $callable what to run with the lock held
+     * @param float|null $timeout  seconds to wait for the lock at most; null: no limit
      *
-     * @return mixed The return value from the closure
+     * @return mixed what `$callable` returned
+     *
+     * @throws TimeoutException if the lock was not acquired in time
+     * @throws \Throwable       what `$callable` threw
      */
     public function lock(\Closure $callable, ?float $timeout=null): mixed
     {

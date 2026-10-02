@@ -3,16 +3,26 @@
 namespace phasync\Util;
 
 /**
- * Simple coroutine-safe mutex for synchronizing access to shared resources.
+ * A mutex for coroutines, identified by a string or an object: only one coroutine at a time runs a closure for the same token.
  *
- * This implementation is not reentrant - attempting to acquire the same lock
- * again from the coroutine that holds it will throw an exception. For reentrant
- * locking, use LockTrait instead. Other coroutines wait their turn, also those
- * of the same context (the coroutines of one request share it), and get it in
- * the order they asked: the holder hands the lock to the first in line, so a
- * coroutine that asks again, or one that just arrived, goes to the back.
+ * Unlike {@see LockTrait}, it is not reentrant: asking again from the coroutine that holds the lock throws. Other coroutines wait their turn, also those of the same context, in the order they asked: the holder hands the lock to the first in line.
  *
- * Note: Not thread safe if PHP threading is enabled.
+ * ```php
+ * phasync::run(function () {
+ *     foreach ([1, 2, 3] as $i) {
+ *         phasync::go(function () use ($i) {
+ *             phasync\Util\Synchronized::run('report', function () use ($i) {
+ *                 echo "start $i\n";
+ *                 phasync::sleep(0.01);
+ *                 echo "end $i\n";           // start and end of different jobs never interleave
+ *             });
+ *         });
+ *     }
+ * });
+ * ```
+ *
+ * @see phasync\Util\LockTrait
+ * @see phasync\Util\Pool
  */
 final class Synchronized
 {
@@ -23,11 +33,15 @@ final class Synchronized
     private static array $lines = [];
 
     /**
-     * Run a function ensuring that the function will not be invoked by other
-     * coroutines at the same time.
+     * Runs `$closure` once no other coroutine runs a closure for `$token`, and returns what it returns.
+     *
+     * @param object|string $token   the name of the lock; an object stands for itself
+     * @param \Closure      $closure what to run with the lock held
+     *
+     * @return mixed what `$closure` returned
      *
      * @throws \LogicException if the coroutine that holds the lock asks for it again
-     * @throws \Throwable      if the closure throws
+     * @throws \Throwable      what `$closure` threw
      */
     public static function run(object|string $token, \Closure $closure): mixed
     {

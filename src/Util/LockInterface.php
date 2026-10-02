@@ -5,17 +5,26 @@ namespace phasync\Util;
 use Closure;
 use phasync\TimeoutException;
 
+/**
+ * An object that runs a closure while holding a lock that other coroutines wait for.
+ *
+ * @see phasync\Util\LockTrait
+ * @see phasync\Util\Synchronized
+ */
 interface LockInterface
 {
     /**
-     * Lock the implementing object while the provided Closure is invoked.
-     * The lock is reentrant from within the current Fiber. Other fibers
-     * will block until the lock is released.
+     * Runs `$callable` while holding the lock of this object, and returns what it returns.
      *
-     * @throws TimeoutException if the lock was not aquired
-     * @throws \Throwable       if the closure throws
+     * The lock is reentrant for the coroutine that holds it. Other coroutines wait, and get it in the order they asked.
      *
-     * @return mixed The return value from the closure
+     * @param \Closure   $callable what to run with the lock held
+     * @param float|null $timeout  seconds to wait for the lock at most; null: no limit
+     *
+     * @return mixed what `$callable` returned
+     *
+     * @throws TimeoutException if the lock was not acquired in time
+     * @throws \Throwable       what `$callable` threw
      */
     public function lock(\Closure $callable, ?float $timeout=null): mixed;
 }

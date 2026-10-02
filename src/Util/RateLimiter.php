@@ -8,26 +8,37 @@ use phasync\ReadChannelInterface;
 use phasync\SelectableInterface;
 
 /**
- * This class provides an efficient tool for limiting the rate at which events happen,
- * potentially across coroutines.
+ * Lets events pass at a fixed rate, shared by every coroutine that calls `wait()`.
  *
- * Example:
+ * The constructor starts a coroutine in the current context that issues one permit every `1 / $eventsPerSecond` seconds, and it stops when the limiter is dropped. The first `wait()` returns at once. A `$burst` above 0 lets permits accumulate while nobody waits: after an idle period, up to `$burst + 1` events pass at once. A limiter is a SelectableInterface: it is ready when a permit is available.
  *
  * ```php
- * phasync::run(function() {
- *   $rateLimiter = new RateLimiter(10);
- *   phasync::go(function() use ($rateLimiter) {
- *      for ($i = 0; $i < 100; $i++) {
- *        $rateLimiter->wait();
- *        echo "This happens 10 times per second\n";
- *      }
- *   });
+ * phasync::run(function () {
+ *     $limiter = new phasync\Util\RateLimiter(10);
+ *
+ *     for ($i = 0; $i < 5; $i++) {
+ *         $limiter->wait();
+ *         echo "at most 10 per second\n";
+ *     }
  * });
+ * ```
+ *
+ * @see phasync\SelectableInterface
+ * @see phasync::sleep
  */
 final class RateLimiter implements SelectableInterface
 {
     private ReadChannelInterface $readChannel;
 
+    /**
+     * Creates the limiter and starts its coroutine.
+     *
+     * @param float $eventsPerSecond the rate, above 0
+     * @param int   $burst           permits that may accumulate while nobody waits
+     *
+     * @throws \InvalidArgumentException if `$eventsPerSecond` is not above 0
+     * @throws \LogicException           outside a coroutine
+     */
     public function __construct(float $eventsPerSecond, int $burst = 0)
     {
         if ($eventsPerSecond <= 0) {
@@ -48,20 +59,30 @@ final class RateLimiter implements SelectableInterface
         });
     }
 
+    /**
+     * Waits for a permit and takes it.
+     *
+     * `$timeout` is not used: this waits for as long as it takes.
+     *
+     * @param float $timeout ignored
+     */
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
         $this->readChannel->read();
     }
 
+    /**
+     * Returns true if a permit is available.
+     */
     public function isReady(): bool
     {
         return $this->readChannel->isReady();
     }
 
     /**
-     * Blocks the current coroutine if rate limiting is needed.
+     * Waits for a permit, which delays the coroutine as much as the rate requires.
      *
-     * @throws \RuntimeException
+     * @see RateLimiter::await
      */
     public function wait(): void
     {

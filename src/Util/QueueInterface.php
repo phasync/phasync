@@ -3,35 +3,45 @@
 namespace phasync\Util;
 
 /**
+ * A first-in first-out queue that coroutines may share.
+ *
  * @template TType
+ *
+ * @see phasync\Util\Queue
  */
 interface QueueInterface extends \Countable, LockInterface
 {
     /**
-     * Is the queue empty?
+     * Returns true if the queue holds no values.
      */
     public function isEmpty(): bool;
 
     /**
-     * Add an element to the queue
+     * Adds `$value` at the end of the queue.
      *
      * @param TType $value
      */
     public function enqueue(mixed $value): void;
 
     /**
-     * Try to dequeue an element from the queue
+     * Takes the first value off the queue into `$value`, and returns whether there was one.
      *
-     * @param-out TType $value
+     * @param-out TType $value receives the value
      *
-     * @return bool If successfully fetched a value
+     * @return bool false if the queue was empty
+     *
+     * @see QueueInterface::tryPeek
      */
     public function tryDequeue(mixed &$value): bool;
 
     /**
-     * Try to get the next element from the queue
+     * Copies the first value of the queue into `$value`, without removing it, and returns whether there was one.
      *
-     * @param-out TType $value
+     * @param-out TType $value receives the value
+     *
+     * @return bool false if the queue was empty
+     *
+     * @see QueueInterface::tryDequeue
      */
     public function tryPeek(mixed &$value): bool;
 }

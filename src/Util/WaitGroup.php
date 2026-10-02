@@ -5,23 +5,56 @@ namespace phasync\Util;
 use phasync\SelectableInterface;
 
 /**
- * This class provides an efficient tool for waiting until multiple coroutines have
- * completed their task.
+ * Waits until a counted amount of work has been done, like Go's `sync.WaitGroup`.
+ *
+ * Call `add()` before starting each piece of work, `done()` when it ends, and `await()` in the coroutine that waits. `await()` returns when the counter is zero, and at once if it already is. The counter may be raised again after it reached zero, so one group can be reused.
+ *
+ * ```php
+ * phasync::run(function () {
+ *     $group = new phasync\Util\WaitGroup();
+ *
+ *     foreach ([0.02, 0.01] as $delay) {
+ *         $group->add();
+ *         phasync::go(function () use ($group, $delay) {
+ *             try {
+ *                 phasync::sleep($delay);
+ *             } finally {
+ *                 $group->done();
+ *             }
+ *         });
+ *     }
+ *     $group->await();
+ *     echo "both done\n";
+ * });
+ * ```
+ *
+ * @see phasync::go
+ * @see phasync\SelectableInterface
  */
 final class WaitGroup implements SelectableInterface
 {
     private int $counter = 0;
 
+    /**
+     * Returns true when the counter is zero: nothing is left to wait for.
+     *
+     * @see WaitGroup::await
+     */
     public function isReady(): bool
     {
         return 0 === $this->counter;
     }
 
     /**
-     * Add work to the WaitGroup, like Go's WaitGroup.Add(delta). A negative delta marks
-     * work as done. If the counter reaches zero, waiting coroutines are resumed.
+     * Adds `$delta` to the counter of unfinished work.
+     *
+     * A negative delta marks work as done. When the counter reaches zero, the waiting coroutines resume.
+     *
+     * @param int $delta the amount of work to add
      *
      * @throws \LogicException if the counter would become negative
+     *
+     * @see WaitGroup::done
      */
     public function add(int $delta = 1): void
     {
@@ -37,9 +70,11 @@ final class WaitGroup implements SelectableInterface
     }
 
     /**
-     * Signal that work has been completed to the WaitGroup.
+     * Marks one piece of work as done.
      *
-     * @throws \LogicException
+     * @throws \LogicException if the counter is zero already
+     *
+     * @see WaitGroup::add
      */
     public function done(): void
     {
@@ -53,10 +88,14 @@ final class WaitGroup implements SelectableInterface
     }
 
     /**
-     * Wait until the WaitGroup has signalled that all work
-     * is done.
+     * Waits until the counter is zero.
      *
-     * @throws \Throwable
+     * @param float $timeout seconds to wait at most
+     *
+     * @throws TimeoutException if the counter is not zero in time
+     * @throws \LogicException  outside a coroutine, if the counter is not zero
+     *
+     * @see WaitGroup::add
      */
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -67,13 +106,11 @@ final class WaitGroup implements SelectableInterface
     }
 
     /**
-     * This function was renamed to {@see WaitGroup::await()} to harmonize
-     * with the SelectableInterface API.
+     * Waits until the counter is zero.
      *
-     * @see WaitGroup::await()
-     * @deprecated
+     * @deprecated use {@see WaitGroup::await()}
      *
-     * @throws \Throwable
+     * @see WaitGroup::await
      */
     public function wait(): void
     {
