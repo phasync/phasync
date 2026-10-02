@@ -87,10 +87,10 @@ function file_get_contents(string $filename): string|false
  * @param mixed  $data     a string, or an array of strings that are joined
  * @param int    $flags    `FILE_APPEND` and `LOCK_EX`
  *
- * @return int|false the number of bytes written
- *
- * @throws \Exception when the file cannot be opened
+ * @throws \Exception        when the file cannot be opened
  * @throws \RuntimeException when a write fails
+ *
+ * @return int|false the number of bytes written
  *
  * @see file_get_contents
  * @see flock
@@ -114,9 +114,9 @@ function file_put_contents(string $filename, mixed $data, int $flags = 0): int|f
  * flock($fp, LOCK_EX);    // other coroutines run while another process holds the lock
  * ```
  *
- * @param resource $stream       a stream resource
- * @param int      $operation    `LOCK_SH`, `LOCK_EX` or `LOCK_UN`, optionally with `LOCK_NB`
- * @param ?int     $would_block  set by the native `flock()` when `LOCK_NB` is given, or outside a coroutine; left alone otherwise
+ * @param resource $stream      a stream resource
+ * @param int      $operation   `LOCK_SH`, `LOCK_EX` or `LOCK_UN`, optionally with `LOCK_NB`
+ * @param ?int     $would_block set by the native `flock()` when `LOCK_NB` is given, or outside a coroutine; left alone otherwise
  *
  * @throws \TypeError when `$stream` is not a stream resource
  *

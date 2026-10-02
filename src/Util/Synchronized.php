@@ -38,10 +38,10 @@ final class Synchronized
      * @param object|string $token   the name of the lock; an object stands for itself
      * @param \Closure      $closure what to run with the lock held
      *
-     * @return mixed what `$closure` returned
-     *
      * @throws \LogicException if the coroutine that holds the lock asks for it again
      * @throws \Throwable      what `$closure` threw
+     *
+     * @return mixed what `$closure` returned
      */
     public static function run(object|string $token, \Closure $closure): mixed
     {

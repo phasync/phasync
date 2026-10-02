@@ -55,9 +55,9 @@ final class ProcessRunner implements ProcessInterface
     /**
      * Starts the process.
      *
-     * @param string[]              $command the executable and its arguments, one element each
-     * @param string|null           $cwd     the working directory of the child; null: the current one
-     * @param array<string,string>|null $env the environment of the child, replacing the current one; null: inherit it
+     * @param string[]                  $command the executable and its arguments, one element each
+     * @param string|null               $cwd     the working directory of the child; null: the current one
+     * @param array<string,string>|null $env     the environment of the child, replacing the current one; null: inherit it
      *
      * @throws \RuntimeException if the command is not found or not executable, or cannot be started
      * @throws \LogicException   on Windows before PHP 8.3
@@ -497,9 +497,9 @@ final class ProcessRunner implements ProcessInterface
      * @param string $data what to write
      * @param int    $fd   `ProcessInterface::STDIN`
      *
-     * @return int|false the number of bytes written, which may be less than all of `$data`
-     *
      * @throws \phasync\IOException if the stream is closed
+     *
+     * @return int|false the number of bytes written, which may be less than all of `$data`
      */
     public function write(string $data, int $fd = ProcessInterface::STDIN): int|false
     {

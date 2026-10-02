@@ -71,10 +71,10 @@ final class Pool implements \Countable
      *
      * @param float $timeout seconds to wait for an instance at most
      *
-     * @return T an instance that no other coroutine has
-     *
      * @throws TimeoutException if no instance became free in time
      * @throws \Throwable       what `$create` threw
+     *
+     * @return T an instance that no other coroutine has
      *
      * @see Pool::use
      * @see Pool::release
@@ -179,10 +179,10 @@ final class Pool implements \Countable
      * @param \Closure(T): R $fn      what to run with the instance
      * @param float          $timeout seconds to wait for an instance at most
      *
-     * @return R what `$fn` returned
-     *
      * @throws TimeoutException if no instance became free in time
      * @throws \Throwable       what `$create` or `$fn` threw
+     *
+     * @return R what `$fn` returned
      *
      * @see Pool::borrow
      */

@@ -32,9 +32,9 @@ final class Process
      * @param string|null               $cwd       the working directory of the child; null: the current one
      * @param array<string,string>|null $env       the environment of the child, replacing the current one; null: inherit it
      *
-     * @return ProcessInterface the running process
-     *
      * @throws \RuntimeException if the command is not found or not executable, or cannot be started
+     *
+     * @return ProcessInterface the running process
      *
      * @see ProcessInterface::stop
      */

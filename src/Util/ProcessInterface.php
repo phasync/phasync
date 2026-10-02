@@ -76,9 +76,9 @@ interface ProcessInterface
      *
      * @param int $fd `ProcessInterface::STDOUT` or `STDERR`
      *
-     * @return string|false what was read
-     *
      * @throws \phasync\IOException if the stream is closed
+     *
+     * @return string|false what was read
      *
      * @see ProcessInterface::write
      */
@@ -90,9 +90,9 @@ interface ProcessInterface
      * @param string $data what to write
      * @param int    $fd   `ProcessInterface::STDIN`
      *
-     * @return int|false the number of bytes written, which may be less than all of `$data`; false if the process is not running
-     *
      * @throws \phasync\IOException if the stream is closed
+     *
+     * @return int|false the number of bytes written, which may be less than all of `$data`; false if the process is not running
      *
      * @see ProcessInterface::read
      */

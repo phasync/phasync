@@ -206,11 +206,11 @@ class StringBuffer implements SelectableInterface
      * @param int   $maxLength the most bytes to return
      * @param float $timeout   seconds to wait for data at most
      *
-     * @return string the bytes read
-     *
      * @throws \OutOfBoundsException if `$maxLength` is negative
      * @throws TimeoutException      if no data arrived in time
      * @throws DeadmanException      if the writer exited without ending the buffer, once the buffered data is read
+     *
+     * @return string the bytes read
      *
      * @see StringBuffer::readFixed
      */
@@ -254,9 +254,9 @@ class StringBuffer implements SelectableInterface
      *
      * @param resource $resource a stream to read from
      *
-     * @return \Fiber the coroutine; await it to see a read error
-     *
      * @throws \InvalidArgumentException if `$resource` is not a stream
+     *
+     * @return \Fiber the coroutine; await it to see a read error
      *
      * @see StringBuffer::writeToResource
      */
@@ -337,10 +337,10 @@ class StringBuffer implements SelectableInterface
      * @param int<1,max> $length  the number of bytes
      * @param float      $timeout seconds to wait at most
      *
-     * @return string|null the bytes, or null at the end of the buffer
-     *
      * @throws TimeoutException if `$length` bytes were not there in time
      * @throws DeadmanException if the writer exited without ending the buffer
+     *
+     * @return string|null the bytes, or null at the end of the buffer
      *
      * @see StringBuffer::read
      * @see StringBuffer::unread
@@ -400,9 +400,9 @@ class StringBuffer implements SelectableInterface
      *
      * @param resource $resource a stream to write to
      *
-     * @return \Fiber the coroutine; its result is the number of bytes written
-     *
      * @throws \InvalidArgumentException if `$resource` is not a stream
+     *
+     * @return \Fiber the coroutine; its result is the number of bytes written
      *
      * @see StringBuffer::readFromResource
      */

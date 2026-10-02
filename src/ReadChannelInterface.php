@@ -74,10 +74,10 @@ interface ReadChannelInterface extends SelectableInterface, Traversable
      * @param float     $timeout seconds to wait at most
      * @param bool|null $eof     set to true if the channel is closed and empty
      *
-     * @return mixed the value, or null at the end of the channel
-     *
      * @throws TimeoutException if nothing arrived in time
      * @throws ChannelException if the creator of the channel waits on it alone, see {@see ReadChannelInterface::activate()}
+     *
+     * @return mixed the value, or null at the end of the channel
      *
      * @see WriteChannelInterface::write
      */

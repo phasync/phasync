@@ -37,10 +37,10 @@ interface LockInterface
      * @param \Closure   $callable what to run with the lock held
      * @param float|null $timeout  seconds to wait for the lock at most; null: no limit
      *
-     * @return mixed what `$callable` returned
-     *
      * @throws TimeoutException if the lock was not acquired in time
      * @throws \Throwable       what `$callable` threw
+     *
+     * @return mixed what `$callable` returned
      */
     public function lock(\Closure $callable, ?float $timeout=null): mixed;
 }

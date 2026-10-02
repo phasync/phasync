@@ -109,7 +109,6 @@ final class WaitGroup implements SelectableInterface
      * Waits until the counter is zero.
      *
      * @deprecated use {@see WaitGroup::await()}
-     *
      * @see WaitGroup::await
      */
     public function wait(): void

@@ -220,7 +220,7 @@ class UnbufferedStream implements StreamInterface
      * reader has read enough.
      *
      * @throws \RuntimeException after `end()`
-     * @throws TimeoutException when the reader makes no progress for `$deadlockTimeout` seconds
+     * @throws TimeoutException  when the reader makes no progress for `$deadlockTimeout` seconds
      *
      * @see UnbufferedStream::end
      */

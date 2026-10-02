@@ -54,8 +54,6 @@ final class Event
     /**
      * Calls `$listeners` every time the event triggers.
      *
-     * @param \Closure ...$listeners
-     *
      * @see Event::once
      * @see Event::off
      */
@@ -66,8 +64,6 @@ final class Event
 
     /**
      * Calls `$listeners` the next time the event triggers, and not after.
-     *
-     * @param \Closure ...$listeners
      *
      * @see Event::listen
      * @see Event::off
