@@ -20,6 +20,13 @@ Earlier releases are listed on the GitHub releases page.
   it on; `phasync::$contextStateDefaults` is what a new context starts with. Until then a switch
   checks one flag.
 
+### Changed
+
+- `StreamSelectPoller` always uses PHP's `stream_select()`; it no longer looks for
+  `phasync\ext\stream_select()`, which phasync-ext has removed. With the extension loaded the loop
+  uses the extension's epoll `Poller` as before, so nothing changes there; without it, descriptors
+  numbered `FD_SETSIZE` (1024) or higher still fail as `IOException`.
+
 ## 2.0.0-beta4 (2026-10-02)
 
 ### Added

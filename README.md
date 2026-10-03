@@ -155,8 +155,8 @@ phasync\try_enable_ext(); // first line of a CLI script: loads the bundled binar
 ```
 
 Under PHP-FPM, add `extension=phasync` to `php.ini` instead. Prebuilt binaries cover PHP 8.2 to
-8.5 on Linux (x86-64 and ARM64, glibc and musl). The extension also replaces `stream_select()`
-with epoll, so a process can watch any number of sockets: without it, PHP's `stream_select()`
+8.5 on Linux (x86-64 and ARM64, glibc and musl). The extension waits with epoll instead of
+`stream_select()`, so a process can watch any number of sockets: without it, PHP's `stream_select()`
 cannot use file descriptors numbered 1024 and up.
 
 phasync behaves the same with and without the extension. The extension only lets more code wait

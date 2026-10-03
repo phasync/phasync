@@ -349,11 +349,6 @@ final class EventLoop implements \Countable
     private \WeakMap $states;
 
     /**
-     * The phasync extension's poll()-based stream_select() when it is loaded. It takes the
-     * same arguments as the native one but is not limited by FD_SETSIZE, which caps the
-     * native one at file descriptor numbers below 1024 on a typical build.
-     */
-    /**
      * phasync-ext's poller when the extension is loaded (epoll, and its worker threads' waiters),
      * else stream_select().
      */

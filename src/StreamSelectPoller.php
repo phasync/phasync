@@ -3,8 +3,9 @@
 namespace phasync;
 
 /**
- * A poller on stream_select(), or on phasync-ext's stream_select() when the extension is loaded
- * (no FD_SETSIZE limit there).
+ * A poller on PHP's stream_select(), used when phasync-ext is not loaded (with it, the loop uses the
+ * extension's epoll Poller). Like stream_select() itself it cannot wait on a descriptor numbered
+ * FD_SETSIZE (1024 on a typical build) or higher.
  *
  * @internal not part of the public API; may change in any release
  */
@@ -41,12 +42,8 @@ final class StreamSelectPoller implements PollerInterface
     private int $failures         = 0;
     private ?IOException $failure = null;
 
-    /** stream_select(), or phasync-ext's when loaded */
-    private readonly \Closure $select;
-
     public function __construct(private readonly EventLoop $loop)
     {
-        $this->select = \function_exists('phasync\ext\stream_select') ? \phasync\ext\stream_select(...) : \stream_select(...);
     }
 
     public function poll(float $timeout): void
@@ -72,7 +69,7 @@ final class StreamSelectPoller implements PollerInterface
         try {
             $seconds      = (int) $timeout;
             $microseconds = (int) (($timeout - $seconds) * 1000000);
-            $result       = ($this->select)($reads, $writes, $excepts, $seconds, $microseconds);
+            $result       = \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
         } catch (\TypeError|\ValueError $e) {
             // A stream was closed while waited for (ValueError when no open stream is left to
             // select on). Rare, so only now look for it: a closed stream is ready.
