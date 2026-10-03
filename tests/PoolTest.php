@@ -198,11 +198,11 @@ test('releasing what the pool did not lend is an error', function () {
 });
 
 // ---------------------------------------------------------------------------
-// idleTimeout and dispose
+// window and dispose
 // ---------------------------------------------------------------------------
 
-/** A pool of numbered instances with an idle timeout, recording what was disposed. */
-function expiring_pool(int $size, float $idleTimeout, ?int &$made = null, ?array &$disposed = null): Pool
+/** A pool of numbered instances that shrinks to the peak lent over $window seconds, recording what was disposed. */
+function shrinking_pool(int $size, ?float $window, ?int &$made = null, ?array &$disposed = null): Pool
 {
     $made     = 0;
     $disposed = [];
@@ -212,102 +212,111 @@ function expiring_pool(int $size, float $idleTimeout, ?int &$made = null, ?array
         $instance->nr = ++$made;
 
         return $instance;
-    }, $size, $idleTimeout, static function (stdClass $instance) use (&$disposed) {
+    }, $size, $window, static function (stdClass $instance) use (&$disposed) {
         $disposed[] = $instance->nr;
     });
 }
 
-test('idle instances unused for longer than the idle timeout are dropped and disposed, without traffic', function () {
+test('after a burst the idle instances are dropped once the window has passed, at the next borrow', function () {
     phasync::run(function () {
-        $pool = expiring_pool(3, 0.05, $made, $disposed);
+        $pool = shrinking_pool(3, 0.3, $made, $disposed);
+        $a    = $pool->borrow();
+        $b    = $pool->borrow();
+        $c    = $pool->borrow();
+        $pool->release($a);
+        $pool->release($b);
+        $pool->release($c);
+        phasync::sleep(0.2);
+        $pool->release($pool->borrow()); // the burst of 3 is within the window
+        expect([\count($pool), $disposed])->toBe([3, []]);
+        phasync::sleep(0.2); // 0.4 s since the burst: the peak since then is 1
+        $d = $pool->borrow();
+        expect([\count($pool), $disposed, $d->nr])->toBe([1, [1, 2], 3]);
+    });
+});
+
+test('nothing is dropped without a borrow or release, however long the pool is idle', function () {
+    phasync::run(function () {
+        $pool = shrinking_pool(2, 0.1, $made, $disposed);
         $a    = $pool->borrow();
         $b    = $pool->borrow();
         $pool->release($a);
         $pool->release($b);
+        phasync::sleep(0.3);
         expect([\count($pool), $disposed])->toBe([2, []]);
-        phasync::sleep(0.2);
-        expect([\count($pool), $disposed])->toBe([0, [1, 2]]);
-        expect($pool->borrow()->nr)->toBe(3);
     });
 });
 
-test('a borrowed instance is never dropped, and its idle time starts when it is released', function () {
+test('the pool shrinks to the peak of the window, not to what is lent now', function () {
     phasync::run(function () {
-        $pool = expiring_pool(1, 0.1, $made, $disposed);
-        $a    = $pool->borrow();
-        phasync::sleep(0.25); // out for longer than the timeout
-        expect([\count($pool), $disposed])->toBe([1, []]);
+        $pool = shrinking_pool(3, 0.4, $made, $disposed);
+        $all  = [$pool->borrow(), $pool->borrow(), $pool->borrow()];
+        foreach ($all as $instance) {
+            $pool->release($instance);
+        }
+        phasync::sleep(0.25);
+        $a = $pool->borrow();
+        $b = $pool->borrow(); // 2 lent, 0.25 s after the burst of 3
         $pool->release($a);
-        phasync::sleep(0.05);
+        $pool->release($b);
         expect($disposed)->toBe([]);
-        phasync::sleep(0.2);
+        phasync::sleep(0.25); // the burst is 0.5 s old, the 2 are 0.25 s old
+        $c = $pool->borrow();
+        expect([\count($pool), $disposed])->toBe([2, [1]]);
+        $pool->release($c);
         expect($disposed)->toBe([1]);
     });
 });
 
-test('an instance that is borrowed again in time stays', function () {
+test('an instance lent for longer than the window is not dropped when it is released', function () {
     phasync::run(function () {
-        $pool = expiring_pool(1, 0.2, $made, $disposed);
-        $pool->release($pool->borrow());
-        phasync::sleep(0.1);
-        $pool->release($pool->borrow());
-        phasync::sleep(0.1); // 0.2 s since the first release, 0.1 s since the second
-        $pool->release($pool->borrow());
+        $pool = shrinking_pool(1, 0.2, $made, $disposed);
+        $a    = $pool->borrow();
+        phasync::sleep(0.4);
+        $pool->release($a);
+        expect([\count($pool), $disposed])->toBe([1, []]);
+        expect($pool->borrow())->toBe($a);
+    });
+});
+
+test('release() drops idle instances too, the least recently used first', function () {
+    phasync::run(function () {
+        $pool = shrinking_pool(2, 0.3, $made, $disposed);
+        $a    = $pool->borrow();
+        $b    = $pool->borrow();
+        $pool->release($a);
+        phasync::sleep(0.5);
+        $pool->release($b); // 1 lent for the last 0.5 s
+        expect([\count($pool), $disposed])->toBe([1, [1]]);
+        expect($pool->borrow())->toBe($b);
+    });
+});
+
+test('a pool never drops its only instance while it is used within the window', function () {
+    phasync::run(function () {
+        $pool = shrinking_pool(1, 0.2, $made, $disposed);
+        for ($i = 0; $i < 4; ++$i) {
+            $pool->use(fn () => phasync::sleep(0.1));
+        }
         expect([$made, $disposed])->toBe([1, []]);
     });
 });
 
-test('the sweeper does not keep run() waiting, and idle instances stay for the next run', function () {
-    $pool  = null;
-    $start = \microtime(true);
-    phasync::run(function () use (&$pool) {
-        $pool = expiring_pool(1, 30, $made, $disposed);
-        $pool->release($pool->borrow());
-        phasync::sleep(0.01);
-    });
-    expect(\microtime(true) - $start)->toBeLessThan(1.0);
-    expect(\count($pool))->toBe(1);
-    expect(phasync::run(fn () => $pool->borrow()->nr))->toBe(1);
-});
-
-test('an instance that outlived its timeout between runs is disposed, not lent', function () {
+test('a pool that was idle between two runs shrinks at its first borrow in the next', function () {
     $pool = null;
     phasync::run(function () use (&$pool, &$disposed) {
-        $pool = expiring_pool(1, 0.05, $made, $disposed);
-        $pool->release($pool->borrow());
+        $pool = shrinking_pool(2, 0.1, $made, $disposed);
+        $a    = $pool->borrow();
+        $b    = $pool->borrow();
+        $pool->release($a);
+        $pool->release($b);
     });
-    \usleep(100_000);
+    \usleep(150_000);
     $nr = phasync::run(fn () => $pool->borrow()->nr);
     expect([$nr, $disposed])->toBe([2, [1]]);
 });
 
-test('the sweeper ends when no idle instance is left, and starts again when one comes back', function () {
-    phasync::run(function () {
-        $pool    = expiring_pool(1, 0.05);
-        $sweeper = static fn () => (new ReflectionProperty($pool, 'sweeper'))->getValue($pool);
-        expect($sweeper())->toBeNull();
-        $pool->release($pool->borrow());
-        $first = $sweeper();
-        expect($first->isTerminated())->toBeFalse();
-        phasync::sleep(0.2);
-        expect($first->isTerminated())->toBeTrue();
-        $pool->release($pool->borrow());
-        expect($sweeper())->not->toBe($first);
-        expect($sweeper()->isTerminated())->toBeFalse();
-    });
-});
-
-test('a pool that is dropped is freed, and its sweeper ends', function () {
-    phasync::run(function () {
-        $pool = expiring_pool(1, 30);
-        $pool->release($pool->borrow());
-        $ref = WeakReference::create($pool);
-        unset($pool);
-        expect($ref->get())->toBeNull();
-    });
-});
-
-test('without an idle timeout idle instances are never dropped, and dispose is not used for release', function () {
+test('without a window idle instances are never dropped, and dispose is not used for release', function () {
     phasync::run(function () {
         $disposed = [];
         $pool     = new Pool(fn () => new stdClass(), 1, null, function () use (&$disposed) {
@@ -322,7 +331,7 @@ test('without an idle timeout idle instances are never dropped, and dispose is n
 
 test('discard() disposes the instance, after the pool has forgotten it', function () {
     phasync::run(function () {
-        $pool = expiring_pool(1, 30, $made, $disposed);
+        $pool = shrinking_pool(1, 30, $made, $disposed);
         $a    = $pool->borrow();
         $pool->discard($a);
         expect([$disposed, \count($pool)])->toBe([[1], 0]);
@@ -330,211 +339,6 @@ test('discard() disposes the instance, after the pool has forgotten it', functio
     });
 });
 
-test('an idle timeout must be above 0', function () {
+test('a window must be above 0', function () {
     expect(fn () => new Pool(fn () => new stdClass(), 1, 0.0))->toThrow(InvalidArgumentException::class);
-});
-
-// ---------------------------------------------------------------------------
-// warm()
-// ---------------------------------------------------------------------------
-
-test('warm() makes an instance in the background and keeps it idle', function () {
-    phasync::run(function () {
-        $pool = numbered_pool(2, $made);
-        $pool->warm();
-        expect($made)->toBe(0); // $create runs in a coroutine of its own, not in the caller's stack
-        phasync::sleep(0.01);
-        expect(\count($pool))->toBe(1);
-        $a = $pool->borrow();
-        expect([$made, $a->nr])->toBe([1, 1]);
-    });
-});
-
-test('warm() does not make the caller wait for a slow create', function () {
-    phasync::run(function () {
-        $made = 0;
-        $pool = new Pool(function () use (&$made) {
-            phasync::sleep(0.05);
-
-            return (object) ['nr' => ++$made];
-        }, 1);
-        $start = \microtime(true);
-        $pool->warm();
-        expect(\microtime(true) - $start)->toBeLessThan(0.04);
-        $a = $pool->borrow(); // waits for the instance being made, which goes to it
-        expect([$made, $a->nr])->toBe([1, 1]);
-    });
-});
-
-test('warm() makes nothing when the pool is at its size, counting instances being made', function () {
-    phasync::run(function () {
-        $pool = numbered_pool(2, $made);
-        $a    = $pool->borrow();
-        $pool->warm();
-        $pool->warm(); // the second is being made, or is idle: the pool is full
-        $pool->warm();
-        phasync::sleep(0.01);
-        expect([$made, \count($pool)])->toBe([2, 2]);
-        $pool->release($a);
-        $pool->warm();
-        phasync::sleep(0.01);
-        expect($made)->toBe(2);
-    });
-});
-
-test('warm() makes nothing while a borrower waits', function () {
-    phasync::run(function () {
-        $pool = numbered_pool(1, $made);
-        $a    = $pool->borrow();
-        $next = phasync::go(fn () => $pool->borrow(1)->nr);
-        phasync::sleep(0.01);
-        $pool->discard($a); // a place is free, and the borrower in line has not yet taken it
-        $pool->warm();
-        expect(phasync::await($next))->toBe(2);
-        expect($made)->toBe(2);
-    });
-});
-
-test('warm() returns at once, also when create never suspends and takes long', function () {
-    phasync::run(function () {
-        $pool  = new Pool(function () {
-            \usleep(30000);
-
-            return new stdClass();
-        }, 1);
-        $start = \microtime(true);
-        $pool->warm();
-        expect(\microtime(true) - $start)->toBeLessThan(0.02);
-        expect(\count($pool))->toBe(1); // the place is taken at once
-        $pool->warm(); // so a second does not start another
-        phasync::sleep(0.01);
-        expect($pool->borrow(1))->toBeInstanceOf(stdClass::class);
-    });
-});
-
-test('warm() that is cancelled before it ran frees the place', function () {
-    $pool = null;
-    try {
-        phasync::run(function () use (&$pool) {
-            $pool = new Pool(fn () => new stdClass(), 1);
-            $pool->warm();
-            throw new RuntimeException('stop');
-        });
-    } catch (RuntimeException) {
-    }
-    expect(\count($pool))->toBe(0);
-});
-
-test('warm() that fails passes the exception to $onFailure, and frees the place', function () {
-    $failures = [];
-    phasync::run(function () use (&$failures) {
-        $fail = true;
-        $pool = new Pool(function () use (&$fail) {
-            if ($fail) {
-                $fail = false;
-                throw new RuntimeException('connection refused');
-            }
-
-            return new stdClass();
-        }, 1);
-        $pool->warm(function (Throwable $e) use (&$failures) {
-            $failures[] = $e->getMessage();
-            // A framework may turn warnings into exceptions: nothing here is a warning
-        });
-        phasync::sleep(0.01);
-        expect(\count($pool))->toBe(0);
-        expect($pool->borrow(0.1))->toBeInstanceOf(stdClass::class);
-    });
-    expect($failures)->toBe(['connection refused']);
-});
-
-test('warm() that fails without $onFailure raises no warning and no exception; the next borrower meets the failure itself', function () {
-    $warnings = 0;
-    \set_error_handler(function () use (&$warnings) {
-        ++$warnings;
-
-        return true;
-    });
-    try {
-        phasync::run(function () {
-            $pool = new Pool(function () {
-                throw new RuntimeException('connection refused');
-            }, 1);
-            $pool->warm();
-            phasync::sleep(0.01);
-            expect(\count($pool))->toBe(0);
-            expect(fn () => $pool->borrow())->toThrow(RuntimeException::class, 'connection refused');
-        });
-    } finally {
-        \restore_error_handler();
-    }
-    expect($warnings)->toBe(0);
-});
-
-test('a borrower waiting for a warm() that fails makes an instance itself', function () {
-    $failures = 0;
-    $nr       = phasync::run(function () use (&$failures) {
-        $calls = 0;
-        $pool  = new Pool(function () use (&$calls) {
-            if (1 === ++$calls) {
-                phasync::sleep(0.02);
-                throw new RuntimeException('connection refused');
-            }
-
-            return (object) ['nr' => $calls];
-        }, 1);
-        $pool->warm(function () use (&$failures) { ++$failures; });
-
-        return $pool->borrow(1)->nr;
-    });
-    expect([$nr, $failures])->toBe([2, 1]);
-});
-
-// ---------------------------------------------------------------------------
-// idle() and lent()
-// ---------------------------------------------------------------------------
-
-test('idle() and lent() count instances ready and instances out, apart from those being made', function () {
-    phasync::run(function () {
-        $pool = new Pool(function () {
-            phasync::sleep(0.02);
-
-            return new stdClass();
-        }, 3);
-        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([0, 0, 0]);
-        $pool->warm();
-        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([0, 0, 1]); // being made: neither
-        phasync::sleep(0.05);
-        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([1, 0, 1]);
-        $a = $pool->borrow();
-        $b = $pool->borrow();
-        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([0, 2, 2]);
-        $pool->release($a);
-        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([1, 1, 2]);
-        $pool->discard($b);
-        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([1, 0, 1]);
-    });
-});
-
-test('idle() does not count instances that expired', function () {
-    phasync::run(function () {
-        $pool = new Pool(fn () => new stdClass(), 2, 0.01);
-        $pool->release($pool->borrow());
-        expect($pool->idle())->toBe(1);
-        \usleep(20000);
-        expect($pool->idle())->toBe(0);
-    });
-});
-
-test('lent() does not count an instance that was lost, and warns', function () {
-    \set_error_handler(fn () => true, \E_USER_WARNING);
-    try {
-        phasync::run(function () {
-            $pool = new Pool(fn () => new stdClass(), 2);
-            $pool->borrow();
-            expect($pool->lent())->toBe(0);
-        });
-    } finally {
-        \restore_error_handler();
-    }
 });
