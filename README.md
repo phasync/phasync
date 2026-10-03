@@ -239,8 +239,10 @@ lets go of, and `warm()` makes the next instance before anyone waits for it:
 
 ```php
 $apps = new Pool(fn () => bootApplication(), 8, idleTimeout: 60, dispose: fn ($app) => $app->flush());
-$apps->warm();
+$apps->warm(fn (Throwable $e) => $log->warning($e->getMessage())); // returns at once; failures go to the callback
 ```
+
+`idle()` and `lent()` tell how many instances are ready and how many are out.
 
 Also in `phasync\Util`: `RateLimiter`, `Synchronized` (a lock per coroutine) and `StringBuffer`
 (a fast byte buffer for protocol parsers).

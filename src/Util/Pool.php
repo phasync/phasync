@@ -16,7 +16,7 @@ use phasync\TimeoutException;
  * - An instance dropped by its borrower without `release()` or `discard()` is noticed when it is destroyed: the pool warns (`E_USER_WARNING`) and makes a new one in its place. A borrower waiting meanwhile finds out within a second.
  * - With `$idleTimeout`, idle instances that nobody borrowed for that long are dropped, so memory goes back after a burst; this also happens without traffic, by a background timer that exists only while instances are idle, and that never keeps `phasync::run()` waiting.
  * - With `$dispose`, an instance the pool lets go of (expired, or given back with `discard()`) is passed to it, to close or flush it. `$dispose` must cope with an instance that is already closed or broken, and an exception from it propagates like any coroutine's. It is not called for an instance lost without being given back, which is already destroyed.
- * - `warm()` makes an instance ahead of need, so that a borrower does not have to wait for `$create`.
+ * - `warm()` makes an instance ahead of need, in a coroutine of its own, so that a borrower does not have to wait for `$create`. `idle()` and `lent()` tell how many instances are ready and how many are out.
  *
  * ```php
  * $db = new phasync\Util\Pool(fn () => new PDO($dsn, $user, $password), 10);
@@ -203,25 +203,30 @@ final class Pool implements \Countable
     /**
      * Makes one instance in a coroutine of its own and keeps it idle, unless the pool is at its size or a borrower waits.
      *
-     * The caller does not wait for `$create`; a borrower that needs an instance meanwhile gets this one when it is done. A `$create` that fails does not throw into the caller: the pool warns (`E_USER_WARNING`), forgets the attempt, and a borrower waiting for it makes an instance itself. The run does not end before the instance is made.
+     * It returns at once: `$create` starts after the caller's next wait, never in the caller's stack, and the place is taken meanwhile. A borrower that needs an instance meanwhile gets this one when it is done. The run does not end before the instance is made.
+     *
+     * A `$create` that fails does not throw into the caller or warn: the pool forgets the attempt and passes the exception to `$onFailure`, for logging. Without one the failure is dropped, as the next borrower that needs an instance runs `$create` itself and gets the exception where it can handle it (a borrower already waiting does so at once). An exception from `$onFailure` fails the run, like any service's.
+     *
+     * @param \Closure(\Throwable): void|null $onFailure called with what `$create` threw
      *
      * @throws \LogicException outside a coroutine
      *
      * @see Pool::borrow
      */
-    public function warm(): void
+    public function warm(?\Closure $onFailure = null): void
     {
         $this->noticeLost();
         if (null !== $this->first() || $this->total() >= $this->size) {
             return;
         }
-        \phasync::service(function () {
+        ++$this->creating; // the place is taken now, make() gives it up
+        \phasync::service(function () use ($onFailure) {
             try {
-                $instance = $this->make();
+                $instance = $this->make(true);
             } catch (CancelledException $e) {
                 throw $e;
             } catch (\Throwable $e) {
-                \trigger_error('A Pool could not make an instance ahead of need: ' . \get_class($e) . ': ' . $e->getMessage(), \E_USER_WARNING);
+                null === $onFailure || $onFailure($e);
 
                 return;
             }
@@ -266,6 +271,29 @@ final class Pool implements \Countable
         $this->noticeLost();
 
         return $this->total();
+    }
+
+    /**
+     * Returns the number of instances ready to lend, not counting those being made.
+     */
+    public function idle(): int
+    {
+        $this->noticeLost();
+        if (null !== $this->idleTimeout) {
+            $this->expire();
+        }
+
+        return \count($this->idle);
+    }
+
+    /**
+     * Returns the number of instances lent out by `borrow()` and not yet given back.
+     */
+    public function lent(): int
+    {
+        $this->noticeLost();
+
+        return $this->lent;
     }
 
     /**
@@ -329,11 +357,16 @@ final class Pool implements \Countable
         return $instance;
     }
 
-    /** @return T */
-    private function make(): object
+    /**
+     * @param bool $warming warm() counted the instance already, and has it start after its caller's next wait
+     *
+     * @return T
+     */
+    private function make(bool $warming = false): object
     {
-        ++$this->creating;
+        $warming || ++$this->creating;
         try {
+            $warming && \phasync::sleep();
             $instance = ($this->create)();
         } catch (\Throwable $e) {
             --$this->creating;

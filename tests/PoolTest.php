@@ -342,7 +342,7 @@ test('warm() makes an instance in the background and keeps it idle', function ()
     phasync::run(function () {
         $pool = numbered_pool(2, $made);
         $pool->warm();
-        expect($made)->toBe(1); // started at once, in a coroutine of its own
+        expect($made)->toBe(0); // $create runs in a coroutine of its own, not in the caller's stack
         phasync::sleep(0.01);
         expect(\count($pool))->toBe(1);
         $a = $pool->borrow();
@@ -395,60 +395,146 @@ test('warm() makes nothing while a borrower waits', function () {
     });
 });
 
-test('warm() that fails warns, does not throw, and frees the place', function () {
-    $warnings = [];
-    \set_error_handler(function (int $level, string $message) use (&$warnings) {
-        $warnings[] = $message;
+test('warm() returns at once, also when create never suspends and takes long', function () {
+    phasync::run(function () {
+        $pool  = new Pool(function () {
+            \usleep(30000);
+
+            return new stdClass();
+        }, 1);
+        $start = \microtime(true);
+        $pool->warm();
+        expect(\microtime(true) - $start)->toBeLessThan(0.02);
+        expect(\count($pool))->toBe(1); // the place is taken at once
+        $pool->warm(); // so a second does not start another
+        phasync::sleep(0.01);
+        expect($pool->borrow(1))->toBeInstanceOf(stdClass::class);
+    });
+});
+
+test('warm() that is cancelled before it ran frees the place', function () {
+    $pool = null;
+    try {
+        phasync::run(function () use (&$pool) {
+            $pool = new Pool(fn () => new stdClass(), 1);
+            $pool->warm();
+            throw new RuntimeException('stop');
+        });
+    } catch (RuntimeException) {
+    }
+    expect(\count($pool))->toBe(0);
+});
+
+test('warm() that fails passes the exception to $onFailure, and frees the place', function () {
+    $failures = [];
+    phasync::run(function () use (&$failures) {
+        $fail = true;
+        $pool = new Pool(function () use (&$fail) {
+            if ($fail) {
+                $fail = false;
+                throw new RuntimeException('connection refused');
+            }
+
+            return new stdClass();
+        }, 1);
+        $pool->warm(function (Throwable $e) use (&$failures) {
+            $failures[] = $e->getMessage();
+            // A framework may turn warnings into exceptions: nothing here is a warning
+        });
+        phasync::sleep(0.01);
+        expect(\count($pool))->toBe(0);
+        expect($pool->borrow(0.1))->toBeInstanceOf(stdClass::class);
+    });
+    expect($failures)->toBe(['connection refused']);
+});
+
+test('warm() that fails without $onFailure raises no warning and no exception; the next borrower meets the failure itself', function () {
+    $warnings = 0;
+    \set_error_handler(function () use (&$warnings) {
+        ++$warnings;
 
         return true;
-    }, \E_USER_WARNING);
+    });
     try {
         phasync::run(function () {
-            $fail = true;
-            $pool = new Pool(function () use (&$fail) {
-                if ($fail) {
-                    $fail = false;
-                    throw new RuntimeException('connection refused');
-                }
-
-                return new stdClass();
+            $pool = new Pool(function () {
+                throw new RuntimeException('connection refused');
             }, 1);
             $pool->warm();
             phasync::sleep(0.01);
             expect(\count($pool))->toBe(0);
-            expect($pool->borrow(0.1))->toBeInstanceOf(stdClass::class);
+            expect(fn () => $pool->borrow())->toThrow(RuntimeException::class, 'connection refused');
         });
     } finally {
         \restore_error_handler();
     }
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])->toContain('connection refused');
+    expect($warnings)->toBe(0);
 });
 
 test('a borrower waiting for a warm() that fails makes an instance itself', function () {
-    $warnings = [];
-    \set_error_handler(function (int $level, string $message) use (&$warnings) {
-        $warnings[] = $message;
+    $failures = 0;
+    $nr       = phasync::run(function () use (&$failures) {
+        $calls = 0;
+        $pool  = new Pool(function () use (&$calls) {
+            if (1 === ++$calls) {
+                phasync::sleep(0.02);
+                throw new RuntimeException('connection refused');
+            }
 
-        return true;
-    }, \E_USER_WARNING);
+            return (object) ['nr' => $calls];
+        }, 1);
+        $pool->warm(function () use (&$failures) { ++$failures; });
+
+        return $pool->borrow(1)->nr;
+    });
+    expect([$nr, $failures])->toBe([2, 1]);
+});
+
+// ---------------------------------------------------------------------------
+// idle() and lent()
+// ---------------------------------------------------------------------------
+
+test('idle() and lent() count instances ready and instances out, apart from those being made', function () {
+    phasync::run(function () {
+        $pool = new Pool(function () {
+            phasync::sleep(0.02);
+
+            return new stdClass();
+        }, 3);
+        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([0, 0, 0]);
+        $pool->warm();
+        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([0, 0, 1]); // being made: neither
+        phasync::sleep(0.05);
+        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([1, 0, 1]);
+        $a = $pool->borrow();
+        $b = $pool->borrow();
+        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([0, 2, 2]);
+        $pool->release($a);
+        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([1, 1, 2]);
+        $pool->discard($b);
+        expect([$pool->idle(), $pool->lent(), \count($pool)])->toBe([1, 0, 1]);
+    });
+});
+
+test('idle() does not count instances that expired', function () {
+    phasync::run(function () {
+        $pool = new Pool(fn () => new stdClass(), 2, 0.01);
+        $pool->release($pool->borrow());
+        expect($pool->idle())->toBe(1);
+        \usleep(20000);
+        expect($pool->idle())->toBe(0);
+    });
+});
+
+test('lent() does not count an instance that was lost, and warns', function () {
+    \set_error_handler(fn () => true, \E_USER_WARNING);
     try {
-        $nr = phasync::run(function () {
-            $calls = 0;
-            $pool  = new Pool(function () use (&$calls) {
-                if (1 === ++$calls) {
-                    phasync::sleep(0.02);
-                    throw new RuntimeException('connection refused');
-                }
-
-                return (object) ['nr' => $calls];
-            }, 1);
-            $pool->warm();
-
-            return $pool->borrow(1)->nr;
+        phasync::run(function () {
+            $pool = new Pool(fn () => new stdClass(), 2);
+            $pool->borrow();
+            expect($pool->lent())->toBe(0);
         });
     } finally {
         \restore_error_handler();
     }
-    expect([$nr, \count($warnings)])->toBe([2, 1]);
 });

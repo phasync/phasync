@@ -9,8 +9,11 @@ Earlier releases are listed on the GitHub releases page.
 - `phasync\Util\Pool` can hold heavy instances (a booted application): `idleTimeout` drops
   instances that have been idle for that long, also without traffic, by a timer that exists only
   while instances are idle; `dispose` is called with each instance the pool lets go of (expired,
-  or given back with `discard()`); `warm()` makes one instance ahead of need in a coroutine of its
-  own, and a `$create` that fails there is a warning (`E_USER_WARNING`), not an exception.
+  or given back with `discard()`); `warm(?Closure $onFailure = null)` makes one instance ahead of
+  need in a coroutine of its own, and returns at once (`$create` never runs in the caller's stack).
+  A `$create` that fails there is passed to `$onFailure`, or dropped: no warning, no exception, and
+  the next borrower that needs an instance meets the failure itself. `idle()` and `lent()` count
+  the instances ready and the instances out.
 - `phasync::service($fn, background: true)`: a service the outermost `run()` does not wait for. Once
   nothing else is left it is cancelled, and `run()` returns when it has unwound. For timers that
   expire idle resources.
