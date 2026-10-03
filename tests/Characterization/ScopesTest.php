@@ -426,3 +426,54 @@ test('SCO-7: cancel() of a context cancels the waiting coroutines of it and of t
     // nested in $context, so the caller isn't either
     expect($log)->toBe(['grandchild cancelled', 'child cancelled']);
 });
+
+// ---------------------------------------------------------------------------
+// SCO-6  service(background: true)
+// ---------------------------------------------------------------------------
+
+test('SCO-6: a background service does not keep the top-level run() waiting; it is cancelled when the rest has ended', function () {
+    $log   = [];
+    $start = \microtime(true);
+    phasync::run(function () use (&$log) {
+        phasync::service(function () use (&$log) {
+            try {
+                phasync::sleep(10);
+            } finally {
+                $log[] = 'background unwound';
+            }
+        }, background: true);
+        $log[] = 'main end';
+    });
+    expect($log)->toBe(['main end', 'background unwound']);
+    expect(\microtime(true) - $start)->toBeLessThan(1.0);
+});
+
+test('SCO-6: a background service runs as long as anything else does', function () {
+    $ticks = 0;
+    phasync::run(function () use (&$ticks) {
+        phasync::service(function () use (&$ticks) {
+            while (true) {
+                phasync::sleep(0.01);
+                ++$ticks;
+            }
+        }, background: true);
+        phasync::go(function () {
+            phasync::sleep(0.1);
+        });
+        phasync::sleep(0.05);
+    });
+    expect($ticks)->toBeGreaterThanOrEqual(8);
+    expect($ticks)->toBeLessThan(13);
+});
+
+test('SCO-6: a background service that has ended on its own is not counted again, and the next run() waits for ordinary services', function () {
+    phasync::run(fn () => phasync::service(fn () => 1, background: true));
+    $log = [];
+    phasync::run(function () use (&$log) {
+        phasync::service(function () use (&$log) {
+            phasync::sleep(0.03);
+            $log[] = 'service done';
+        });
+    });
+    expect($log)->toBe(['service done']);
+});
