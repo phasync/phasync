@@ -42,7 +42,7 @@ final class Pool implements \Countable
     /** @var list<T> instances ready to lend, the most recently used last */
     private array $idle = [];
 
-    /** @var list<float> times of the samples in $peakLent; they rise as the counts fall, so the first sample still in the window is its peak */
+    /** @var list<float> times of the samples in peakLent; they rise as the counts fall, so the first sample still in the window is its peak */
     private array $peakTime = [];
 
     /** @var list<int> */
