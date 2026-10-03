@@ -141,9 +141,7 @@ children. ✅ Matches today.
 
 **SCO-6. Detached work is explicit.** `service()` is the only way to start a coroutine
 that outlives its scope. Its unhandled failures go to the outermost `run()` (a handler on its
-context, or its failure). A `background` service is the exception to the outermost `run()` waiting
-for services: once nothing but background services is left, they are cancelled and `run()`
-returns when they have unwound. ✅ ScopesTest
+context, or its failure). ✅ ScopesTest
 
 **SCO-7. A context is any object.** `run()`, `go()` and `withContext()` take an optional
 context object and `phasync::getContext()` returns the one the current coroutine belongs

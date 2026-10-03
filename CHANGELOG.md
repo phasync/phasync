@@ -6,17 +6,12 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Added
 
-- `phasync\Util\Pool` can hold heavy instances (a booted application): `idleTimeout` drops
-  instances that have been idle for that long, also without traffic, by a timer that exists only
-  while instances are idle; `dispose` is called with each instance the pool lets go of (expired,
-  or given back with `discard()`); `warm(?Closure $onFailure = null)` makes one instance ahead of
-  need in a coroutine of its own, and returns at once (`$create` never runs in the caller's stack).
-  A `$create` that fails there is passed to `$onFailure`, or dropped: no warning, no exception, and
-  the next borrower that needs an instance meets the failure itself. `idle()` and `lent()` count
-  the instances ready and the instances out.
-- `phasync::service($fn, background: true)`: a service the outermost `run()` does not wait for. Once
-  nothing else is left it is cancelled, and `run()` returns when it has unwound. For timers that
-  expire idle resources.
+- `phasync\Util\Pool` can hold heavy instances (a booted application): with `window` (seconds), idle
+  instances are dropped while more exist than the most that were lent at once within the window, so
+  a burst keeps its instances for `window` seconds and memory goes back after that. This is checked
+  when `borrow()` or `release()` is called, not by a timer, so memory is returned the next time the
+  pool is used. `dispose` is called with each instance the pool lets go of (dropped as idle, or
+  given back with `discard()`).
 - Context-local state: `phasync::$contextState` is bound, by reference, to the array of the running
   coroutine's context, so contexts do not see each other's writes. `phasync::enableContextState()`
   or `phasync::adoptContextState(array &$state)` (use a caller's array as the context's state) turn
