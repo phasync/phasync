@@ -90,7 +90,7 @@ cooperative, a sequence of statements that does not suspend cannot be interleave
 another coroutine of its root context. Every rule below relies on this. ⚠️
 
 **SCH-6. Preemption (with phasync-ext) switches only between root contexts, and only between
-loop iterations.** A coroutine that runs a whole `EventLoop::PREEMPT_INTERVAL` (1 ms) in a PHP
+loop iterations.** A coroutine that runs a whole `EventLoop::PREEMPT_INTERVAL` (20 ms) in a PHP
 loop yields, so that timers, I/O and other requests get their turn. It is never preempted:
 - at any point other than between two iterations of a PHP loop;
 - in PHP code called by a C function (callbacks, handlers, destructors), or in

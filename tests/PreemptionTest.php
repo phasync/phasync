@@ -29,7 +29,7 @@ test('a CPU-bound request no longer starves another: the other runs while it loo
         $log = [];
         $a   = phasync::go(function () use (&$log) {
             $log[] = 'A starts';
-            preemptBusy(0.2);
+            preemptBusy(0.5);
             $log[] = 'A done';
         }, context: new stdClass());
         $b = phasync::go(function () use (&$log) {

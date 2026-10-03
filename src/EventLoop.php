@@ -306,7 +306,7 @@ final class EventLoop implements \Countable
     private float $lastGarbageCheck = 0;
 
     /** How long a coroutine runs in a PHP loop before it yields to other requests (phasync-ext). */
-    public const PREEMPT_INTERVAL = 0.001;
+    public const PREEMPT_INTERVAL = 0.02;
 
     /** How often the loop counts the possible cycles, and how many make it collect: PHP's own threshold. */
     private const GC_CHECK_INTERVAL = 0.05;
