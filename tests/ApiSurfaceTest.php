@@ -40,7 +40,7 @@ test('the phasync facade has exactly these public methods and signatures', funct
         'static raiseFlag(object $signal): int',
         'static readable(mixed $resource, float $timeout = 1.7976931348623157e+308): mixed',
         'static run(Closure $fn, ?array $args = [], ?object $context = null): mixed',
-        'static service(Closure $coroutine): void',
+        'static service(Closure $coroutine, bool $background = false): void',
         'static sleep(float $seconds = 0): void',
         'static throw(Fiber $fiber, Throwable $exception): void',
         'static withContext(Closure $fn, object $context): mixed',

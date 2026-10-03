@@ -33,7 +33,7 @@ namespace phasync {
          * when it is no longer providing services to other fibers. Failing
          * to do so will cause the topmost run() context to keep running.
          */
-        public static function service(Closure $coroutine): void;
+        public static function service(Closure $coroutine, bool $background = false): void;
 
         /**
          * Wait for a coroutine, a promise, or a SelectableInterface to complete and return
