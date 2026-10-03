@@ -6,6 +6,14 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Added
 
+- `phasync\Util\Pool` can hold heavy instances (a booted application): `idleTimeout` drops
+  instances that have been idle for that long, also without traffic, by a timer that exists only
+  while instances are idle; `dispose` is called with each instance the pool lets go of (expired,
+  or given back with `discard()`); `warm()` makes one instance ahead of need in a coroutine of its
+  own, and a `$create` that fails there is a warning (`E_USER_WARNING`), not an exception.
+- `phasync::service($fn, background: true)`: a service the outermost `run()` does not wait for. Once
+  nothing else is left it is cancelled, and `run()` returns when it has unwound. For timers that
+  expire idle resources.
 - Context-local state: `phasync::$contextState` is bound, by reference, to the array of the running
   coroutine's context, so contexts do not see each other's writes. `phasync::enableContextState()`
   or `phasync::adoptContextState(array &$state)` (use a caller's array as the context's state) turn

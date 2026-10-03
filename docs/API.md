@@ -64,13 +64,14 @@ Parameters:
  * $context: The context object given to `phasync::withContext()` or `phasync::run()`.
  * $timeout: Maximum time in seconds to wait.
 
-### `phasync::service(Closure $coroutine): void`
+### `phasync::service(Closure $coroutine, bool $background = false): void`
 
 Creates a long-running and context-free coroutine which can be used to extend the functionality of phasync by for example polling `curl_multi_*` functions. The coroutine should terminate itself if it no longer provides such services. Also it should use the `phasync::yield()` function to sleep between each tick efficiently, or if a guaranteed polling frequency is needed `phasync::sleep(0.1)` would sleep 0.1 seconds between each tick.
 
 Parameters:
 
  * $coroutine: The function that performs the polling in a loop.
+ * $background: True if the outermost `phasync::run()` should not wait for the service: once nothing else is left, it is cancelled and `run()` returns when it has unwound.
 
 
 ### `phasync::cancel(object $fiberOrContext, string|Stringable $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void`

@@ -234,6 +234,14 @@ $db   = new Pool(fn () => new PDO($dsn, $user, $password), 10);
 $rows = $db->use(fn (PDO $pdo) => $pdo->query('SELECT 1')->fetchAll());
 ```
 
+For heavy instances, `idleTimeout` gives memory back after a burst, `dispose` closes what the pool
+lets go of, and `warm()` makes the next instance before anyone waits for it:
+
+```php
+$apps = new Pool(fn () => bootApplication(), 8, idleTimeout: 60, dispose: fn ($app) => $app->flush());
+$apps->warm();
+```
+
 Also in `phasync\Util`: `RateLimiter`, `Synchronized` (a lock per coroutine) and `StringBuffer`
 (a fast byte buffer for protocol parsers).
 
