@@ -147,7 +147,6 @@ final class phasync
                     while ($driver->count() > 0) {
                         $driver->tick();
                     }
-                    $driver->stopBackground();
                 } else {
                     while ([] !== $driver->getFibers($context)) {
                         self::yield();
@@ -270,8 +269,6 @@ final class phasync
      *
      * A service is for one coroutine that serves many others and is started on first use, such as a connection manager. The scope that started it can end while it runs, but the outermost `run()` does not return before it has ended: a service that never ends keeps `run()` waiting. A service that throws fails the outermost `run()`.
      *
-     * A `$background` service is one that `run()` does not wait for, such as a timer that expires idle resources: once nothing else is left, it is cancelled and `run()` returns when it has unwound. It never keeps a run alive, but is a coroutine like any other while the run lasts.
-     *
      * ```php
      * phasync::run(function () {
      *     phasync::service(function () {
@@ -283,21 +280,19 @@ final class phasync
      * // run() returns after "service ends"
      * ```
      *
-     * @param bool $background true if `run()` should not wait for the service
-     *
      * @throws \LogicException outside a coroutine
      *
      * @see phasync::go
      * @see phasync::run
      */
-    public static function service(Closure $coroutine, bool $background = false): void
+    public static function service(Closure $coroutine): void
     {
         $driver = self::getDriver();
         $fiber = $driver->getCurrentFiber();
         if (null === $fiber || null === $driver->getContext($fiber)) {
             throw new LogicException('Services must be started on-demand inside a coroutine.');
         }
-        $driver->runService($coroutine, $background);
+        $driver->runService($coroutine);
     }
 
     /**

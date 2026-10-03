@@ -191,9 +191,6 @@ final class EventLoop implements \Countable
      */
     private \SplObjectStorage $pending;
 
-    /** Background services alive: they are in $pending, but do not keep the outermost run() going. */
-    private int $background = 0;
-
     /**
      * Maps child fibers to their parent fibers, unless the fiber
      * is a root fiber.
@@ -456,7 +453,7 @@ final class EventLoop implements \Countable
 
     public function count(): int
     {
-        return $this->pending->count() - $this->background;
+        return $this->pending->count();
     }
 
     /**
@@ -724,37 +721,10 @@ final class EventLoop implements \Countable
      * loop until it completes its work. The intended use case is to provide services for
      * many other fibers, such as curl_multi_exec() invocations.
      */
-    public function runService(\Closure $closure, bool $background = false): void
+    public function runService(\Closure $closure): void
     {
-        if ($background) {
-            ++$this->background;
-            $service = $closure;
-            $closure = function () use ($service) {
-                try {
-                    return $service();
-                } finally {
-                    --$this->background;
-                }
-            };
-        }
         $fiber = $this->create(closure: $closure, context: $this->serviceContext);
         unset($this->parentFibers[$fiber]);
-    }
-
-    /**
-     * The outermost run() has nothing left but background services: cancel them, and run the loop
-     * until they have unwound.
-     *
-     * @internal phasync::run()
-     */
-    public function stopBackground(): void
-    {
-        if (0 !== $this->background) {
-            $this->cancelContext($this->serviceContext, null, false);
-            while ($this->pending->count() > 0) {
-                $this->tick();
-            }
-        }
     }
 
     /**
