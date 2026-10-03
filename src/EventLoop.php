@@ -1338,7 +1338,7 @@ final class EventLoop implements \Countable
         return $this->rootContexts[$context];
     }
 
-    /** $fiber left $context: a root with none left drops its self-reference. */
+    /** $fiber left $context: a root with none left drops its self-reference (the service context is kept: the driver holds it, and a later service needs its root). */
     private function leftContext(object $context, \Fiber $fiber): void
     {
         $members = $this->contextFibers[$context];
@@ -1351,7 +1351,7 @@ final class EventLoop implements \Countable
             }
         }
         // Cheapest first: coroutines of a run()'s context (most) leave it without this
-        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context) {
+        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context && $context !== $this->serviceContext) {
             unset($this->rootContexts[$context]);
         }
         if (0 !== $this->cancellations && isset($this->cancelledContexts[$context])) {

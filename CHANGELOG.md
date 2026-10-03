@@ -20,6 +20,12 @@ Earlier releases are listed on the GitHub releases page.
   it on; `phasync::$contextStateDefaults` is what a new context starts with. Until then a switch
   checks one flag.
 
+### Fixed
+
+- A service started after earlier services had ended could not enter a context: `withContext()`
+  inside it threw `Object stdClass#N not contained in WeakMap`. The service context lost its root
+  context when its last service ended; it now keeps it (#78).
+
 ### Changed
 
 - `StreamSelectPoller` always uses PHP's `stream_select()`; it no longer looks for

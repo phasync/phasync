@@ -326,6 +326,20 @@ test('SCO-6: a service coroutine runs in the service context, not in the creator
     expect($r)->toBe([true, true]);
 });
 
+test('SCO-6: a service started after earlier services ended can enter contexts (#78)', function () {
+    $log = [];
+    phasync::run(function () use (&$log) {
+        phasync::service(function () { phasync::sleep(0.01); });
+        phasync::sleep(0.05); // the service has ended
+        phasync::service(function () use (&$log) {
+            phasync::await(phasync::go(function () use (&$log) {
+                phasync::withContext(function () use (&$log) { $log[] = 'inner ok'; }, new stdClass());
+            }));
+        });
+    });
+    expect($log)->toBe(['inner ok']);
+});
+
 test('SCO-6: the top-level run() keeps running until its services have finished, though the main coroutine returned', function () {
     $log = [];
     $t   = \microtime(true);
