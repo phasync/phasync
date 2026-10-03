@@ -2,7 +2,6 @@
 
 namespace phasync\Util;
 
-use phasync\CancelledException;
 use phasync\TimeoutException;
 
 /**
@@ -14,12 +13,14 @@ use phasync\TimeoutException;
  * - Borrowers waiting are served in the order they came: a released instance goes to the one that waited longest.
  * - An instance that broke (a lost database connection) is given back with `discard()` instead: the pool forgets it, and makes a new one when needed.
  * - An instance dropped by its borrower without `release()` or `discard()` is noticed when it is destroyed: the pool warns (`E_USER_WARNING`) and makes a new one in its place. A borrower waiting meanwhile finds out within a second.
- * - With `$idleTimeout`, idle instances that nobody borrowed for that long are dropped, so memory goes back after a burst; this also happens without traffic, by a background timer that exists only while instances are idle, and that never keeps `phasync::run()` waiting.
- * - With `$dispose`, an instance the pool lets go of (expired, or given back with `discard()`) is passed to it, to close or flush it. `$dispose` must cope with an instance that is already closed or broken, and an exception from it propagates like any coroutine's. It is not called for an instance lost without being given back, which is already destroyed.
- * - `warm()` makes an instance ahead of need, in a coroutine of its own, so that a borrower does not have to wait for `$create`. `idle()` and `lent()` tell how many instances are ready and how many are out.
+ * - With `$window`, the pool shrinks to the most instances that were lent at once within the last `$window` seconds: an idle instance is dropped only while more instances exist than that. A burst keeps its instances for `$window` seconds, then they go. This is checked when `borrow()` or `release()` is called, never by a timer, so memory is returned the next time the pool is used, not when the window ends.
+ * - With `$dispose`, an instance the pool lets go of (dropped as idle, or given back with `discard()`) is passed to it, to close or flush it. `$dispose` must cope with an instance that is already closed or broken, and an exception from it propagates like any coroutine's. It is not called for an instance lost without being given back, which is already destroyed.
  *
  * ```php
  * $db = new phasync\Util\Pool(fn () => new PDO($dsn, $user, $password), 10);
+ *
+ * // Heavy instances: give memory back 30 s after a burst, and flush what is dropped
+ * $apps = new phasync\Util\Pool(fn () => bootApplication(), 8, window: 30, dispose: fn ($app) => $app->flush());
  *
  * $rows = $db->use(fn (PDO $pdo) => $pdo->query('SELECT ...')->fetchAll());
  *
@@ -41,11 +42,11 @@ final class Pool implements \Countable
     /** @var list<T> instances ready to lend, the most recently used last */
     private array $idle = [];
 
-    /** @var list<float> when each idle instance was given back, oldest first */
-    private array $idleSince = [];
+    /** @var list<float> times of the samples in $peakLent; they rise as the counts fall, so the first sample still in the window is its peak */
+    private array $peakTime = [];
 
-    /** The coroutine that drops expired idle instances, while there are any. */
-    private ?\Fiber $sweeper = null;
+    /** @var list<int> */
+    private array $peakLent = [];
 
     /** @var \WeakMap<T, true> instances lent out */
     private \WeakMap $out;
@@ -62,24 +63,24 @@ final class Pool implements \Countable
     /**
      * Creates an empty pool; instances are made when they are needed.
      *
-     * @param \Closure(): T          $create      makes an instance, in the borrowing coroutine, so it may wait
-     * @param int                    $size        the most instances in existence at once
-     * @param float|null             $idleTimeout seconds an instance may be idle before it is dropped; null keeps idle instances for ever
-     * @param \Closure(T): void|null $dispose     called with each instance the pool lets go of, to close or flush it
+     * @param \Closure(): T          $create  makes an instance, in the borrowing coroutine, so it may wait
+     * @param int                    $size    the most instances in existence at once
+     * @param float|null             $window  seconds to look back for the peak number of instances lent at once, which the pool shrinks to; null never shrinks
+     * @param \Closure(T): void|null $dispose called with each instance the pool lets go of, to close or flush it
      *
-     * @throws \InvalidArgumentException if `$size` is below 1, or `$idleTimeout` is not above 0
+     * @throws \InvalidArgumentException if `$size` is below 1, or `$window` is not above 0
      */
     public function __construct(
         private readonly \Closure $create,
         private readonly int $size,
-        private readonly ?float $idleTimeout = null,
+        private readonly ?float $window = null,
         private readonly ?\Closure $dispose = null,
     ) {
         if ($size < 1) {
             throw new \InvalidArgumentException('A pool holds at least one instance');
         }
-        if (null !== $idleTimeout && $idleTimeout <= 0) {
-            throw new \InvalidArgumentException('An idle timeout is above 0 seconds');
+        if (null !== $window && $window <= 0) {
+            throw new \InvalidArgumentException('A window is above 0 seconds');
         }
         $this->out     = new \WeakMap();
         $this->waiting = new \SplQueue();
@@ -102,13 +103,8 @@ final class Pool implements \Countable
     {
         $deadline = \microtime(true) + $timeout;
         $this->noticeLost();
-        if (null !== $this->idleTimeout) {
-            $this->expire(); // between runs no timer has been running
-        }
         if ($this->waiting->isEmpty()) {
             if ($this->idle) {
-                \array_pop($this->idleSince);
-
                 return $this->lend(\array_pop($this->idle));
             }
             if ($this->total() < $this->size) {
@@ -175,11 +171,8 @@ final class Pool implements \Countable
                 return;
             }
         }
-        $this->idle[]      = $instance;
-        $this->idleSince[] = \microtime(true);
-        if (null !== $this->idleTimeout && (null === $this->sweeper || $this->sweeper->isTerminated())) {
-            $this->startSweeper();
-        }
+        $this->idle[] = $instance;
+        null === $this->window || $this->shrink();
     }
 
     /**
@@ -198,40 +191,6 @@ final class Pool implements \Countable
         if (null !== $this->dispose) {
             ($this->dispose)($instance);
         }
-    }
-
-    /**
-     * Makes one instance in a coroutine of its own and keeps it idle, unless the pool is at its size or a borrower waits.
-     *
-     * It returns at once: `$create` starts after the caller's next wait, never in the caller's stack, and the place is taken meanwhile. A borrower that needs an instance meanwhile gets this one when it is done. The run does not end before the instance is made.
-     *
-     * A `$create` that fails does not throw into the caller or warn: the pool forgets the attempt and passes the exception to `$onFailure`, for logging. Without one the failure is dropped, as the next borrower that needs an instance runs `$create` itself and gets the exception where it can handle it (a borrower already waiting does so at once). An exception from `$onFailure` fails the run, like any service's.
-     *
-     * @param \Closure(\Throwable): void|null $onFailure called with what `$create` threw
-     *
-     * @throws \LogicException outside a coroutine
-     *
-     * @see Pool::borrow
-     */
-    public function warm(?\Closure $onFailure = null): void
-    {
-        $this->noticeLost();
-        if (null !== $this->first() || $this->total() >= $this->size) {
-            return;
-        }
-        ++$this->creating; // the place is taken now, make() gives it up
-        \phasync::service(function () use ($onFailure) {
-            try {
-                $instance = $this->make(true);
-            } catch (CancelledException $e) {
-                throw $e;
-            } catch (\Throwable $e) {
-                null === $onFailure || $onFailure($e);
-
-                return;
-            }
-            $this->release($instance);
-        });
     }
 
     /**
@@ -273,73 +232,13 @@ final class Pool implements \Countable
         return $this->total();
     }
 
-    /**
-     * Returns the number of instances ready to lend, not counting those being made.
-     */
-    public function idle(): int
-    {
-        $this->noticeLost();
-        if (null !== $this->idleTimeout) {
-            $this->expire();
-        }
-
-        return \count($this->idle);
-    }
-
-    /**
-     * Returns the number of instances lent out by `borrow()` and not yet given back.
-     */
-    public function lent(): int
-    {
-        $this->noticeLost();
-
-        return $this->lent;
-    }
-
-    /**
-     * Drops the idle instances that have been idle for too long; returns the seconds until the next
-     * would be, or null when none is idle.
-     */
-    private function expire(): ?float
-    {
-        $due = \microtime(true) - $this->idleTimeout;
-        for ($n = 0, $idle = \count($this->idle); $n < $idle && $this->idleSince[$n] <= $due; ++$n) {
-        }
-        if ($n > 0) {
-            $dropped = \array_splice($this->idle, 0, $n);
-            \array_splice($this->idleSince, 0, $n);
-            if (null !== $this->dispose) {
-                foreach ($dropped as $instance) {
-                    ($this->dispose)($instance);
-                }
-            }
-        }
-
-        return $this->idle ? \max(0.0, $this->idleSince[0] + $this->idleTimeout - \microtime(true)) : null;
-    }
-
-    /**
-     * Starts the coroutine that expires idle instances, until none is idle. It is a background
-     * service that holds the pool only weakly: it neither keeps `run()` going nor the pool alive.
-     */
-    private function startSweeper(): void
-    {
-        $pool = \WeakReference::create($this);
-        \phasync::service(static function () use ($pool) {
-            $pool->get()->sweeper = \phasync::getFiber();
-            while (null !== ($instance = $pool->get()) && null !== ($wait = $instance->expire())) {
-                unset($instance);
-                \phasync::sleep($wait);
-            }
-        }, background: true);
-    }
-
     /** @param T $instance */
     private function giveBack(object $instance): void
     {
         if (!isset($this->out[$instance])) {
             throw new \LogicException(\get_debug_type($instance) . ' is not lent out by this pool');
         }
+        null === $this->window || $this->sample();
         unset($this->out[$instance]);
         --$this->lent;
     }
@@ -353,20 +252,19 @@ final class Pool implements \Countable
     {
         $this->out[$instance] = true;
         ++$this->lent;
+        if (null !== $this->window) {
+            $this->sample();
+            $this->shrink();
+        }
 
         return $instance;
     }
 
-    /**
-     * @param bool $warming warm() counted the instance already, and has it start after its caller's next wait
-     *
-     * @return T
-     */
-    private function make(bool $warming = false): object
+    /** @return T */
+    private function make(): object
     {
-        $warming || ++$this->creating;
+        ++$this->creating;
         try {
-            $warming && \phasync::sleep();
             $instance = ($this->create)();
         } catch (\Throwable $e) {
             --$this->creating;
@@ -376,6 +274,32 @@ final class Pool implements \Countable
         --$this->creating;
 
         return $this->lend($instance);
+    }
+
+    /** Notes how many are lent now, dropping what a later note makes unnecessary. */
+    private function sample(): void
+    {
+        while ([] !== $this->peakLent && \end($this->peakLent) <= $this->lent) {
+            \array_pop($this->peakLent);
+            \array_pop($this->peakTime);
+        }
+        $this->peakLent[] = $this->lent;
+        $this->peakTime[] = \microtime(true);
+    }
+
+    /** Drops idle instances, the least recently used first, while more exist than were lent at once within the window. */
+    private function shrink(): void
+    {
+        $due = \microtime(true) - $this->window;
+        while ([] !== $this->peakTime && $this->peakTime[0] < $due) {
+            \array_shift($this->peakTime);
+            \array_shift($this->peakLent);
+        }
+        $peak = \max($this->lent, $this->peakLent[0] ?? 0);
+        while ([] !== $this->idle && $this->total() > $peak) {
+            $instance = \array_shift($this->idle);
+            null === $this->dispose || ($this->dispose)($instance);
+        }
     }
 
     private function total(): int
