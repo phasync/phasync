@@ -922,9 +922,8 @@ final class phasync
     /**
      * Turns the swapping of the context-local state on; calling it again does nothing.
      *
-     * From then on, whenever the loop runs a coroutine of another context than the one that ran last, {@see phasync::$contextState} is bound to that context's array. Before it, a switch checks one flag. Inside a coroutine, its context gets its array at once.
+     * From then on, whenever the loop runs a coroutine of another context than the one that ran last, `phasync::$contextState` is bound to that context's array. Before it, a switch checks one flag. Inside a coroutine, its context gets its array at once.
      *
-     * @see phasync::$contextState
      * @see phasync::adoptContextState
      */
     public static function enableContextState(): void
@@ -935,7 +934,7 @@ final class phasync
     /**
      * Makes `$state`, by reference, the context-local state of the running coroutine's context, effective at once and for every later resume of it.
      *
-     * The caller keeps `$state` and may adopt it into another context later. A `withContext()` given a factory creates its context here. It also turns the swapping on. Outside a coroutine it only binds {@see phasync::$contextState} to `$state`.
+     * The caller keeps `$state` and may adopt it into another context later. A `withContext()` given a factory creates its context here. It also turns the swapping on. Outside a coroutine it only binds `phasync::$contextState` to `$state`.
      *
      * ```php
      * $shared = ['count' => 0];
@@ -946,7 +945,6 @@ final class phasync
      * });
      * ```
      *
-     * @see phasync::$contextState
      */
     public static function adoptContextState(array &$state): void
     {
