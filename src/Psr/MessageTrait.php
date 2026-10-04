@@ -213,7 +213,7 @@ trait MessageTrait
         if (\is_string($value)) {
             $c->headers[$key][] = $value;
         } else {
-            \array_push($c->headers[$key], ...$value);
+            $c->headers[$key] = [...($c->headers[$key] ?? []), ...$value];
         }
         $c->headerCases[$key] = $name;
 
