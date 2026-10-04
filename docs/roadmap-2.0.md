@@ -14,10 +14,10 @@ throwaway script. That's no longer the situation. **A real, compiled PHP extensi
 `phasync-ext` -- now exists, implements almost everything directions A and B describe, and is
 tested**: 7 `.phpt` tests, run directly against the built module in this session (`php
 run-tests.php -d extension=.../modules/phasync.so tests/`), **all 7 pass**, not taken on the
-maintainer's word. It's now public: **`github.com/phasync/phasync-ext`, MIT-licensed, PHP 8.3+**
+maintainer's word. It now ships as prebuilt, closed-source binaries (own licence) in phasync's release packages under `ext/`: **PHP 8.3+**
 (confirmed live in the `phpsrcstreamselect` chatter room by the session that published it, not
 just the local checkout at `/home/frode/dev/phasync-ext` this section was originally verified
-against) -- treat the GitHub repo as the canonical home going forward.
+against) -- treat the bundled binaries as the canonical form going forward.
 
 It's a real Zend extension, not FFI: it has full Zend API access at compile time, so it never
 needs the hand-copied-struct-layout risk the FFI section below spent so much effort de-risking.

@@ -76,7 +76,7 @@ write does after `readable()` or `writable()` returned:
   call.
 - **Blocking stream:** `readable()` still waits in the coroutine, but a read that wants more than
   has arrived (`fgets()` wanting a whole line, `fread()` of an exact size) blocks the process until
-  it gets it. With [phasync-ext](https://github.com/phasync/phasync-ext) loaded, that blocking read
+  it gets it. With the phasync extension loaded, that blocking read
   waits as a coroutine instead.
 - **Outside a coroutine,** `readable()` returns at once for a blocking stream (the read itself will
   wait), and for a non-blocking one waits, blocking the process, until the stream is ready or the

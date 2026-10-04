@@ -2,6 +2,24 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Changed
+
+- The phasync extension ships inside the release packages of phasync under `ext/` (closed source
+  binaries with their own licence in `ext/LICENSE`; phasync itself stays MIT). It is no longer a
+  separate `composer require`, and the `suggest` entry for `phasync/phasync-ext` is gone. The
+  loader (`phasync\ext\ensure_loaded()`) is now part of phasync and finds binaries at
+  `ext/phasync-<php>-nts-<arch>-<libc>.so`, or at `PHASYNC_EXT_SO`.
+- Without a licence file the extension lets at most 4 blocking calls overlap per worker; a licence
+  file (ini `phasync.license`, `PHASYNC_LICENSE_FILE`, or `./phasync.license`) lifts that.
+
+### Added
+
+- `phasync\ext_enabled()` reports whether the root `composer.json` has
+  `"extra": {"phasync": {"ext": true}}`. It loads nothing; `phasync\try_enable_ext()` stays the
+  explicit call.
+
 ## 2.0.0-beta6 (2026-10-04)
 
 ### Fixed

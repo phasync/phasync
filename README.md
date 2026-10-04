@@ -36,13 +36,13 @@ ordinary function (below); nothing else in the application changes.
 - **Starts small.** One `phasync::run()` in one function is a complete phasync program. There is
   no application-wide event loop to adopt first, no framework to switch to.
 - **Built for load.** One event loop per process, with waiting built on PHP streams:
-  `stream_select()` out of the box, epoll with [phasync-ext](https://github.com/phasync/phasync-ext).
+  `stream_select()` out of the box, epoll with the optional phasync extension.
   Waits on sockets cost no objects of their own, pools (`phasync\Util\Pool`) reuse database
   connections across coroutines, and hot paths leave nothing for the garbage collector.
-- **Legacy code joins in.** With phasync-ext loaded, the code you already have (MySQL through PDO or
+- **Legacy code joins in.** With the phasync extension loaded, the code you already have (MySQL through PDO or
   mysqli, curl and Guzzle, `file_get_contents()`, `http://` streams, DNS lookups, `sleep()`) waits
   cooperatively inside coroutines instead of blocking the process. No rewrite.
-- **Yours to own.** MIT, and no dependencies beyond PHP and PSR interfaces: small enough for you,
+- **Yours to own.** MIT (the optional extension binaries have their own licence), and no dependencies beyond PHP and PSR interfaces: small enough for you,
   or your coding agent, to read whole and maintain for a decade. See
   [the Ennerd philosophy](PHILOSOPHY.md).
 
@@ -65,7 +65,7 @@ Each step is useful on its own, and none requires the next.
 | Step | Add | What you get |
 |---|---|---|
 | 1 | `phasync/phasync` | Concurrent I/O inside one request, on your existing FPM setup. Wait with phasync's APIs: `phasync::readable()`, `CurlMulti`, `MySQLiPoll`. |
-| 2 | [`phasync/phasync-ext`](https://github.com/phasync/phasync-ext) | Libraries you did not write (MySQL through PDO or mysqli, Guzzle, `curl_exec()`, files, `http://` streams, DNS) cooperate inside coroutines, unchanged. Epoll instead of `stream_select()`. |
+| 2 | The extension, bundled in phasync's release packages | Libraries you did not write (MySQL through PDO or mysqli, Guzzle, `curl_exec()`, files, `http://` streams, DNS) cooperate inside coroutines, unchanged. Epoll instead of `stream_select()`. |
 | 3 | [`phasync/swerve`](https://github.com/phasync/swerve) | A long-running PSR-15 server: the app boots once, each worker serves thousands of connections, streaming bodies, Server-Sent Events, WebSockets. Slim, mini and other PSR-15 frameworks run as they are. |
 | 4 | [`phasync/tether`](https://github.com/phasync/tether) | Live server-side components over one WebSocket per tab, in the style of Blazor Server and Phoenix LiveView. PHP 8.3. |
 
@@ -136,26 +136,33 @@ coroutine at a time may wait to read a given stream, and one to write to it.
 For HTTP, `phasync\Services\CurlMulti::await($ch)` runs a curl handle cooperatively. For MySQL,
 `phasync\Services\MySQLiPoll` does the same for mysqli's asynchronous queries.
 
-## phasync-ext: existing code joins in
+## The phasync extension: existing code joins in
 
-[phasync-ext](https://github.com/phasync/phasync-ext) is an optional PHP extension. Inside
+The phasync extension is an optional PHP extension. Inside
 `phasync::run()`, blocking I/O in code that knows nothing about phasync suspends the coroutine
 instead of the process, and returns exactly what PHP would have returned, timeouts and warnings
 included. That covers sockets and TLS, MySQL through mysqli or PDO, curl and Guzzle, pipes
-and child processes, `sleep()`, DNS lookups, files and filesystem calls, and more; the
-extension's README has the full list. Clients with their own network code, such as PostgreSQL's
-libpq and phpredis, still block.
+and child processes, `sleep()`, DNS lookups, files and filesystem calls, and more. Clients with
+their own network code, such as PostgreSQL's libpq and phpredis, still block.
 
-```bash
-composer require phasync/phasync-ext
-```
+There is nothing extra to install: release packages of `phasync/phasync` carry the prebuilt
+binaries under `ext/` (PHP 8.2 to 8.5 on Linux, x86-64 and ARM64, glibc and musl). They are closed
+source, free to use and redistribute under the licence in `ext/LICENSE`, and optional. Enable
+the extension in one of these ways:
 
-```php
-phasync\try_enable_ext(); // first line of a CLI script: loads the bundled binary, restarting once
-```
+- In `composer.json` of your project: `"extra": {"phasync": {"ext": true}}`. phasync does not
+  act on it by itself; tools such as Swerve read it with `phasync\ext_enabled()` and load the
+  extension.
+- In a CLI script, as the first line: `phasync\try_enable_ext();` loads the bundled binary,
+  restarting the process once.
+- Under PHP-FPM, `extension=<path to ext/phasync-<php>-nts-<arch>-<libc>.so>` in `php.ini`.
 
-Under PHP-FPM, add `extension=phasync` to `php.ini` instead. Prebuilt binaries cover PHP 8.2 to
-8.5 on Linux (x86-64 and ARM64, glibc and musl). The extension waits with epoll instead of
+Without a licence file, at most 4 blocking calls overlap per worker; the next one blocks as in
+stock PHP, and a warning is printed once. A signed licence file lifts the limit. It is read from
+the ini setting `phasync.license`, the environment variable `PHASYNC_LICENSE_FILE`, or
+`./phasync.license`, and `phasync\ext\license()` shows what is in effect.
+
+The extension waits with epoll instead of
 `stream_select()`, so a process can watch any number of sockets: without it, PHP's `stream_select()`
 cannot use file descriptors numbered 1024 and up.
 
@@ -259,12 +266,12 @@ Also in `phasync\Util`: `RateLimiter`, `Synchronized` (a lock per coroutine) and
 ## Compared with other async PHP
 
 - **Swoole and OpenSwoole** are PHP extensions with their own server and runtime model; many of
-  their features require it. phasync is a Composer library on standard PHP; phasync-ext is
+  their features require it. phasync is a Composer library on standard PHP; the extension is
   optional, and an application written for phasync runs the same with or without it.
 - **ReactPHP and AMPHP** are async-first ecosystems: code that waits uses their APIs (ReactPHP's
   promises; AMPHP's futures, which read sequentially on fibers) and their own libraries, such as
   an async HTTP client or MySQL driver in place of curl or PDO. phasync is closer to Go's model:
-  plain functions, and with phasync-ext the libraries you already use wait cooperatively.
+  plain functions, and with the extension the libraries you already use wait cooperatively.
 
 ## Contributing
 
@@ -274,4 +281,5 @@ today. Tests, documentation and bug reports are welcome.
 
 ## License
 
-*phasync* is open-sourced software licensed under the MIT license.
+*phasync* is open-sourced software licensed under the MIT license. The extension binaries in
+`ext/` of release packages are not part of that: they carry their own licence, in `ext/LICENSE`.
