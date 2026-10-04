@@ -18,7 +18,7 @@ jobs:
     name: ⚙️ Running test for PHP ${{ matrix.php }}
 
     # phasync must behave the same with and without the extension, so the suite runs both ways:
-    # the second time with phasync-ext built from its main branch
+    # the second time with the extension binary bundled in the newest release tag (main has none)
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v6
@@ -53,23 +53,30 @@ jobs:
       - name: ✅ Tests
         run: composer test-with-coverage
 
-      - name: 📥 Checkout phasync-ext main
-        uses: actions/checkout@v6
-        with:
-          repository: phasync/phasync-ext
-          path: phasync-ext
-
-      - name: 🔨 Build phasync-ext
-        working-directory: phasync-ext
+      - name: 📥 Fetch the extension binary from the newest release tag
+        id: ext
         run: |
-          phpize && ./configure --enable-phasync
-          php build/gen_stub.php -f phasync.stub.php  # the committed arginfo targets the newest PHP
-          make -j"$(nproc)"
-          cp modules/phasync.so "$RUNNER_TEMP/phasync.so"
-          php -d extension="$RUNNER_TEMP/phasync.so" -r 'extension_loaded("phasync") || exit(1); echo "phasync-ext ", phpversion("phasync"), "\n";'
+          git fetch --tags --force
+          for tag in $(git tag --sort=-v:refname); do
+            if [ -n "$(git ls-tree --name-only "$tag" ext/)" ]; then
+              git checkout "$tag" -- ext
+              echo "so=ext/phasync-${{ matrix.php }}-nts-x86_64-glibc.so" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::notice::No release tag bundles ext/ yet, skipping the extension tests"
 
-      - name: ✅ Tests with phasync-ext
-        run: php -d extension="$RUNNER_TEMP/phasync.so" vendor/bin/pest --stop-on-defect
+      - name: ✅ Tests with the phasync extension
+        if: steps.ext.outputs.so
+        env:
+          PHASYNC_CI_LICENSE: ${{ secrets.PHASYNC_CI_LICENSE }}
+        run: |
+          # without the secret the extension runs on its free tier
+          if [ -n "$PHASYNC_CI_LICENSE" ]; then
+            printf '%s' "$PHASYNC_CI_LICENSE" > "$RUNNER_TEMP/phasync.license"
+            export PHASYNC_LICENSE_FILE="$RUNNER_TEMP/phasync.license"
+          fi
+          php -d extension="${{ steps.ext.outputs.so }}" vendor/bin/pest --stop-on-defect
 
       - name: 📤 Upload coverage to Codecov
         uses: codecov/codecov-action@v5
