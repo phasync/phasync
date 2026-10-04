@@ -3,14 +3,39 @@
 namespace phasync;
 
 /**
- * Optional integration with the phasync C extension (phasync/phasync-ext), which is never
- * required. phasync works correctly with or without it -- this file only offers a safe way
- * to opportunistically load it if the application wants it and it happens to be available.
+ * Optional integration with the phasync C extension, which ships in the release packages
+ * under ext/ and is never required. phasync works correctly with or without it -- this file
+ * only offers a safe way to load it if the application wants it and a binary is available.
  */
 
 /**
- * Try to make the phasync C extension active, delegating as much as possible to
- * phasync\ext\ensure_loaded() -- without requiring the extension to be installed at all.
+ * Whether the application opted in to the extension: the root project's composer.json has
+ * `"extra": {"phasync": {"ext": true}}`. This only reports the setting; it loads nothing --
+ * the caller (a CLI script, or a tool such as Swerve) decides to call try_enable_ext().
+ *
+ * @internal not part of the public API; may change in any release
+ */
+function ext_enabled(): bool
+{
+    static $enabled;
+
+    return $enabled ??= _ext_opt_in(\Composer\InstalledVersions::getRootPackage()['install_path'] . '/composer.json');
+}
+
+/**
+ * Read the opt-in setting from a composer.json file; false when it is unreadable or malformed.
+ *
+ * @internal
+ */
+function _ext_opt_in(string $composerJson): bool
+{
+    $data = \is_readable($composerJson) ? \json_decode(\file_get_contents($composerJson), true) : null;
+
+    return ($data['extra']['phasync']['ext'] ?? null) === true;
+}
+
+/**
+ * Try to make the phasync C extension active, delegating to phasync\ext\ensure_loaded().
  *
  * This only loads the extension -- it does not wire anything into phasync's scheduler.
  * phasync behaves identically whether this returns true or false; nothing in phasync core
@@ -23,9 +48,10 @@ namespace phasync;
  * already produced output or opened resources could lose them to the re-exec.
  *
  * Two kinds of "can't enable it" are treated differently, on purpose:
- *  - Not available for reasons outside anyone's control right now (phasync/phasync-ext
- *    isn't installed, no prebuilt binary matches this platform, no re-exec primitive is
- *    available) -- a normal, silent `false`, same as "the extension doesn't exist".
+ *  - Not available for reasons outside anyone's control right now (no bundled binary for
+ *    this platform, or not a release install, since dev checkouts have no ext/ binaries; no
+ *    re-exec primitive is available) -- a normal, silent `false`, same as "the extension
+ *    doesn't exist".
  *  - Called from a SAPI where auto-loading can never work (fpm, mod_php, ...) while the
  *    extension isn't already active via php.ini -- a real misconfiguration, not a "maybe
  *    later": ensure_loaded() itself throws for this, and that exception is deliberately
@@ -45,9 +71,6 @@ function try_enable_ext(): bool
 {
     if (\extension_loaded('phasync')) {
         return true; // already active -- however it got there (php.ini, -d, a prior call)
-    }
-    if (!\function_exists('phasync\\ext\\ensure_loaded')) {
-        return false; // phasync/phasync-ext is not installed
     }
     try {
         \phasync\ext\ensure_loaded(); // may re-exec the process (CLI) and never return

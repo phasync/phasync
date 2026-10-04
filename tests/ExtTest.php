@@ -2,7 +2,7 @@
 
 /*
  * Tests for phasync\try_enable_ext() -- the probe that opportunistically loads the optional
- * phasync C extension (phasync/phasync-ext). phasync must behave identically whether it
+ * phasync C extension (bundled in release packages under ext/). phasync must behave identically whether it
  * returns true or false. It intentionally CAN throw, but only for one specific case (called
  * from a non-CLI SAPI without the extension already active via php.ini) -- not exercised
  * here, since that needs a non-CLI SAPI binary (php-cgi, php-fpm) this environment doesn't
@@ -19,71 +19,39 @@ test('returns true immediately when the extension is already active, without nee
     expect(\phasync\try_enable_ext())->toBeTrue();
 });
 
-test('returns false when the extension is not active and phasync/phasync-ext is not installed', function () {
+test('returns false when the extension is not active and no binary is found, without throwing on CLI', function () {
     if (\extension_loaded('phasync')) {
-        $this->markTestSkipped('phasync extension is loaded in this process; this exercises the not-installed case');
-    }
-    if (\function_exists('phasync\\ext\\ensure_loaded')) {
-        $this->markTestSkipped('phasync/phasync-ext appears to be installed in this environment');
+        $this->markTestSkipped('phasync extension is loaded in this process');
     }
 
-    expect(\phasync\try_enable_ext())->toBeFalse();
-});
-
-test('on CLI, a missing binary is silent (false), not thrown', function () {
-    // Simulates phasync/phasync-ext being installed (its composer-autoloaded shim declared)
-    // without the extension active and without a resolvable binary -- ensure_loaded() itself
-    // documents throwing \RuntimeException for exactly this. On CLI that's an environment
-    // limitation, not a misuse, so try_enable_ext() swallows it (unlike the non-CLI case,
-    // which is a real misconfiguration and is deliberately let through -- see src/ext.php).
-    $extBootstrap = \dirname(__DIR__, 2) . '/phasync-ext/phasync-ext.php';
-    if (!\is_file($extBootstrap) || \extension_loaded('phasync')) {
-        $this->markTestSkipped('needs the sibling phasync-ext checkout, and the extension must not already be loaded');
-    }
-
-    $script = <<<'PHP'
-        <?php
-        require %s;
-        require %s;
-        putenv('PHASYNC_EXT_SO=/nonexistent/path/does-not-exist.so');
-        var_export(\phasync\try_enable_ext());
-        PHP;
-    $script = \sprintf($script, \var_export($extBootstrap, true), \var_export(\dirname(__DIR__) . '/src/ext.php', true));
-    $file   = \tempnam(\sys_get_temp_dir(), 'phasync-ext-test-');
-    \file_put_contents($file, $script);
-
+    $env = \getenv('PHASYNC_EXT_SO');
+    \putenv('PHASYNC_EXT_SO=/nonexistent/path/does-not-exist.so');
     try {
-        $output = null;
-        $exit   = null;
-        \exec(\escapeshellarg(\PHP_BINARY) . ' ' . \escapeshellarg($file) . ' 2>&1', $output, $exit);
-        expect($exit)->toBe(0);
-        expect(\implode("\n", $output))->toBe('false');
+        expect(\phasync\try_enable_ext())->toBeFalse();
     } finally {
-        @\unlink($file);
+        \putenv(false === $env ? 'PHASYNC_EXT_SO' : 'PHASYNC_EXT_SO=' . $env);
     }
 });
 
-test('actually loads the extension via a real re-exec, when phasync-ext\'s dev build is available', function () {
+test('actually loads the extension via a real re-exec, when PHASYNC_EXT_SO points at a binary', function () {
     // The genuinely interesting path (a real, successful re-exec) can't be observed from
     // inside the calling process -- a successful re-exec REPLACES this process, it doesn't
     // return to it. So this drives it from a child process and inspects what THAT process
     // sees after the fact.
-    $extBootstrap = \dirname(__DIR__, 2) . '/phasync-ext/phasync-ext.php';
-    $devBuild     = \dirname(__DIR__, 2) . '/phasync-ext/modules/phasync.so';
-    if (!\is_file($extBootstrap) || !\is_file($devBuild) || \extension_loaded('phasync')) {
-        $this->markTestSkipped('needs the sibling phasync-ext checkout with a dev build, and the extension must not already be loaded');
+    $devBuild = \getenv('PHASYNC_EXT_SO');
+    if (!\is_string($devBuild) || !\is_file($devBuild) || \extension_loaded('phasync')) {
+        $this->markTestSkipped('needs PHASYNC_EXT_SO pointing at a matching binary, and the extension must not already be loaded');
     }
 
     $script = <<<'PHP'
         <?php
-        require %s;
         require %s;
         $enabled = \phasync\try_enable_ext();
         echo $enabled ? 'true' : 'false';
         echo ',';
         echo \extension_loaded('phasync') ? 'true' : 'false';
         PHP;
-    $script = \sprintf($script, \var_export($extBootstrap, true), \var_export(\dirname(__DIR__) . '/src/ext.php', true));
+    $script = \sprintf($script, \var_export(\dirname(__DIR__) . '/vendor/autoload.php', true));
     $file   = \tempnam(\sys_get_temp_dir(), 'phasync-ext-test-');
     \file_put_contents($file, $script);
 
@@ -95,5 +63,56 @@ test('actually loads the extension via a real re-exec, when phasync-ext\'s dev b
         expect(\implode("\n", $output))->toBe('true,true');
     } finally {
         @\unlink($file);
+    }
+});
+
+test('ext_enabled reads the opt-in from composer.json "extra"', function () {
+    $file = \tempnam(\sys_get_temp_dir(), 'phasync-composer-');
+    try {
+        \file_put_contents($file, '{"extra": {"phasync": {"ext": true}}}');
+        expect(\phasync\_ext_opt_in($file))->toBeTrue();
+
+        \file_put_contents($file, '{"extra": {"discovery": {}}}');
+        expect(\phasync\_ext_opt_in($file))->toBeFalse();
+
+        \file_put_contents($file, '{"extra": {"phasync": {"ext": "yes"');
+        expect(\phasync\_ext_opt_in($file))->toBeFalse();
+
+        expect(\phasync\_ext_opt_in($file . '.missing'))->toBeFalse();
+    } finally {
+        @\unlink($file);
+    }
+});
+
+test('ext_enabled is false for this repository, which does not opt in', function () {
+    expect(\phasync\ext_enabled())->toBeFalse();
+});
+
+test('_abi_key has the form <major.minor>-<nts|zts>-<arch>-<glibc|musl>', function () {
+    expect(\phasync\ext\_abi_key())->toMatch('/^\d+\.\d+-(nts|zts)-[\w]+-(glibc|musl)$/');
+});
+
+test('_resolve_so prefers PHASYNC_EXT_SO, then ext/phasync-<abi>.so, else null', function () {
+    $env     = \getenv('PHASYNC_EXT_SO');
+    $so      = \dirname(__DIR__) . '/ext/phasync-' . \phasync\ext\_abi_key() . '.so';
+    $dir     = \dirname($so);
+    $madeDir = !\is_dir($dir);
+    $madeSo  = false;
+    try {
+        \putenv('PHASYNC_EXT_SO=/some/where.so');
+        expect(\phasync\ext\_resolve_so())->toBe('/some/where.so');
+
+        \putenv('PHASYNC_EXT_SO');
+        if (!\is_file($so)) {
+            expect(\phasync\ext\_resolve_so())->toBeNull();
+            $madeDir && \mkdir($dir);
+            \touch($so);
+            $madeSo = true;
+        }
+        expect(\phasync\ext\_resolve_so())->toBe($so);
+    } finally {
+        $madeSo && @\unlink($so);
+        $madeDir && @\rmdir($dir);
+        \putenv(false === $env ? 'PHASYNC_EXT_SO' : 'PHASYNC_EXT_SO=' . $env);
     }
 });
