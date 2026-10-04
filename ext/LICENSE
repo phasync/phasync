@@ -1,0 +1,29 @@
+phasync-ext licence
+
+Copyright (c) 2026 Frode Børli. All rights reserved.
+
+phasync-ext is distributed in binary form only. Subject to the conditions below, you are
+granted a non-exclusive, worldwide, royalty-free licence to install and run it, for any
+purpose including commercial use, and to redistribute unmodified copies of this package
+(the binaries in ext/ together with this licence and LICENSE.php-src).
+
+Conditions:
+
+1. You may not modify the binaries, nor decompile, disassemble or otherwise reverse engineer
+   them, except to the extent applicable law permits despite this restriction.
+2. You may not remove or alter copyright or licence notices.
+3. Without a licence file issued by the author, the software limits how many blocking
+   operations it handles concurrently. You may not circumvent, disable or forge that limit or
+   a licence file.
+4. All rights not expressly granted are reserved.
+
+Parts of the software are derived from PHP and are covered by the licence in LICENSE.php-src.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Versions of phasync-ext up to and including 0.5.0-beta4 were published under the MIT
+licence; copies obtained under it remain under it.
