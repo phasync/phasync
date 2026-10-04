@@ -2,6 +2,13 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## 2.0.0-beta6 (2026-10-04)
+
+### Fixed
+
+- `withAddedHeader()` of the PSR-7 messages threw a `TypeError` when given a list of values for a
+  header the message did not have (#81).
+
 ## 2.0.0-beta5 (2026-10-04)
 
 ### Added
