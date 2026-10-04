@@ -23,6 +23,9 @@
     "provide": {
         "psr/http-factory-implementation": "1.1"
     },
+    "replace": {
+        "phasync/phasync-ext": "*"
+    },
     "minimum-stability": "stable",
     "autoload": {
         "psr-4": {
