@@ -2,7 +2,7 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.0-beta5 (2026-10-04)
 
 ### Added
 
