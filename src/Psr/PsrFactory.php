@@ -54,7 +54,7 @@ class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryIn
 
     public function createResponse(int $code = 200, string $reasonPhrase = ''): ResponseInterface
     {
-        return new Response($code, [], null, '1.1', $reasonPhrase);
+        return new Response($code, [], new ResourceStream(\fopen('php://temp', 'w+')), '1.1', $reasonPhrase);
     }
 
     public function createUri(string $uri = ''): UriInterface
@@ -64,7 +64,11 @@ class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryIn
 
     public function createStream(string $content = ''): StreamInterface
     {
-        return new StringStream($content);
+        $stream = new ResourceStream(\fopen('php://temp', 'w+'));
+        $stream->write($content);
+        $stream->rewind();
+
+        return $stream;
     }
 
     public function createStreamFromFile(string $filename, string $mode = 'r'): StreamInterface
