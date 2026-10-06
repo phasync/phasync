@@ -385,10 +385,11 @@ test('DLK-5: while the writer end is still referenced somewhere, a blocked reade
     expect($message)->toBe('Channel read operation timed out');
 });
 
-test('DLK-5: a writer end that is part of a reference cycle is not released by unset(), so the reader is not woken [SURPRISE]', function () {
-    // Release relies on refcount destructors. Inside run() the cycle collector is off
-    // (RT-1), so a cycle keeps the writer alive and the reader times out instead of
-    // seeing end-of-stream.
+test('DLK-5: a writer end in a reference cycle is released by idle-time GC before the reader times out', function () {
+    // Release relies on refcount destructors, and unset() alone would not free a cycle (RT-1).
+    // But the loop collects cycles right before it would otherwise wait idle for I/O (P3), and
+    // the reader's wait is exactly such a wait, so the cycle is freed and the channel closes
+    // before the read's own timeout elapses.
     [$outcome] = phasync::run(static function () {
         phasync::channel($r, $w);
         $holder       = new stdClass();
@@ -400,5 +401,5 @@ test('DLK-5: a writer end that is part of a reference cycle is not released by u
         return phasync::await($reader);
     });
 
-    expect($outcome)->toBe(TimeoutException::class);
-})->group('surprise');
+    expect($outcome)->toBe('ok');
+});

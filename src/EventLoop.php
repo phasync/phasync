@@ -286,32 +286,33 @@ final class EventLoop implements \Countable
     public \WeakMap $flagGraph;
 
     /**
-     * True if cyclic garbage collection should be performed.
-     */
-    private bool $shouldGarbageCollect = false;
-
-    /**
      * Callbacks to be invoked between fibers.
      *
      * @var \SplQueue<\Closure>
      */
     private \SplQueue $callbackQueue;
 
-    /**
-     * The time since the last garbage collect cycles invoked.
-     */
-    private float $lastGarbageCollect = 0;
-
     /** When the loop last counted the possible cycles, see tick(). */
     private float $lastGarbageCheck = 0;
+
+    /** When the loop last collected cycles, by either of the two ways tick() does it. */
+    private float $lastGarbageCollect = 0;
 
     /** How long a coroutine runs in a PHP loop before it yields to other requests (phasync-ext). */
     public const PREEMPT_INTERVAL = 0.02;
 
-    /** How often the loop counts the possible cycles, and how many make it collect: PHP's own threshold. */
+    /**
+     * How often the loop counts the possible cycles for the busy-loop safety net (tick()), and
+     * how many make it collect: a loop that never idles makes garbage while nothing ends (a
+     * server's connections), so this is the fallback for when idle-time collection (also tick(),
+     * right before the poller waits) never gets the chance to run.
+     */
     private const GC_CHECK_INTERVAL = 0.05;
-    private const GC_ROOTS          = 10_000;
-    private const GC_ROOTS_MAX      = 1_000_000;
+    private const GC_ROOTS          = 40_000;
+    private const GC_ROOTS_MAX      = 4_000_000;
+
+    /** The longest a busy loop goes without collecting, while there's anything to collect. */
+    private const GC_MAX_INTERVAL = 0.5;
 
     /** The possible cycles that make the loop collect now: GC_ROOTS, raised while collections find nothing. */
     private int $gcRoots = self::GC_ROOTS;
@@ -424,8 +425,10 @@ final class EventLoop implements \Countable
         $this->parked                = [];
         $this->parkedSlots           = [];
         $this->callbackQueue         = new \SplQueue();
+        // A clean start: whatever possible cycles gathered while the loop was being built are
+        // collected now, not counted toward the thresholds below.
         \gc_collect_cycles();
-        $this->shouldGarbageCollect = true;
+        $this->lastGarbageCollect = \microtime(true);
     }
 
     /**
@@ -510,6 +513,15 @@ final class EventLoop implements \Countable
             $maxSleepTime = 0;
         }
 
+        if ($maxSleepTime > 0 && \gc_status()['roots'] > 0) {
+            // Nothing is runnable: the loop is about to wait in the poller. Collect now, while it
+            // would otherwise sit idle, so the root buffer never grows large and collections stay
+            // cheap. No minimum-wait guard: even a wait shorter than the collection hides part of
+            // its cost, so every idle opportunity is taken.
+            \gc_collect_cycles();
+            $this->lastGarbageCollect = $now;
+        }
+
         $this->poller->poll($maxSleepTime);
 
         /*
@@ -578,21 +590,19 @@ final class EventLoop implements \Countable
         $this->currentFiber   = null;
         $this->currentContext = null;
 
-        if ($this->shouldGarbageCollect && $now - $this->lastGarbageCollect > 0.5) {
-            \gc_collect_cycles();
-            $this->lastGarbageCollect   = $now;
-            $this->shouldGarbageCollect = false;
-        } elseif ($now - $this->lastGarbageCheck > self::GC_CHECK_INTERVAL) {
-            // Coroutines that live on (a server's connections) make garbage while none ends:
-            // collect, between coroutines as always, once as many possible cycles gathered as make
-            // PHP's own collector run
+        if ($now - $this->lastGarbageCheck > self::GC_CHECK_INTERVAL) {
+            // A busy loop (always some coroutine ready, never idle, see tick()'s poll() above)
+            // never gets the idle-time collection above: this is its safety net, checked between
+            // fibers as always. Either of two things forces a collection: too long has passed
+            // since the last one (of any kind) while there's anything to collect, or as many
+            // possible cycles have gathered as make PHP's own collector run.
             $this->lastGarbageCheck = $now;
-            if (\gc_status()['roots'] >= $this->gcRoots) {
+            $roots                  = \gc_status()['roots'];
+            if (($roots > 0 && $now - $this->lastGarbageCollect > self::GC_MAX_INTERVAL) || $roots >= $this->gcRoots) {
                 // As PHP's collector adapts: a collection that finds (almost) nothing makes the next
                 // wait for more possible cycles, one that finds garbage brings the threshold back
-                $this->gcRoots              = \gc_collect_cycles() < 100 ? \min($this->gcRoots * 2, self::GC_ROOTS_MAX) : self::GC_ROOTS;
-                $this->lastGarbageCollect   = $now;
-                $this->shouldGarbageCollect = false;
+                $this->gcRoots            = \gc_collect_cycles() < 100 ? \min($this->gcRoots * 2, self::GC_ROOTS_MAX) : self::GC_ROOTS;
+                $this->lastGarbageCollect = $now;
             }
         }
 
@@ -1997,7 +2007,8 @@ final class EventLoop implements \Countable
 
     /**
      * Whenever a fiber is terminated, this method must be used. It will ensure that any
-     * deferred closures are immediately run and that garbage collection will occur.
+     * deferred closures are immediately run. Cyclic garbage it leaves behind is collected by
+     * tick()'s idle-time or busy-loop GC, not by this method.
      * If the Fiber threw an exception, ensure it is thrown in the parent if that is still
      * running, or.
      */
@@ -2039,6 +2050,5 @@ final class EventLoop implements \Countable
         $this->raiseFlag($fiber);
         $this->leftContext($context, $fiber);
         unset($this->contexts[$fiber], $this->parentFibers[$fiber]);
-        $this->shouldGarbageCollect = true;
     }
 }

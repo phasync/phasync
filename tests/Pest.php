@@ -30,10 +30,9 @@ if (!\function_exists('phasyncResetProcessState')) {
 
         \gc_enable();
 
-        // Steady state: a driver that has just done its periodic maintenance. A brand new
-        // driver has lastGarbageCollect at 0, so its first tick runs the cycle collector at once.
-        // Most pinned behaviour (zero timeouts, cycles surviving unset()) is about a loop that is
-        // already running, where that happens at most every 0.5 s.
+        // Steady state: a driver that has just done its periodic maintenance, so a busy loop's
+        // safety net (EventLoop::GC_MAX_INTERVAL) does not fire mid-test. Most pinned behaviour
+        // (zero timeouts, cycles surviving unset()) is about a loop that is already running.
         $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
         $now    = \microtime(true);
         foreach (['lastGarbageCollect'] as $property) {

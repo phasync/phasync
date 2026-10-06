@@ -49,8 +49,11 @@ propagation and cancellation work the same everywhere.
 **P3. Rely on refcounting; treat cycle collection as bounded cleanup.** Destructors that
 run when the last reference is dropped are immediate and deterministic, and may be relied
 on (channel ends, flag objects and the primitives' own objects, see FLG-1). Cyclic garbage is freed by the event loop's own
-collection: at most every 0.5 s after some coroutine has terminated, and whenever 10,000
-possible cycles have gathered, counted every 50 ms (RT-1).
+collection: right before the loop would otherwise wait idle for I/O, if there is anything to
+collect, which keeps the root buffer small on a loop that gets to idle at all; a loop kept
+busy by always-runnable coroutines never idles, so as a safety net it also collects at most
+every 0.5 s while there is anything to collect, and whenever 40,000 possible cycles have
+gathered, counted every 50 ms (RT-1).
 Correct behaviour must not depend on cyclic garbage being freed at a particular moment.
 ❌ See ERR-3.
 
@@ -483,10 +486,12 @@ true when a read would not block, when the buffer has ended, or when it has fail
 
 **RT-1. Inside `run()` the loop controls GC, and the caller's setting is restored.**
 `gc_disable()` while `run()` is active is deliberate (D10): refcount frees are immediate,
-and the loop collects cycles between coroutines: at most every 0.5 s after a coroutine has
-terminated, and whenever 10,000 possible cycles (PHP's own threshold, `gc_status()['roots']`)
-have gathered, counted every 50 ms, so long-lived coroutines that make garbage while none ends
-(a server's connections) are collected too. ✅ RuntimeTest
+and the loop collects cycles between coroutines: right before it would otherwise wait idle
+for I/O, if there is anything to collect, so the root buffer stays small. A loop kept busy by
+always-runnable coroutines (a server's connections making garbage while none ends) never
+idles, so it falls back to collecting at most every 0.5 s while there is anything to collect,
+and whenever 40,000 possible cycles (PHP's own threshold, `gc_status()['roots']`) have
+gathered, counted every 50 ms. ✅ RuntimeTest
 Leaving `run()` must restore the previous state and never enable what the user disabled.
 ❌ Today `gc_enable()` is unconditional.
 
