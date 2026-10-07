@@ -215,6 +215,7 @@ final class phasync
             }
             $driver->endRun($context, $fiber ?? null);
             if ($root) {
+                $driver->restoreSignals(); // every signal phasync took gets its own handler back
                 \gc_enable();
             }
         }
@@ -804,9 +805,10 @@ final class phasync
      * loop wakes the waiters between coroutines, never inside one. A signal that came before the
      * wait began doesn't end it.
      *
-     * phasync installs one handler for each signal waited for, the first time, replacing any
-     * `pcntl_signal()` handler for it; {@see phasync::onSignal()} adds code that runs inside that
-     * handler. It works with and without `pcntl_async_signals()`.
+     * phasync takes the signal over with its own handler until the outermost `phasync::run()`
+     * returns, then puts the previous handler back; meanwhile its handler still calls a previous
+     * `pcntl_signal()` handler. {@see phasync::onSignal()} adds code that runs inside it. It
+     * works with and without `pcntl_async_signals()`.
      *
      * ```php
      * phasync::go(function () use ($server) {
@@ -831,9 +833,11 @@ final class phasync
             $driver->listenSignal($signo);
             $seen[$signo] = $driver->signalCount($signo);
         }
+        // One signal: its own flag. Several: the flag raised after any signal, then check which.
+        $flag     = 1 === \count($seen) ? $driver->getSignalFlagOf(\array_key_first($seen)) : $driver->getSignalFlag();
         $deadline = \microtime(true) + $timeout;
         while (true) {
-            self::awaitFlag($driver->getSignalFlag(), \max(0.0, $deadline - \microtime(true)));
+            self::awaitFlag($flag, \max(0.0, $deadline - \microtime(true)));
             foreach ($seen as $signo => $count) {
                 if ($driver->signalCount($signo) > $count) {
                     return $signo;
@@ -848,7 +852,8 @@ final class phasync
      * never yields; otherwise when the event loop dispatches signals. For what must happen at that
      * moment, such as logging where a stuck process is; it must not suspend (no await, sleep or
      * phasync I/O). Coroutines in {@see phasync::signal()} are woken for the same signal as well.
-     * phasync owns the signal from then on: one `pcntl_signal()` handler, replacing any other.
+     * phasync takes the signal over until the outermost `phasync::run()` returns (a previous
+     * `pcntl_signal()` handler is called as well, and put back then), so register it for a run.
      *
      * ```php
      * phasync::onSignal(SIGQUIT, function () {

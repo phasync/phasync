@@ -328,17 +328,23 @@ final class EventLoop implements \Countable
 
     private \stdClass $afterNextFlag;
 
-    /** Raised, between coroutines, after signals phasync::signal() listens to have arrived. */
+    /** Raised, between coroutines, after any signal phasync handles arrived: for waits on several. */
     private \stdClass $signalFlag;
 
-    /** @var array<int, int> how often each signal phasync::signal() listens to has arrived */
+    /** @var array<int, \stdClass> one flag per signal phasync handles, raised after it arrived */
+    private array $signalFlags = [];
+
+    /** @var array<int, int> how often each signal phasync handles has arrived */
     private array $signalCounts = [];
 
-    /** A signal arrived since the last tick; set by the handler, which only records. */
-    private bool $signalArrived = false;
+    /** @var array<int, true> the signals that arrived since the last tick; the handler only records */
+    private array $signalsArrived = [];
 
     /** @var array<int, list<\Closure(int):void>> phasync::onSignal() callbacks, run in the handler */
     private array $signalHandlers = [];
+
+    /** @var array<int, callable|int> each signal's handler before phasync took it, restored after run() */
+    private array $signalPrevious = [];
 
     private ?\Fiber $currentFiber             = null;
     private ?object $currentContext           = null;
@@ -486,8 +492,12 @@ final class EventLoop implements \Countable
         if ($this->signalCounts) {
             // Handlers run here, between coroutines, unless pcntl_async_signals() ran them already
             \pcntl_signal_dispatch();
-            if ($this->signalArrived) {
-                $this->signalArrived = false;
+            if ($this->signalsArrived) {
+                $arrived              = $this->signalsArrived;
+                $this->signalsArrived = [];
+                foreach ($arrived as $signo => $_) {
+                    $this->raiseFlag($this->signalFlags[$signo]);
+                }
                 $this->raiseFlag($this->signalFlag);
             }
         }
@@ -856,21 +866,49 @@ final class EventLoop implements \Countable
      * this flag via {@see self::whenFlagged()}.
      */
     /**
-     * Own $signo: one pcntl handler, installed once, which runs the onSignal() callbacks right
-     * away, then counts the signal and leaves waking phasync::signal()'s waiters to tick().
+     * Take $signo over until restoreSignals(): phasync's one handler replaces the current one,
+     * which it keeps, calls after its own work, and puts back afterwards.
      */
     public function listenSignal(int $signo): void
     {
         if (!isset($this->signalCounts[$signo])) {
-            $this->signalCounts[$signo] = 0;
-            \pcntl_signal($signo, function (int $signo): void {
-                foreach ($this->signalHandlers[$signo] ?? [] as $handler) {
-                    $handler($signo);
-                }
-                ++$this->signalCounts[$signo];
-                $this->signalArrived = true;
-            });
+            $this->signalPrevious[$signo] = \pcntl_signal_get_handler($signo);
+            $this->signalCounts[$signo]   = 0;
+            $this->signalFlags[$signo]    = new \stdClass();
+            \pcntl_signal($signo, $this->handleSignal(...));
         }
+    }
+
+    /**
+     * The one handler of every signal phasync handles: the onSignal() callbacks at once, then
+     * a record of the signal for tick(), which wakes phasync::signal()'s waiters, then the
+     * handler that was installed before phasync took the signal.
+     */
+    private function handleSignal(int $signo, mixed $siginfo = null): void
+    {
+        foreach ($this->signalHandlers[$signo] ?? [] as $handler) {
+            $handler($signo);
+        }
+        ++$this->signalCounts[$signo];
+        $this->signalsArrived[$signo] = true;
+        if (\is_callable($previous = $this->signalPrevious[$signo] ?? null)) {
+            $previous($signo, $siginfo);
+        }
+    }
+
+    /** Give every signal back its handler from before phasync took it: when run() returns. */
+    public function restoreSignals(): void
+    {
+        foreach ($this->signalPrevious as $signo => $previous) {
+            \pcntl_signal($signo, $previous);
+        }
+        $this->signalPrevious = $this->signalCounts = $this->signalFlags = $this->signalsArrived = $this->signalHandlers = [];
+    }
+
+    /** The flag raised after $signo arrived. */
+    public function getSignalFlagOf(int $signo): object
+    {
+        return $this->signalFlags[$signo];
     }
 
     /** Add a callback the handler of $signo runs right away, see phasync::onSignal(). */

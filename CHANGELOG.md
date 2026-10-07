@@ -12,7 +12,10 @@ Earlier releases are listed on the GitHub releases page.
   waiter may await and do I/O like any coroutine. Works with and without `pcntl_async_signals()`.
 - `phasync::onSignal($signo, $handler)`: code that runs the moment a signal arrives, inside its
   handler (with async signals, even inside a coroutine that never yields), such as logging where
-  a stuck process is. phasync owns each signal it handles, so waiters and handlers coexist.
+  a stuck process is. phasync takes each signal it handles over with one handler of its own, which
+  still calls the `pcntl_signal()` handler installed before, and puts that one back when the
+  outermost `phasync::run()` returns. Each signal has its own flag, so a waiter is only woken by
+  the signals it waits for.
 
 ### Changed
 
