@@ -44,6 +44,9 @@
     "extra": {
         "discovery": {
             "psr/http-factory-implementation": "phasync\\Psr\\PsrFactory"
+        },
+        "branch-alias": {
+            "dev-main": "2.0.x-dev"
         }
     },
     "config": {
