@@ -298,6 +298,13 @@ final class EventLoop implements \Countable
     /** When the loop last collected cycles, by either of the two ways tick() does it. */
     private float $lastGarbageCollect = 0;
 
+    /** When the loop last collected cycles at idle time; the start-up collection doesn't count. */
+    private float $lastIdleCollect = 0;
+
+    /** GC_MIN_INTERVAL and GC_MAX_INTERVAL, or the PHASYNC_GC_MIN_INTERVAL/PHASYNC_GC_MAX_INTERVAL constants when defined. */
+    private float $gcMinInterval;
+    private float $gcMaxInterval;
+
     /** How long a coroutine runs in a PHP loop before it yields to other requests (phasync-ext). */
     public const PREEMPT_INTERVAL = 0.02;
 
@@ -313,6 +320,9 @@ final class EventLoop implements \Countable
 
     /** The longest a busy loop goes without collecting, while there's anything to collect. */
     private const GC_MAX_INTERVAL = 0.5;
+
+    /** The shortest gap between two idle-time collections (tick(), right before the poller waits). */
+    private const GC_MIN_INTERVAL = 0.5;
 
     /** The possible cycles that make the loop collect now: GC_ROOTS, raised while collections find nothing. */
     private int $gcRoots = self::GC_ROOTS;
@@ -429,6 +439,8 @@ final class EventLoop implements \Countable
         // collected now, not counted toward the thresholds below.
         \gc_collect_cycles();
         $this->lastGarbageCollect = \microtime(true);
+        $this->gcMinInterval      = \defined('PHASYNC_GC_MIN_INTERVAL') ? (float) PHASYNC_GC_MIN_INTERVAL : self::GC_MIN_INTERVAL;
+        $this->gcMaxInterval      = \defined('PHASYNC_GC_MAX_INTERVAL') ? (float) PHASYNC_GC_MAX_INTERVAL : self::GC_MAX_INTERVAL;
     }
 
     /**
@@ -513,16 +525,20 @@ final class EventLoop implements \Countable
             $maxSleepTime = 0;
         }
 
-        if ($maxSleepTime > 0 && \gc_status()['roots'] > 0) {
-            // Nothing is runnable: the loop is about to wait in the poller. Collect now, while it
-            // would otherwise sit idle, so the root buffer never grows large and collections stay
-            // cheap. No minimum-wait guard: even a wait shorter than the collection hides part of
-            // its cost, so every idle opportunity is taken.
-            \gc_collect_cycles();
-            $this->lastGarbageCollect = $now;
+        if ($maxSleepTime > 0 && $now - $this->lastIdleCollect > $this->gcMinInterval && \gc_status()['roots'] > 0) {
+            // Nothing is runnable. Ask the poller whether I/O is ready right now: if not, the CPU
+            // has a spare moment, so collect, then wait for whatever is left of the wait. At most
+            // once per GC_MIN_INTERVAL, since on a loaded server "nothing runnable" is often just
+            // a database round trip in flight, and collecting on every such wait costs real CPU.
+            $this->poller->poll(0);
+            if (0 === $queue->count() && $this->callbackQueue->isEmpty()) {
+                \gc_collect_cycles();
+                $this->lastGarbageCollect = $this->lastIdleCollect = \microtime(true);
+                $this->poller->poll(\max(0.0, $maxSleepTime - ($this->lastGarbageCollect - $now)));
+            }
+        } else {
+            $this->poller->poll($maxSleepTime);
         }
-
-        $this->poller->poll($maxSleepTime);
 
         /*
          * Ensure afterNext fibers are given an opportunity to run
@@ -598,7 +614,7 @@ final class EventLoop implements \Countable
             // possible cycles have gathered as make PHP's own collector run.
             $this->lastGarbageCheck = $now;
             $roots                  = \gc_status()['roots'];
-            if (($roots > 0 && $now - $this->lastGarbageCollect > self::GC_MAX_INTERVAL) || $roots >= $this->gcRoots) {
+            if (($roots > 0 && $now - $this->lastGarbageCollect > $this->gcMaxInterval) || $roots >= $this->gcRoots) {
                 // As PHP's collector adapts: a collection that finds (almost) nothing makes the next
                 // wait for more possible cycles, one that finds garbage brings the threshold back
                 $this->gcRoots            = \gc_collect_cycles() < 100 ? \min($this->gcRoots * 2, self::GC_ROOTS_MAX) : self::GC_ROOTS;

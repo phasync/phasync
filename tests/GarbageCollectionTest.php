@@ -3,7 +3,8 @@
 /*
  * EventLoop collects cyclic garbage in three ways (see EventLoop::tick()):
  * - idle-time: right before the poller would wait with a timeout > 0 (nothing runnable), if
- *   there are any possible cycles at all.
+ *   there are any possible cycles at all, a poll(0) finds no ready I/O, and the last idle-time
+ *   collection was at least GC_MIN_INTERVAL ago.
  * - busy, time-based: a loop that never idles still collects once GC_MAX_INTERVAL has passed
  *   since the last collection, as long as there is anything to collect.
  * - busy, threshold-based: a loop that never idles also collects once as many possible cycles
@@ -26,6 +27,7 @@ function resetEventLoopGcState(): void
 {
     $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
+    (new ReflectionProperty($driver, 'lastIdleCollect'))->setValue($driver, 0.0);
     (new ReflectionProperty($driver, 'lastGarbageCheck'))->setValue($driver, 0.0);
     (new ReflectionProperty($driver, 'gcRoots'))->setValue($driver, 40_000);
 }
