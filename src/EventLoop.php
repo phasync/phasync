@@ -1558,14 +1558,6 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Sticky cancellation of $fiber with $exception, see phasync::cancel().
-     *
-     * @internal
-     *
-     * @throws \RuntimeException
-     * @throws \LogicException
-     */
-    /**
      * Cancel every coroutine but the caller, whatever its context, with $exception, see
      * phasync::shutdown().
      */
@@ -1589,6 +1581,14 @@ final class EventLoop implements \Countable
         return $count;
     }
 
+    /**
+     * Sticky cancellation of $fiber with $exception, see phasync::cancel().
+     *
+     * @internal
+     *
+     * @throws \RuntimeException
+     * @throws \LogicException
+     */
     public function cancel(\Fiber $fiber, ?\Throwable $exception = null): void
     {
         if ($fiber->isTerminated()) {
