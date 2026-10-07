@@ -2,6 +2,7 @@
 
 use phasync\AggregateException;
 use phasync\CancelledException;
+use phasync\ShutdownException;
 use phasync\Internal\Debug;
 use phasync\EventLoop;
 use phasync\Internal\Channel;
@@ -476,7 +477,7 @@ final class phasync
      * ```
      *
      * @param object            $fiber    a coroutine, or a context
-     * @param string|Stringable $message  the message of the CancelledException; a Throwable is refused, see {@see phasync::throw()}
+     * @param string|Stringable|CancelledException $message the message of the CancelledException, or the CancelledException itself (such as a ShutdownException); another Throwable is refused, see {@see phasync::throw()}
      * @param int               $code     the code of the CancelledException
      * @param \Throwable|null   $previous what caused the cancellation, such as the failure that tears a context down
      *
@@ -487,12 +488,15 @@ final class phasync
      * @see phasync::go
      * @see phasync::awaitContext
      */
-    public static function cancel(object $fiber, string|Stringable $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void
+    public static function cancel(object $fiber, string|Stringable|CancelledException $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void
     {
-        if ($message instanceof Throwable) {
-            throw new InvalidArgumentException('cancel() takes a message, not an exception: use phasync::throw() to throw an exception into a coroutine, or pass it as $previous');
+        if ($message instanceof CancelledException) {
+            $cancellation = $message; // a cancellation of the caller's own, such as a ShutdownException
+        } elseif ($message instanceof Throwable) {
+            throw new InvalidArgumentException('cancel() takes a message or a CancelledException, not another exception: use phasync::throw() to throw an exception into a coroutine, or pass it as $previous');
+        } else {
+            $cancellation = new CancelledException((string) $message, $code, $previous);
         }
-        $cancellation = new CancelledException((string) $message, $code, $previous);
         if (!$fiber instanceof Fiber) {
             self::getDriver()->cancelContext($fiber, $cancellation);
 
@@ -866,6 +870,45 @@ final class phasync
     public static function onSignal(int $signo, \Closure $handler): void
     {
         self::getDriver()->onSignal($signo, $handler);
+    }
+
+    /**
+     * Stop the program's coroutines: every coroutine of the outermost `phasync::run()` but the
+     * caller gets `$exception` (a ShutdownException, which is a CancelledException) at its wait,
+     * as `phasync::cancel()` does, and has up to `$window` seconds to clean up: `finally` blocks,
+     * and `phasync::finally()` callbacks, which may wait. Returns how many are still running
+     * after that, for the caller to decide (for example to exit, dropping them).
+     *
+     * ```php
+     * phasync::go(function () {
+     *     phasync::signal(SIGTERM);
+     *     if (phasync::shutdown(2.0) > 0) {
+     *         exit(1);   // some coroutines didn't stop in time
+     *     }
+     * });
+     * ```
+     *
+     * @param float                  $window    seconds to wait at most for them to end
+     * @param ShutdownException|null $exception what they get; a plain ShutdownException by default
+     *
+     * @return int the coroutines still running after the window
+     *
+     * @throws \LogicException outside a coroutine
+     */
+    public static function shutdown(float $window = 1.0, ?ShutdownException $exception = null): int
+    {
+        if (null === self::getDriver()->getCurrentFiber()) {
+            throw ExceptionTool::popTrace(new LogicException('Can only shut down from within a coroutine'));
+        }
+        $driver   = self::getDriver();
+        $driver->shutdown($exception ?? new ShutdownException('Shutting down'));
+        $deadline = \microtime(true) + $window;
+        // Counted afresh: phasync::finally() cleanup runs in coroutines of its own
+        while (($left = $driver->countRunFibers()) > 0 && \microtime(true) < $deadline) {
+            self::sleep(0.01);
+        }
+
+        return $left;
     }
 
     public static function raiseFlag(object $signal): int
