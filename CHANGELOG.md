@@ -17,7 +17,7 @@ Earlier releases are listed on the GitHub releases page.
   outermost `phasync::run()` returns. Each signal has its own flag, so a waiter is only woken by
   the signals it waits for.
 - `phasync::shutdown($window, $exception)` and `ShutdownException` (a `CancelledException`): every
-  coroutine of the outermost run but the caller gets the exception at its wait and has up to
+  coroutine but the caller, whatever its context, gets the exception at its wait and has up to
   `$window` seconds to clean up (`phasync::finally()` cleanup included); it returns how many are
   still running. `phasync::cancel()` also takes a `CancelledException` of the caller's own.
 

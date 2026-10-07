@@ -873,8 +873,8 @@ final class phasync
     }
 
     /**
-     * Stop the program's coroutines: every coroutine of the outermost `phasync::run()` but the
-     * caller gets `$exception` (a ShutdownException, which is a CancelledException) at its wait,
+     * Stop the program's coroutines: every coroutine but the caller, whatever context it runs in,
+     * gets `$exception` (a ShutdownException, which is a CancelledException) at its wait,
      * as `phasync::cancel()` does, and has up to `$window` seconds to clean up: `finally` blocks,
      * and `phasync::finally()` callbacks, which may wait. Returns how many are still running
      * after that, for the caller to decide (for example to exit, dropping them).
@@ -904,7 +904,7 @@ final class phasync
         $driver->shutdown($exception ?? new ShutdownException('Shutting down'));
         $deadline = \microtime(true) + $window;
         // Counted afresh: phasync::finally() cleanup runs in coroutines of its own
-        while (($left = $driver->countRunFibers()) > 0 && \microtime(true) < $deadline) {
+        while (($left = $driver->countFibers()) > 0 && \microtime(true) < $deadline) {
             self::sleep(0.01);
         }
 

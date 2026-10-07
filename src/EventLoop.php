@@ -1566,29 +1566,23 @@ final class EventLoop implements \Countable
      * @throws \LogicException
      */
     /**
-     * Cancel every coroutine of the outermost run but the caller with $exception, see
-     * phasync::shutdown(). Returns them.
-     *
-     * @return list<\Fiber>
+     * Cancel every coroutine but the caller, whatever its context, with $exception, see
+     * phasync::shutdown().
      */
-    public function shutdown(ShutdownException $exception): array
+    public function shutdown(ShutdownException $exception): void
     {
-        $cancelled = [];
-        foreach (null === $this->rootRunContext ? [] : $this->getFibers($this->rootRunContext) as $fiber) {
+        foreach ($this->contexts as $fiber => $_) {
             if ($fiber !== \Fiber::getCurrent() && !$fiber->isTerminated()) {
                 $this->cancel($fiber, $exception);
-                $cancelled[] = $fiber;
             }
         }
-
-        return $cancelled;
     }
 
-    /** The coroutines of the outermost run still alive, but the caller: cleanup ones included. */
-    public function countRunFibers(): int
+    /** The coroutines still alive but the caller, cleanup ones included. */
+    public function countFibers(): int
     {
         $count = 0;
-        foreach (null === $this->rootRunContext ? [] : $this->getFibers($this->rootRunContext) as $fiber) {
+        foreach ($this->contexts as $fiber => $_) {
             $count += (int) ($fiber !== \Fiber::getCurrent() && !$fiber->isTerminated());
         }
 

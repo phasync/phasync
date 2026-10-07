@@ -69,3 +69,21 @@ test('cancel() takes a CancelledException of the caller\'s own, such as a Shutdo
     });
     expect($got[0])->toBe($got[1]);
 });
+
+test('shutdown() reaches a coroutine in a context of its own, as a server runs each request', function () {
+    $got = phasync::run(function () {
+        $result = null;
+        phasync::go(function () use (&$result) {
+            try {
+                phasync::sleep(10);
+            } catch (ShutdownException) {
+                $result = 'stopped';
+            }
+        }, context: new stdClass());
+        phasync::sleep(0.01);
+        phasync::shutdown(1.0);
+
+        return $result;
+    });
+    expect($got)->toBe('stopped');
+});
