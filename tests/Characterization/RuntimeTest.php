@@ -31,7 +31,9 @@ test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine end
 
         return \memory_get_usage() - $before;
     });
-    expect($growth)->toBeLessThan(8 << 20); // uncollected, a second of this is about 200 MB
+    // Uncollected, a second of this is about 200 MB. A loop this busy keeps its garbage for up to
+    // GC_MAX_INTERVAL (0.5 s), so PHP's root buffer grows to hold that much and stays that size.
+    expect($growth)->toBeLessThan(32 << 20);
 });
 
 // RT-1: garbage collection state

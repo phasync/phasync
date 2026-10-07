@@ -6,13 +6,14 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Changed
 
-- The event loop now collects cyclic garbage right before it would otherwise wait idle for I/O
-  (if there is anything to collect), so the root buffer stays small on servers with many
-  long-running, mostly-idle coroutines. A loop kept busy by always-runnable coroutines never
-  idles, so as a safety net it still collects at most every 0.5 s while there is anything to
-  collect, and once as many possible cycles have gathered as PHP's own threshold, now raised
-  from 10,000 to 40,000 (and its adaptive ceiling from 1,000,000 to 4,000,000): measured 40%
-  fewer collections at stable memory.
+- The event loop collects cyclic garbage only when it has a spare moment: nothing runnable
+  and a `poll(0)` finds no ready I/O, at most once per `GC_MIN_INTERVAL` (0.5 s). A loop kept
+  busy by always-runnable coroutines never has one, so as a safety net it collects once
+  `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect, and not before:
+  until then its garbage stays in memory, since it has no time to spare for collecting it.
+  The roots threshold (and its adaptive doubling) is gone. Both intervals can be set with the
+  `PHASYNC_GC_MIN_INTERVAL` and `PHASYNC_GC_MAX_INTERVAL` constants. (#87: collecting before
+  every wait cost a loaded WordPress worker 17% more CPU per page.)
 - The phasync extension ships inside the release packages of phasync under `ext/` (closed source
   binaries with their own licence in `ext/LICENSE`; phasync itself stays MIT). It is no longer a
   separate `composer require`, and the `suggest` entry for `phasync/phasync-ext` is gone. The

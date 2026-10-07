@@ -1,14 +1,14 @@
 <?php
 
 /*
- * EventLoop collects cyclic garbage in three ways (see EventLoop::tick()):
+ * EventLoop collects cyclic garbage in two ways (see EventLoop::tick()); PHP's own collector
+ * is off inside run():
  * - idle-time: right before the poller would wait with a timeout > 0 (nothing runnable), if
  *   there are any possible cycles at all, a poll(0) finds no ready I/O, and the last idle-time
  *   collection was at least GC_MIN_INTERVAL ago.
  * - busy, time-based: a loop that never idles still collects once GC_MAX_INTERVAL has passed
- *   since the last collection, as long as there is anything to collect.
- * - busy, threshold-based: a loop that never idles also collects once as many possible cycles
- *   have gathered as PHP's own threshold (EventLoop::GC_ROOTS, adaptive).
+ *   since the last collection, as long as there is anything to collect, and not before: until
+ *   then the garbage stays in memory, however much of it there is.
  *
  * These tests reset the driver's GC bookkeeping first, via reflection, so the result does not
  * depend on what earlier tests left behind in the process-wide driver singleton.
@@ -29,7 +29,6 @@ function resetEventLoopGcState(): void
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
     (new ReflectionProperty($driver, 'lastIdleCollect'))->setValue($driver, 0.0);
     (new ReflectionProperty($driver, 'lastGarbageCheck'))->setValue($driver, 0.0);
-    (new ReflectionProperty($driver, 'gcRoots'))->setValue($driver, 40_000);
 }
 
 beforeEach(function () {
@@ -73,10 +72,10 @@ test('a loop with coroutines always runnable (timeout 0) does not collect', func
     expect($after['roots'])->toBeGreaterThanOrEqual($before['roots']);
 });
 
-test('a loop that never idles still collects once possible cycles pass the threshold', function () {
+test('a loop that never idles keeps its garbage until GC_MAX_INTERVAL, however much it makes', function () {
     [$before, $after] = phasync::run(function () {
         $busy = phasync::go(function () {
-            $until = \microtime(true) + 0.2;
+            $until = \microtime(true) + 0.2; // well inside EventLoop::GC_MAX_INTERVAL (0.5 s)
             while (\microtime(true) < $until) {
                 for ($i = 0; $i < 2000; ++$i) {
                     makeGcCycle();
@@ -84,21 +83,21 @@ test('a loop that never idles still collects once possible cycles pass the thres
                 phasync::sleep(0); // always runnable: the loop never idles
             }
         });
-        $before = \gc_status(); // go() ran the first batch already: well under the threshold
+        $before = \gc_status(); // go() ran the first batch already
         phasync::await($busy);
 
         return [$before, \gc_status()];
     });
 
     expect($before['roots'])->toBeGreaterThan(0);
-    expect($before['roots'])->toBeLessThan(40_000);
-    expect($after['runs'])->toBeGreaterThan($before['runs']);
+    expect($after['runs'])->toBe($before['runs']);
+    expect($after['roots'])->toBeGreaterThan(40_000); // far past PHP's own threshold
 });
 
 test('a loop kept busy for longer than the time limit still collects', function () {
     [$before, $after] = phasync::run(function () {
         phasync::go(function () {
-            makeGcCycle(); // well under the roots threshold: only time should force this
+            makeGcCycle(); // only time forces this collection
         });
         $before = \gc_status();
         $busy   = phasync::go(function () {
@@ -113,6 +112,5 @@ test('a loop kept busy for longer than the time limit still collects', function 
     });
 
     expect($before['roots'])->toBeGreaterThan(0);
-    expect($before['roots'])->toBeLessThan(40_000);
     expect($after['runs'])->toBeGreaterThan($before['runs']);
 });

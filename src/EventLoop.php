@@ -309,23 +309,17 @@ final class EventLoop implements \Countable
     public const PREEMPT_INTERVAL = 0.02;
 
     /**
-     * How often the loop counts the possible cycles for the busy-loop safety net (tick()), and
-     * how many make it collect: a loop that never idles makes garbage while nothing ends (a
-     * server's connections), so this is the fallback for when idle-time collection (also tick(),
-     * right before the poller waits) never gets the chance to run.
+     * How often tick() checks the busy-loop safety net: a loop that never idles makes garbage
+     * while nothing ends (a server's connections), so this is the fallback for when idle-time
+     * collection (also tick(), right before the poller waits) never gets the chance to run.
      */
     private const GC_CHECK_INTERVAL = 0.05;
-    private const GC_ROOTS          = 40_000;
-    private const GC_ROOTS_MAX      = 4_000_000;
 
     /** The longest a busy loop goes without collecting, while there's anything to collect. */
     private const GC_MAX_INTERVAL = 0.5;
 
     /** The shortest gap between two idle-time collections (tick(), right before the poller waits). */
     private const GC_MIN_INTERVAL = 0.5;
-
-    /** The possible cycles that make the loop collect now: GC_ROOTS, raised while collections find nothing. */
-    private int $gcRoots = self::GC_ROOTS;
 
     private \stdClass $serviceContext;
 
@@ -609,15 +603,12 @@ final class EventLoop implements \Countable
         if ($now - $this->lastGarbageCheck > self::GC_CHECK_INTERVAL) {
             // A busy loop (always some coroutine ready, never idle, see tick()'s poll() above)
             // never gets the idle-time collection above: this is its safety net, checked between
-            // fibers as always. Either of two things forces a collection: too long has passed
-            // since the last one (of any kind) while there's anything to collect, or as many
-            // possible cycles have gathered as make PHP's own collector run.
+            // fibers as always: it collects once GC_MAX_INTERVAL has passed since the last
+            // collection (of any kind) while there's anything to collect. Until then garbage
+            // stays in memory: a loop this busy has no time to spare for collecting it.
             $this->lastGarbageCheck = $now;
-            $roots                  = \gc_status()['roots'];
-            if (($roots > 0 && $now - $this->lastGarbageCollect > $this->gcMaxInterval) || $roots >= $this->gcRoots) {
-                // As PHP's collector adapts: a collection that finds (almost) nothing makes the next
-                // wait for more possible cycles, one that finds garbage brings the threshold back
-                $this->gcRoots            = \gc_collect_cycles() < 100 ? \min($this->gcRoots * 2, self::GC_ROOTS_MAX) : self::GC_ROOTS;
+            if ($now - $this->lastGarbageCollect > $this->gcMaxInterval && \gc_status()['roots'] > 0) {
+                \gc_collect_cycles();
                 $this->lastGarbageCollect = $now;
             }
         }
