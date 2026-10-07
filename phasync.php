@@ -796,6 +796,51 @@ final class phasync
      *
      * @see phasync::awaitFlag
      */
+    /**
+     * Suspends the current coroutine until one of `$signals` (POSIX signal numbers such as
+     * `SIGTERM`) arrives, and returns the one that did. Any number of coroutines may wait for the
+     * same signal: each is woken. The waiter runs as an ordinary coroutine afterwards, so it may
+     * await, write and close connections; the signal's handler only records it, and the event
+     * loop wakes the waiters between coroutines, never inside one. A signal that came before the
+     * wait began doesn't end it.
+     *
+     * phasync installs one handler for each signal waited for, the first time, replacing any
+     * `pcntl_signal()` handler for it. It works with and without `pcntl_async_signals()`.
+     *
+     * ```php
+     * phasync::go(function () use ($server) {
+     *     phasync::signal([SIGTERM, SIGINT]);
+     *     $server->close();   // stop accepting, let the requests in flight finish
+     * });
+     * ```
+     *
+     * @param int|list<int> $signals the signal, or signals, to wait for
+     * @param float         $timeout seconds to wait at most
+     *
+     * @return int the signal that arrived
+     *
+     * @throws TimeoutException if none arrives in time
+     * @throws \LogicException  outside a coroutine
+     */
+    public static function signal(int|array $signals, float $timeout = \PHP_FLOAT_MAX): int
+    {
+        $driver = self::getDriver();
+        $seen   = [];
+        foreach ((array) $signals as $signo) {
+            $driver->listenSignal($signo);
+            $seen[$signo] = $driver->signalCount($signo);
+        }
+        $deadline = \microtime(true) + $timeout;
+        while (true) {
+            self::awaitFlag($driver->getSignalFlag(), \max(0.0, $deadline - \microtime(true)));
+            foreach ($seen as $signo => $count) {
+                if ($driver->signalCount($signo) > $count) {
+                    return $signo;
+                }
+            }
+        }
+    }
+
     public static function raiseFlag(object $signal): int
     {
         return self::getDriver()->raiseFlag($signal);

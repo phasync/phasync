@@ -4,6 +4,13 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Added
+
+- `phasync::signal($signals, $timeout)`: a coroutine waits for a POSIX signal (or one of several)
+  and gets the one that came. Any number of coroutines may wait for the same signal; each is
+  woken, between coroutines, by the event loop (the handler only records the signal), so the
+  waiter may await and do I/O like any coroutine. Works with and without `pcntl_async_signals()`.
+
 ### Changed
 
 - The event loop collects cyclic garbage only when it has a spare moment: nothing runnable

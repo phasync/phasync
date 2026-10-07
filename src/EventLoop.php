@@ -328,6 +328,15 @@ final class EventLoop implements \Countable
 
     private \stdClass $afterNextFlag;
 
+    /** Raised, between coroutines, after signals phasync::signal() listens to have arrived. */
+    private \stdClass $signalFlag;
+
+    /** @var array<int, int> how often each signal phasync::signal() listens to has arrived */
+    private array $signalCounts = [];
+
+    /** A signal arrived since the last tick; set by the handler, which only records. */
+    private bool $signalArrived = false;
+
     private ?\Fiber $currentFiber             = null;
     private ?object $currentContext           = null;
 
@@ -415,6 +424,7 @@ final class EventLoop implements \Countable
         $this->flaggedFibers                       = new \WeakMap();
         $this->flagGraph                           = new \WeakMap();
         $this->afterNextFlag                       = new \stdClass();
+        $this->signalFlag                          = new \stdClass();
         $this->serviceContext                      = new \stdClass();
         $this->usedContexts[$this->serviceContext] = true;
         $this->rootContexts[$this->serviceContext] = $this->serviceContext;
@@ -470,6 +480,14 @@ final class EventLoop implements \Countable
      */
     public function tick(): void
     {
+        if ($this->signalCounts) {
+            // Handlers run here, between coroutines, unless pcntl_async_signals() ran them already
+            \pcntl_signal_dispatch();
+            if ($this->signalArrived) {
+                $this->signalArrived = false;
+                $this->raiseFlag($this->signalFlag);
+            }
+        }
         $now   = \microtime(true);
         $queue = $this->queue;
 
@@ -834,6 +852,32 @@ final class EventLoop implements \Countable
      * Raise a flag to enable any fiber that is scheduled to activate on
      * this flag via {@see self::whenFlagged()}.
      */
+    /**
+     * Listen to $signo for phasync::signal(): one handler, installed once, which only counts the
+     * signal and leaves waking the waiters to tick().
+     */
+    public function listenSignal(int $signo): void
+    {
+        if (!isset($this->signalCounts[$signo])) {
+            $this->signalCounts[$signo] = 0;
+            \pcntl_signal($signo, function (int $signo): void {
+                ++$this->signalCounts[$signo];
+                $this->signalArrived = true;
+            });
+        }
+    }
+
+    /** How often $signo has arrived since listenSignal(). */
+    public function signalCount(int $signo): int
+    {
+        return $this->signalCounts[$signo];
+    }
+
+    public function getSignalFlag(): object
+    {
+        return $this->signalFlag;
+    }
+
     public function raiseFlag(object $flag): int
     {
         if (!isset($this->flaggedFibers[$flag])) {
