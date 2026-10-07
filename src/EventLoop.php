@@ -337,6 +337,9 @@ final class EventLoop implements \Countable
     /** A signal arrived since the last tick; set by the handler, which only records. */
     private bool $signalArrived = false;
 
+    /** @var array<int, list<\Closure(int):void>> phasync::onSignal() callbacks, run in the handler */
+    private array $signalHandlers = [];
+
     private ?\Fiber $currentFiber             = null;
     private ?object $currentContext           = null;
 
@@ -853,18 +856,28 @@ final class EventLoop implements \Countable
      * this flag via {@see self::whenFlagged()}.
      */
     /**
-     * Listen to $signo for phasync::signal(): one handler, installed once, which only counts the
-     * signal and leaves waking the waiters to tick().
+     * Own $signo: one pcntl handler, installed once, which runs the onSignal() callbacks right
+     * away, then counts the signal and leaves waking phasync::signal()'s waiters to tick().
      */
     public function listenSignal(int $signo): void
     {
         if (!isset($this->signalCounts[$signo])) {
             $this->signalCounts[$signo] = 0;
             \pcntl_signal($signo, function (int $signo): void {
+                foreach ($this->signalHandlers[$signo] ?? [] as $handler) {
+                    $handler($signo);
+                }
                 ++$this->signalCounts[$signo];
                 $this->signalArrived = true;
             });
         }
+    }
+
+    /** Add a callback the handler of $signo runs right away, see phasync::onSignal(). */
+    public function onSignal(int $signo, \Closure $handler): void
+    {
+        $this->listenSignal($signo);
+        $this->signalHandlers[$signo][] = $handler;
     }
 
     /** How often $signo has arrived since listenSignal(). */

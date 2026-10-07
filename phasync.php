@@ -805,7 +805,8 @@ final class phasync
      * wait began doesn't end it.
      *
      * phasync installs one handler for each signal waited for, the first time, replacing any
-     * `pcntl_signal()` handler for it. It works with and without `pcntl_async_signals()`.
+     * `pcntl_signal()` handler for it; {@see phasync::onSignal()} adds code that runs inside that
+     * handler. It works with and without `pcntl_async_signals()`.
      *
      * ```php
      * phasync::go(function () use ($server) {
@@ -839,6 +840,27 @@ final class phasync
                 }
             }
         }
+    }
+
+    /**
+     * Run `$handler` the moment `$signo` arrives, inside the signal handler: with
+     * `pcntl_async_signals(true)` in the middle of whatever is executing, even a coroutine that
+     * never yields; otherwise when the event loop dispatches signals. For what must happen at that
+     * moment, such as logging where a stuck process is; it must not suspend (no await, sleep or
+     * phasync I/O). Coroutines in {@see phasync::signal()} are woken for the same signal as well.
+     * phasync owns the signal from then on: one `pcntl_signal()` handler, replacing any other.
+     *
+     * ```php
+     * phasync::onSignal(SIGQUIT, function () {
+     *     error_log('stuck at ' . (new Exception())->getTraceAsString());
+     * });
+     * ```
+     *
+     * @param \Closure(int):void $handler called with the signal number
+     */
+    public static function onSignal(int $signo, \Closure $handler): void
+    {
+        self::getDriver()->onSignal($signo, $handler);
     }
 
     public static function raiseFlag(object $signal): int

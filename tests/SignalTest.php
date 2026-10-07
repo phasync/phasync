@@ -62,3 +62,19 @@ test('a waiter may await and do I/O after the signal, as any coroutine does', fu
     });
     expect($got)->toBe('cleaned up after ' . SIGUSR1);
 });
+
+test('onSignal() runs at once, even inside a coroutine that never yields, and waiters are woken as well', function () {
+    pcntl_async_signals(true);
+    $log = [];
+    phasync::onSignal(SIGUSR1, function (int $signo) use (&$log) { $log[] = "handler $signo"; });
+    $got = phasync::run(function () use (&$log) {
+        $waiter = phasync::go(fn () => phasync::signal(SIGUSR1, 2.0));
+        phasync::sleep(0.01);
+        posix_kill(getmypid(), SIGUSR1);
+        $log[] = 'busy loop goes on';     // the handler ran before this line: it interrupts code that never yields
+
+        return phasync::await($waiter);
+    });
+    expect($got)->toBe(SIGUSR1);
+    expect($log)->toBe(['handler ' . SIGUSR1, 'busy loop goes on']);
+});

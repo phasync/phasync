@@ -10,6 +10,9 @@ Earlier releases are listed on the GitHub releases page.
   and gets the one that came. Any number of coroutines may wait for the same signal; each is
   woken, between coroutines, by the event loop (the handler only records the signal), so the
   waiter may await and do I/O like any coroutine. Works with and without `pcntl_async_signals()`.
+- `phasync::onSignal($signo, $handler)`: code that runs the moment a signal arrives, inside its
+  handler (with async signals, even inside a coroutine that never yields), such as logging where
+  a stuck process is. phasync owns each signal it handles, so waiters and handlers coexist.
 
 ### Changed
 
