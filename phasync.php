@@ -911,6 +911,43 @@ final class phasync
         return $left;
     }
 
+    /**
+     * Run `$fn` out of every cancellation's reach: `phasync::cancel()`, a failed scope, and
+     * `phasync::shutdown()` don't cut its waits short. A cancellation that comes meanwhile applies
+     * at the coroutine's first wait after `$fn` returns. For infrastructure that must finish what
+     * it started, such as a server ending a protocol cleanly while the application's coroutines
+     * stop; application code rarely needs it.
+     *
+     * ```php
+     * phasync::shielded(function () use ($socket) {
+     *     fwrite($socket, $goodbye);   // still sent during a shutdown
+     *     phasync::writable($socket, 1.0);
+     * });
+     * ```
+     *
+     * @template T
+     *
+     * @param \Closure():T $fn
+     *
+     * @return T what `$fn` returns
+     *
+     * @throws \LogicException outside a coroutine
+     */
+    public static function shielded(Closure $fn): mixed
+    {
+        $driver = self::getDriver();
+        $fiber  = $driver->getCurrentFiber();
+        if (null === $fiber) {
+            throw ExceptionTool::popTrace(new LogicException('Can only shield from within a coroutine'));
+        }
+        $driver->shield($fiber);
+        try {
+            return $fn();
+        } finally {
+            $driver->unshield($fiber);
+        }
+    }
+
     public static function raiseFlag(object $signal): int
     {
         return self::getDriver()->raiseFlag($signal);

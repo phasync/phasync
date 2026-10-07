@@ -20,6 +20,9 @@ Earlier releases are listed on the GitHub releases page.
   coroutine but the caller, whatever its context, gets the exception at its wait and has up to
   `$window` seconds to clean up (`phasync::finally()` cleanup included); it returns how many are
   still running. `phasync::cancel()` also takes a `CancelledException` of the caller's own.
+- `phasync::shielded($fn)`: run a block out of every cancellation's reach (cancel, a failed scope,
+  shutdown); a cancellation that comes meanwhile applies once it returns. For infrastructure that
+  must finish what it started while the application's coroutines stop.
 
 ### Changed
 

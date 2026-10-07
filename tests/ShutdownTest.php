@@ -87,3 +87,23 @@ test('shutdown() reaches a coroutine in a context of its own, as a server runs e
     });
     expect($got)->toBe('stopped');
 });
+
+test('a shielded block finishes its waits through a shutdown; the exception applies once it ends', function () {
+    $log = [];
+    phasync::run(function () use (&$log) {
+        phasync::go(function () use (&$log) {
+            try {
+                phasync::shielded(function () use (&$log) {
+                    phasync::sleep(0.05);   // the shutdown comes meanwhile: this wait is not cut short
+                    $log[] = 'shielded work done';
+                });
+                phasync::sleep(10);
+            } catch (ShutdownException) {
+                $log[] = 'then the exception';
+            }
+        });
+        phasync::sleep(0.01);
+        phasync::shutdown(1.0);
+    });
+    expect($log)->toBe(['shielded work done', 'then the exception']);
+});
