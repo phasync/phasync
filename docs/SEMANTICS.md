@@ -53,6 +53,9 @@ collection, only when the loop has a spare moment: nothing runnable and a `poll(
 ready I/O, at most once per `GC_MIN_INTERVAL` (0.5 s). A loop kept busy by always-runnable
 coroutines never has one, so as a safety net it collects once `GC_MAX_INTERVAL` (0.5 s) has
 passed while there is anything to collect; until then its garbage stays in memory (RT-1).
+A collection that frees under 1% of its possible roots doubles both intervals for the next
+one, up to 8 times (4 s); one that finds garbage puts them back: collecting costs per root,
+and in a long-lived server most roots are its own live structures.
 Correct behaviour must not depend on cyclic garbage being freed at a particular moment.
 ❌ See ERR-3.
 

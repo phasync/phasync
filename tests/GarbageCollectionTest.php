@@ -29,6 +29,26 @@ function resetEventLoopGcState(): void
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
     (new ReflectionProperty($driver, 'lastIdleCollect'))->setValue($driver, 0.0);
     (new ReflectionProperty($driver, 'lastGarbageCheck'))->setValue($driver, 0.0);
+    (new ReflectionProperty($driver, 'gcScale'))->setValue($driver, 1.0);
+}
+
+/** Makes every object in $live a possible root of the collector, without making it garbage. */
+function touchGcRoots(array $live): void
+{
+    foreach ($live as $o) {
+        $copy = $o;
+        unset($copy); // a refcount decrement that leaves it alive: a possible root
+    }
+}
+
+/** Keeps the loop busy (never idle) for $seconds; returns gc_status() runs at the end. */
+function busyFor(float $seconds, ?Closure $each = null): void
+{
+    $until = \microtime(true) + $seconds;
+    while (\microtime(true) < $until) {
+        $each && $each();
+        phasync::sleep(0);
+    }
 }
 
 beforeEach(function () {
@@ -113,4 +133,40 @@ test('a loop kept busy for longer than the time limit still collects', function 
 
     expect($before['roots'])->toBeGreaterThan(0);
     expect($after['runs'])->toBeGreaterThan($before['runs']);
+});
+
+test('a busy-loop collection that finds almost nothing but live values backs off: the next one waits longer than GC_MAX_INTERVAL', function () {
+    [$first, $second] = phasync::run(function () {
+        $live = [];
+        for ($i = 0; $i < 5000; ++$i) {
+            $live[] = new stdClass();
+        }
+        $start = \gc_status()['runs'];
+        $busy  = phasync::go(fn () => busyFor(0.65, fn () => touchGcRoots($live))); // past 0.5 s: one collection, finding nothing
+        phasync::await($busy);
+        $first = \gc_status()['runs'] - $start;
+        $busy  = phasync::go(fn () => busyFor(0.65, fn () => touchGcRoots($live))); // 0.8 s since it: within the backed-off interval
+        phasync::await($busy);
+
+        return [$first, \gc_status()['runs'] - $start - $first];
+    });
+
+    expect($first)->toBe(1);
+    expect($second)->toBe(0);
+});
+
+test('a busy-loop collection that finds garbage keeps GC_MAX_INTERVAL', function () {
+    [$first, $second] = phasync::run(function () {
+        $start = \gc_status()['runs'];
+        $busy  = phasync::go(fn () => busyFor(0.65, fn () => makeGcCycle()));
+        phasync::await($busy);
+        $first = \gc_status()['runs'] - $start;
+        $busy  = phasync::go(fn () => busyFor(0.65, fn () => makeGcCycle()));
+        phasync::await($busy);
+
+        return [$first, \gc_status()['runs'] - $start - $first];
+    });
+
+    expect($first)->toBe(1);
+    expect($second)->toBe(1);
 });

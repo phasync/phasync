@@ -305,6 +305,12 @@ final class EventLoop implements \Countable
     private float $gcMinInterval;
     private float $gcMaxInterval;
 
+    /** Both intervals are multiplied by this: 1, doubled by each collection that finds almost no garbage, up to GC_MAX_SCALE. */
+    private float $gcScale = 1.0;
+
+    /** How far collections that find almost no garbage stretch the intervals. */
+    private const GC_MAX_SCALE = 8.0;
+
     /** How long a coroutine runs in a PHP loop before it yields to other requests (phasync-ext). */
     public const PREEMPT_INTERVAL = 0.02;
 
@@ -484,6 +490,19 @@ final class EventLoop implements \Countable
         return $this->pending->count();
     }
 
+
+    /**
+     * Collect cycles, and set how soon the next collection comes: a collection costs per
+     * possible root, garbage or not, so one that freed under 1% of its roots (a long-lived
+     * server's own live structures, touched by every request, make most of them) doubles
+     * both intervals, up to GC_MAX_SCALE; one that found garbage puts them back.
+     */
+    private function collectCycles(): void
+    {
+        $roots          = \gc_status()['roots'];
+        $freed          = \gc_collect_cycles();
+        $this->gcScale  = $freed * 100 < $roots ? \min($this->gcScale * 2, self::GC_MAX_SCALE) : 1.0;
+    }
     /**
      * Run the fibers that are ready to resume work.
      */
@@ -550,14 +569,14 @@ final class EventLoop implements \Countable
             $maxSleepTime = 0;
         }
 
-        if ($maxSleepTime > 0 && $now - $this->lastIdleCollect > $this->gcMinInterval && \gc_status()['roots'] > 0) {
+        if ($maxSleepTime > 0 && $now - $this->lastIdleCollect > $this->gcMinInterval * $this->gcScale && \gc_status()['roots'] > 0) {
             // Nothing is runnable. Ask the poller whether I/O is ready right now: if not, the CPU
             // has a spare moment, so collect, then wait for whatever is left of the wait. At most
             // once per GC_MIN_INTERVAL, since on a loaded server "nothing runnable" is often just
             // a database round trip in flight, and collecting on every such wait costs real CPU.
             $this->poller->poll(0);
             if (0 === $queue->count() && $this->callbackQueue->isEmpty()) {
-                \gc_collect_cycles();
+                $this->collectCycles();
                 $this->lastGarbageCollect = $this->lastIdleCollect = \microtime(true);
                 $this->poller->poll(\max(0.0, $maxSleepTime - ($this->lastGarbageCollect - $now)));
             }
@@ -638,8 +657,8 @@ final class EventLoop implements \Countable
             // collection (of any kind) while there's anything to collect. Until then garbage
             // stays in memory: a loop this busy has no time to spare for collecting it.
             $this->lastGarbageCheck = $now;
-            if ($now - $this->lastGarbageCollect > $this->gcMaxInterval && \gc_status()['roots'] > 0) {
-                \gc_collect_cycles();
+            if ($now - $this->lastGarbageCollect > $this->gcMaxInterval * $this->gcScale && \gc_status()['roots'] > 0) {
+                $this->collectCycles();
                 $this->lastGarbageCollect = $now;
             }
         }

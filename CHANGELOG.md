@@ -4,6 +4,14 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Changed
+
+- The event loop backs off cycle collection that finds almost nothing: a collection freeing under
+  1% of its possible roots doubles both GC intervals for the next one, up to 8 times; one that
+  finds garbage puts them back. Collection costs per root, and in a long-lived server most roots
+  are live values of the requests in flight. WordPress under swerve: about 1 ms less CPU per
+  request; Laravel, which makes plenty of cyclic garbage, keeps 0.5 s.
+
 ### Added
 
 - `phasync::signal($signals, $timeout)`: a coroutine waits for a POSIX signal (or one of several)
