@@ -31,6 +31,13 @@ Earlier releases are listed on the GitHub releases page.
 - `phasync::shielded($fn)`: run a block out of every cancellation's reach (cancel, a failed scope,
   shutdown); a cancellation that comes meanwhile applies once it returns. For infrastructure that
   must finish what it started while the application's coroutines stop.
+- `phasync::idle($after = 0.0)`: suspends until the loop has had nothing runnable for `$after`
+  seconds. Waiters wake one per such idle moment, oldest first, so an admission gate can call it
+  to let one more request in and then re-measure, instead of a fixed concurrency cap that starves
+  requests waiting on slow I/O. Measured on a 25-plugin WordPress under swerve: admitting 2
+  requests at once and one more per idle millisecond held CPU/request close to a fixed cap of 2
+  (~214 ms vs ~205 ms, no cap 248 ms) while keeping a slow-I/O page's throughput the fixed cap lost
+  (77 req/s vs 9.6 req/s).
 
 ### Changed
 

@@ -96,6 +96,15 @@ Parameters:
 Yield execution of the current coroutine. This function causes the coroutine to resume at the end of the next tick, and it does not affect the sleep-time between each tick. Yielding should be used whenever you are waiting for some event to occur inside other coroutines, unless `phasync::await()` or `phasync::awaitFlag()` can be used.
 
 
+### `phasync::idle(float $after = 0.0): void`
+
+Suspends the current coroutine until the event loop has had nothing to run for at least `$after` seconds: the ready queue and the callback queue are both empty, and an immediate poll finds no I/O ready. Waiters wake one per such idle moment, oldest first, so each wakes exactly one coroutine before the loop measures the next idle moment for whoever is waiting next. Fits an admission gate that lets one more request in, then re-measures.
+
+Parameters:
+
+ * $after: Seconds the loop must have had nothing runnable, before this coroutine wakes.
+
+
 ### `phasync::readable(mixed $resource, float $timeout = PHP_FLOAT_MAX): mixed`
 
 Suspends the coroutine until the stream resource becomes readable, or the timeout is reached. If the timeout is reached, a TimeoutException is thrown. One coroutine at a time may wait to read a stream; a second one gets LogicException.

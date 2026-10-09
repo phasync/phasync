@@ -112,6 +112,16 @@ a sequence of statements without a loop and without a suspension point is atomic
 its own atomic operations (test-and-set, compare-and-swap) in plain PHP. Without phasync-ext
 there is no preemption. ✅ PreemptionTest
 
+**SCH-7. `idle($after)` wakes one waiter per idle moment, oldest first.** It suspends until
+the ready queue and the callback queue are both empty and an immediate poll finds no I/O
+ready, for at least `$after` seconds; a busy coroutine that always has something runnable
+(a `yield()` loop, for instance) delays it indefinitely. With several waiters, each idle
+moment resolves only the oldest registration, checked against its own `$after`; the loop then
+measures the next idle moment from scratch for whoever is waiting next, which is what lets an
+admission gate call it to let one more in and re-measure, rather than waking everyone at once
+like `afterNext()`. Cancelling a waiting coroutine removes it from the queue, so it does not
+consume an idle moment that was meant for the next waiter. ✅ IdleTest
+
 
 ## 3. Scopes (structured concurrency)
 

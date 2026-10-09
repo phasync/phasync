@@ -607,6 +607,42 @@ final class phasync
     }
 
     /**
+     * Suspends the current coroutine until the event loop has had nothing to run for at least `$after` seconds: the ready queue and the callback queue are both empty, and an immediate poll finds no I/O ready.
+     *
+     * Waiters wake one per such idle moment, oldest first: each wakes exactly one coroutine, then the loop measures the next idle moment from scratch for whoever is waiting next. That is what makes it fit an admission gate: let one more in, then re-measure, rather than a fixed number that starves whichever requests are waiting on slow I/O.
+     *
+     * ```php
+     * phasync::run(function () {
+     *     phasync::go(function () {           // keeps the loop busy for a while
+     *         for ($i = 0; $i < 1000; ++$i) {
+     *             phasync::yield();
+     *         }
+     *         echo "busy done\n";
+     *     });
+     *     phasync::idle();                    // returns only once the loop above has nothing left
+     *     echo "idle\n";                       // after "busy done"
+     * });
+     * ```
+     *
+     * @param float $after seconds the loop must have had nothing runnable, before this coroutine wakes
+     *
+     * @throws CancelledException if the coroutine is cancelled while waiting
+     *
+     * @see phasync::yield
+     * @see phasync::sleep
+     */
+    public static function idle(float $after = 0.0): void
+    {
+        $driver = self::getDriver();
+        $fiber = $driver->getCurrentFiber();
+        if (null === $fiber) {
+            return;
+        }
+        $driver->idle($after, $fiber);
+        self::suspend();
+    }
+
+    /**
      * Suspends the coroutine until the stream can be read without blocking, and returns the stream.
      *
      * The stream is readable when data has arrived, the peer has finished, or the stream failed, so the read that follows does not wait. Set the stream to non-blocking with `stream_set_blocking()` first, or the read that follows blocks the process. Outside a coroutine it returns at once for a stream in blocking mode, and otherwise blocks until the stream is readable.

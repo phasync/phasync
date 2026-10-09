@@ -334,6 +334,15 @@ final class EventLoop implements \Countable
 
     private \stdClass $afterNextFlag;
 
+    /**
+     * FIFO of pending {@see self::idle()} waiters: one flag per call, each with the idle
+     * duration it needs and the fiber it belongs to (for {@see self::discard()}). tick() wakes
+     * at most the oldest one per idle moment, then re-measures for the next.
+     *
+     * @var list<array{0: \stdClass, 1: float, 2: \Fiber}>
+     */
+    private array $idleWaiters = [];
+
     /** Raised, between coroutines, after any signal phasync handles arrived: for waits on several. */
     private \stdClass $signalFlag;
 
@@ -566,6 +575,20 @@ final class EventLoop implements \Countable
         $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
 
         if ($maxSleepTime > 0 && $afterNextCount > 0 && 0 === $queue->count() && $this->scheduler->isEmpty()) {
+            $maxSleepTime = 0;
+        }
+
+        if ($maxSleepTime > 0 && [] !== $this->idleWaiters) {
+            // Nothing is runnable: the oldest idle() waiter gets this moment, once it has lasted
+            // its own $after. Poll for it directly, since the GC branch below polls at most once
+            // per GC_MIN_INTERVAL and would make a short $after wait for a collection it has
+            // nothing to do with.
+            [$flag, $after] = $this->idleWaiters[0];
+            $this->poller->poll(\min($maxSleepTime, $after));
+            if (0 === $queue->count() && $this->callbackQueue->isEmpty() && \microtime(true) - $now >= $after) {
+                \array_shift($this->idleWaiters);
+                $this->raiseFlag($flag);
+            }
             $maxSleepTime = 0;
         }
 
@@ -1008,6 +1031,19 @@ final class EventLoop implements \Countable
         }
         // FiberState::for($fiber)->log("afterNext");
         $this->whenFlagged($this->afterNextFlag, \PHP_FLOAT_MAX, $fiber);
+    }
+
+    /**
+     * Suspend $fiber until the loop has had nothing runnable for $after seconds; see
+     * phasync::idle(). Registration order decides which waiter tick() wakes for each idle
+     * moment it finds (oldest first), not $after: each waiter is checked against its own
+     * $after once it is at the head of the queue.
+     */
+    public function idle(float $after, \Fiber $fiber): void
+    {
+        $flag                = new \stdClass();
+        $this->idleWaiters[] = [$flag, $after, $fiber];
+        $this->whenFlagged($flag, \PHP_FLOAT_MAX, $fiber);
     }
 
     /**
@@ -1799,6 +1835,17 @@ final class EventLoop implements \Countable
                 }
             }
         } while (false);
+
+        // An idle() waiter also sits in this FIFO, outside flaggedFibers: drop it here too, or
+        // it would swallow the next idle moment for a flag nobody is waiting on any more.
+        if ([] !== $this->idleWaiters) {
+            foreach ($this->idleWaiters as $i => $waiter) {
+                if ($waiter[2] === $fiber) {
+                    \array_splice($this->idleWaiters, $i, 1);
+                    break;
+                }
+            }
+        }
 
         if ($cancelled) {
             unset($this->pending[$fiber]);
