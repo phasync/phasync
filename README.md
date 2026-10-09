@@ -169,6 +169,11 @@ cannot use file descriptors numbered 1024 and up.
 phasync behaves the same with and without the extension. The extension only lets more code wait
 cooperatively and makes waiting cheaper.
 
+In a request the extension's `virtualize()` runs, `Fiber::getCurrent()` is null in the request's
+root coroutine, as under PHP-FPM, so applications that suspend any Fiber they find themselves in
+leave the request alone. Code that needs the coroutine calls `phasync\ext\current_fiber()`, as
+phasync does; without the extension, phasync defines it as `Fiber::getCurrent()`.
+
 ## Coordinating coroutines
 
 **Channels** pass values between coroutines. A read waits for a writer, and a write into a full

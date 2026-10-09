@@ -783,7 +783,7 @@ final class EventLoop implements \Countable
      */
     public function preempt(): void
     {
-        $fiber = \Fiber::getCurrent();
+        $fiber = \phasync\ext\current_fiber();
         if (null === $fiber || !isset($this->contexts[$fiber])) {
             return; // not in a coroutine: the loop's own tick, or a Fiber of the coroutine's own
         }
@@ -1435,7 +1435,7 @@ final class EventLoop implements \Countable
         foreach ($depths as [, $fiber]) {
             $this->wake($fiber);
         }
-        if ($throwInCaller && null !== ($caller = \Fiber::getCurrent()) && isset($this->contexts[$caller]) && null !== ($e = $this->cancellationFor($caller))) {
+        if ($throwInCaller && null !== ($caller = \phasync\ext\current_fiber()) && isset($this->contexts[$caller]) && null !== ($e = $this->cancellationFor($caller))) {
             throw $e; // the caller is in it: as a throw
         }
     }
@@ -1623,7 +1623,7 @@ final class EventLoop implements \Countable
     public function shutdown(ShutdownException $exception): void
     {
         foreach ($this->contexts as $fiber => $_) {
-            if ($fiber !== \Fiber::getCurrent() && !$fiber->isTerminated()) {
+            if ($fiber !== \phasync\ext\current_fiber() && !$fiber->isTerminated()) {
                 $this->cancel($fiber, $exception);
             }
         }
@@ -1634,7 +1634,7 @@ final class EventLoop implements \Countable
     {
         $count = 0;
         foreach ($this->contexts as $fiber => $_) {
-            $count += (int) ($fiber !== \Fiber::getCurrent() && !$fiber->isTerminated());
+            $count += (int) ($fiber !== \phasync\ext\current_fiber() && !$fiber->isTerminated());
         }
 
         return $count;
@@ -1662,7 +1662,7 @@ final class EventLoop implements \Countable
             ++$this->cancellations;
         }
         $this->cancelledFibers[$fiber] = $exception;
-        if ($fiber === \Fiber::getCurrent()) {
+        if ($fiber === \phasync\ext\current_fiber()) {
             throw $exception; // cancelling itself: as a throw
         }
         $this->wake($fiber);
@@ -1679,7 +1679,7 @@ final class EventLoop implements \Countable
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
         $this->issued[$exception] = true;
-        if ($fiber === \Fiber::getCurrent()) {
+        if ($fiber === \phasync\ext\current_fiber()) {
             throw $exception;
         }
         if (!$this->deliver($fiber, $exception)) {

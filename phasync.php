@@ -204,7 +204,7 @@ final class phasync
             phasync::cancel($fiber);
             // Shielded: the run returns once its main coroutine has unwound, though the calling
             // coroutine was cancelled
-            $driver->shield($caller = Fiber::getCurrent());
+            $driver->shield($caller = \phasync\ext\current_fiber());
             try {
                 return phasync::await($fiber);
             } finally {
@@ -1238,7 +1238,7 @@ final class phasync
     private static function suspend(): void
     {
         if (0 !== self::$driver->cancellations) {
-            self::$driver->checkCancelled(Fiber::getCurrent());
+            self::$driver->checkCancelled(\phasync\ext\current_fiber());
         }
         try {
             Fiber::suspend();

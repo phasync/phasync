@@ -14,6 +14,19 @@ declare(strict_types=1);
 
 namespace phasync\ext;
 
+if (!\function_exists('phasync\\ext\\current_fiber')) {
+    /**
+     * The running Fiber: Fiber::getCurrent() without the extension. phasync calls this, never
+     * Fiber::getCurrent(): inside a virtualize() request the extension makes Fiber::getCurrent()
+     * null in the request's root coroutine, as under php-fpm, and its current_fiber() returns
+     * that coroutine.
+     */
+    function current_fiber(): ?\Fiber
+    {
+        return \Fiber::getCurrent();
+    }
+}
+
 /**
  * Ensure the phasync extension is loaded, re-executing this CLI process with
  * `-d extension=<matching .so>` if it is not.

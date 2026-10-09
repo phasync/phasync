@@ -6,6 +6,10 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Changed
 
+- phasync asks `phasync\ext\current_fiber()` for the running Fiber instead of
+  `Fiber::getCurrent()`, which phasync-ext makes null in a `virtualize()` request's root coroutine,
+  as under PHP-FPM (Drupal suspends any Fiber it runs in). Without the extension, phasync defines
+  `current_fiber()` as `Fiber::getCurrent()`.
 - `psr/http-factory` is accepted from `^1.0` (was `^1.1`; the interfaces are the same), so an
   application's Composer can pick any version of the PSR packages phasync implements.
   `php tests/psr-versions.php` (run in CI) loads every class against the lowest, middle and
