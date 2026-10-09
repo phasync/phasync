@@ -6,6 +6,10 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Changed
 
+- `psr/http-factory` is accepted from `^1.0` (was `^1.1`; the interfaces are the same), so an
+  application's Composer can pick any version of the PSR packages phasync implements.
+  `php tests/psr-versions.php` (run in CI) loads every class against the lowest, middle and
+  highest allowed majors of psr/http-message, psr/http-factory and psr/log.
 - The event loop backs off cycle collection that finds almost nothing: a collection freeing under
   1% of its possible roots doubles both GC intervals for the next one, up to 8 times; one that
   finds garbage puts them back. Collection costs per root, and in a long-lived server most roots

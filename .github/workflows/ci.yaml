@@ -53,6 +53,9 @@ jobs:
       - name: ✅ Tests
         run: composer test-with-coverage
 
+      - name: 🔗 Every allowed major version of the PSR packages
+        run: php tests/psr-versions.php
+
       - name: 📥 Fetch the extension binary from the newest release tag
         id: ext
         run: |
