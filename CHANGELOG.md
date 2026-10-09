@@ -6,10 +6,11 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Changed
 
-- In a Fiber a coroutine runs itself, `phasync::sleep()` and `readable()`/`writable()` block and
-  `yield()`/`idle()` return, as outside a coroutine. They used to suspend that Fiber back to the
-  code running it while the loop held the coroutine as waiting, so the coroutine never woke
-  ("Fiber is already pending", Drupal's renderer). (#88)
+- A wait in a Fiber a coroutine runs itself (Drupal's renderer) runs the event loop in place
+  until it is over: other coroutines run meanwhile, and the Fiber is never suspended back to the
+  code that runs it. Before, such a wait suspended that Fiber while the loop held the coroutine
+  as waiting, so the coroutine never woke ("Fiber is already pending"). (#88,
+  phasync/phasync-ext-src#83)
 - phasync asks `phasync\ext\current_fiber()` for the running Fiber instead of
   `Fiber::getCurrent()`, which phasync-ext makes null in a `virtualize()` request's root coroutine,
   as under PHP-FPM (Drupal suspends any Fiber it runs in). Without the extension, phasync defines

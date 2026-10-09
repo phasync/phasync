@@ -564,7 +564,7 @@ final class phasync
     public static function sleep(float $seconds = 0): void
     {
         $driver = self::getDriver();
-        $fiber = self::waiter($driver);
+        $fiber = $driver->getCurrentFiber();
         if ($seconds <= 0) {
             if (null === $fiber) {
                 return;
@@ -598,7 +598,7 @@ final class phasync
     public static function yield(): void
     {
         $driver = self::getDriver();
-        $fiber = self::waiter($driver);
+        $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
             return;
         }
@@ -634,7 +634,7 @@ final class phasync
     public static function idle(float $after = 0.0): void
     {
         $driver = self::getDriver();
-        $fiber = self::waiter($driver);
+        $fiber = $driver->getCurrentFiber();
         if (null === $fiber) {
             return;
         }
@@ -712,7 +712,7 @@ final class phasync
         }
 
         $driver = self::getDriver();
-        if (self::waiter($driver)) {
+        if ($driver->getCurrentFiber()) {
             $poller = $driver->getPoller();
             if ($write) {
                 $poller->writable($resource, $timeout);
@@ -1241,7 +1241,7 @@ final class phasync
             self::$driver->checkCancelled(\phasync\ext\current_fiber());
         }
         try {
-            Fiber::suspend();
+            self::$driver->wait();
         } catch (Throwable $e) {
             try {
                 $className = \get_class($e);
@@ -1250,17 +1250,6 @@ final class phasync
                 throw $e;
             }
         }
-    }
-
-    /**
-     * The coroutine a wait suspends: null outside one, and in a Fiber the coroutine runs itself
-     * (phasync/phasync#88), whose suspension would return to that code, not to the loop.
-     */
-    private static function waiter(EventLoop $driver): ?Fiber
-    {
-        $fiber = $driver->getCurrentFiber();
-
-        return null !== $fiber && $fiber === \phasync\ext\current_fiber() ? $fiber : null;
     }
 
     /**

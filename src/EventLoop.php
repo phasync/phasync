@@ -147,6 +147,16 @@ final class EventLoop implements \Countable
     /** How many roots are frozen: 0 keeps every check off the loop's path. */
     private int $preempted = 0;
 
+    /**
+     * Coroutines waiting in a Fiber of their own (see wait()), by spl_object_id(): null while
+     * waiting, true once the loop would have resumed them. $nesting counts them: 0 keeps every
+     * check off the loop's path.
+     *
+     * @var array<int, true|null>
+     */
+    private array $nested = [];
+    private int $nesting  = 0;
+
     /** Ticks so far, and the coroutine and tick the preempt function saw last. */
     private int $ticks            = 0;
     private ?\Fiber $preemptFiber = null;
@@ -630,6 +640,10 @@ final class EventLoop implements \Countable
         for ($i = 0; $i < $fiberCount && !$queue->isEmpty(); ++$i) {
             $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
+            if (0 !== $this->nesting && \array_key_exists(\spl_object_id($fiber), $this->nested)) {
+                $this->nested[\spl_object_id($fiber)] = true; // its wait is over: wait() returns
+                continue;
+            }
 
             try {
                 $this->currentFiber   = $fiber;
@@ -744,6 +758,11 @@ final class EventLoop implements \Countable
     /** One coroutine's turn: as in tick()'s own loop. */
     private function resume(\Fiber $fiber): void
     {
+        if (0 !== $this->nesting && \array_key_exists(\spl_object_id($fiber), $this->nested)) {
+            $this->nested[\spl_object_id($fiber)] = true;
+
+            return;
+        }
         try {
             $this->currentFiber   = $fiber;
             $this->currentContext = $this->contexts[$fiber];
@@ -1122,6 +1141,59 @@ final class EventLoop implements \Countable
     }
 
     /**
+     * Suspend the running coroutine until the loop resumes it, after registering what it waits
+     * for. In a Fiber the coroutine runs itself (Drupal's renderer), Fiber::suspend() would return
+     * to the coroutine's own code, which does not expect it: there the loop runs in place instead,
+     * tick after tick, until it would resume the coroutine. Other coroutines run meanwhile, resumed
+     * from that Fiber and suspending back to it; the Fiber stays where it is.
+     *
+     * Invariants of a tick run in place: it never resumes a coroutine that is running (one in
+     * the chain of Fibers that led here, which waits in a Fiber of its own: its turn marks its wait
+     * as over instead); it restores the running coroutine and its context when it returns; waits
+     * nest last-in-first-out, so a wait deeper in the stack holds the ones below it until it is
+     * over, even when theirs are over first.
+     *
+     * @internal phasync::suspend() and park()
+     */
+    public function wait(): void
+    {
+        $fiber = $this->currentFiber;
+        if (null === $fiber || \phasync\ext\current_fiber() === $fiber) {
+            \Fiber::suspend();
+
+            return;
+        }
+        $context           = $this->currentContext;
+        $id                = \spl_object_id($fiber);
+        $this->nested[$id] = null;
+        ++$this->nesting;
+        try {
+            while (null === $this->nested[$id]) {
+                $this->tick();
+            }
+        } finally {
+            --$this->nesting;
+            unset($this->nested[$id]);
+            $this->currentFiber   = $fiber;
+            $this->currentContext = $context;
+            if ($this->switchAware && $context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
+                $this->makeLive($context);
+            }
+            if ($this->stateOn && $context !== $this->stateContext) {
+                $this->liveState($context);
+            }
+        }
+        if (isset($this->fiberExceptionHolders[$fiber])) {
+            $eh = $this->fiberExceptionHolders[$fiber];
+            unset($this->fiberExceptionHolders[$fiber]);
+            $exception = $eh->get();
+            $eh->returnToPool();
+
+            throw $exception;
+        }
+    }
+
+    /**
      * A slot number no one else has, for {@see self::park()} and {@see self::unpark()}.
      */
     public function getSlot(): int
@@ -1158,7 +1230,7 @@ final class EventLoop implements \Countable
             $this->addTimeout($fiber, $deadline);
         }
         try {
-            \Fiber::suspend();
+            $this->wait();
         } catch (\Throwable $e) {
             // As phasync::suspend(): the exception gets a trace from here
             try {
