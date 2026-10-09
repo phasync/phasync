@@ -9,7 +9,7 @@ use phasync\ShutdownException;
  */
 
 test('shutdown() throws into every other coroutine, which may clean up; the caller goes on', function () {
-    $log = [];
+    $log  = [];
     $left = phasync::run(function () use (&$log) {
         foreach (['a', 'b'] as $name) {
             phasync::go(function () use ($name, &$log) {
@@ -26,13 +26,13 @@ test('shutdown() throws into every other coroutine, which may clean up; the call
             });
         }
         phasync::sleep(0.01);
-        $left = phasync::shutdown(1.0, new ShutdownException('stopping'));
+        $left  = phasync::shutdown(1.0, new ShutdownException('stopping'));
         $log[] = 'caller goes on';
 
         return $left;
     });
     expect($left)->toBe(0);
-    sort($log);
+    \sort($log);
     expect($log)->toBe(['a cleaned up', 'a: stopping', 'b cleaned up', 'b: stopping', 'caller goes on']);
 });
 
@@ -47,7 +47,7 @@ test('shutdown() returns the coroutines still running after the window', functio
         });
         phasync::sleep(0.01);
 
-        return [phasync::shutdown(0.1), microtime(true)];
+        return [phasync::shutdown(0.1), \microtime(true)];
     });
     expect($left[0])->toBe(1);
 });

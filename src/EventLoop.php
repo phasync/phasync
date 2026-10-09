@@ -499,7 +499,6 @@ final class EventLoop implements \Countable
         return $this->pending->count();
     }
 
-
     /**
      * Collect cycles, and set how soon the next collection comes: a collection costs per
      * possible root, garbage or not, so one that freed under 1% of its roots (a long-lived
@@ -512,6 +511,7 @@ final class EventLoop implements \Countable
         $freed          = \gc_collect_cycles();
         $this->gcScale  = $freed * 100 < $roots ? \min($this->gcScale * 2, self::GC_MAX_SCALE) : 1.0;
     }
+
     /**
      * Run the fibers that are ready to resume work.
      */
