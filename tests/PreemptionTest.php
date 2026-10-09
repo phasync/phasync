@@ -144,3 +144,31 @@ test('a loop with nothing else to run just goes on after yielding', function () 
     $n = phasync::run(fn () => preemptBusy(0.05));
     expect($n)->toBeGreaterThan(0);
 });
+
+test('PHASYNC_PREEMPT_INTERVAL, defined before the loop starts, replaces PREEMPT_INTERVAL', function () {
+    // In a child process (a constant can't be undefined again), from a file (code run with -r is
+    // never preempted). A runs 50 ms in a loop; B wakes after 2 ms. At the default 20 ms A runs to
+    // its end first; at 1 ms B gets its turn while A loops.
+    $base = \tempnam(\sys_get_temp_dir(), 'phasync-preempt-');
+    $file = "$base.php";
+    \file_put_contents($file, '<?php
+        require ' . \var_export(\dirname(__DIR__) . '/vendor/autoload.php', true) . ';
+        if ("" !== $argv[1]) { define("PHASYNC_PREEMPT_INTERVAL", (float) $argv[1]); }
+        echo implode(",", phasync::run(function () {
+            $log = [];
+            $a = phasync::go(function () use (&$log) { $end = microtime(true) + 0.05; while (microtime(true) < $end) {} $log[] = "A"; }, context: new stdClass());
+            $b = phasync::go(function () use (&$log) { phasync::sleep(0.002); $log[] = "B"; }, context: new stdClass());
+            phasync::await($a);
+            phasync::await($b);
+
+            return $log;
+        }));');
+    try {
+        $child = static fn (string $interval) => \shell_exec(\escapeshellarg(\PHP_BINARY) . ' ' . \escapeshellarg($file) . ' ' . \escapeshellarg($interval));
+        expect($child(''))->toBe('A,B');
+        expect($child('0.001'))->toBe('B,A');
+    } finally {
+        \unlink($file);
+        \unlink($base);
+    }
+});

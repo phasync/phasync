@@ -18,6 +18,11 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Added
 
+- `PHASYNC_PREEMPT_INTERVAL`: defined before the event loop starts, it replaces
+  `EventLoop::PREEMPT_INTERVAL` (20 ms) as the time a coroutine runs in a PHP loop before
+  phasync-ext preempts it, like `PHASYNC_GC_MIN_INTERVAL`/`PHASYNC_GC_MAX_INTERVAL` for the GC
+  intervals. Tests use a short one to make requests interleave.
+
 - `phasync::signal($signals, $timeout)`: a coroutine waits for a POSIX signal (or one of several)
   and gets the one that came. Any number of coroutines may wait for the same signal; each is
   woken, between coroutines, by the event loop (the handler only records the signal), so the

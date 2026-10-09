@@ -159,7 +159,7 @@ final class phasync
             // other requests (EventLoop::preempt())
             $preempting = $root && \function_exists('phasync\ext\set_preempt_function');
             if ($preempting) {
-                $previousPreempt = \phasync\ext\set_preempt_function($driver->preempt(...), EventLoop::PREEMPT_INTERVAL);
+                $previousPreempt = \phasync\ext\set_preempt_function($driver->preempt(...), $driver->preemptInterval);
             }
 
             if ($root && \function_exists('phasync\ext\manage')) {

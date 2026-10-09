@@ -314,6 +314,9 @@ final class EventLoop implements \Countable
     /** How long a coroutine runs in a PHP loop before it yields to other requests (phasync-ext). */
     public const PREEMPT_INTERVAL = 0.02;
 
+    /** PREEMPT_INTERVAL, or the PHASYNC_PREEMPT_INTERVAL constant when defined (read once, when the loop is built). */
+    public readonly float $preemptInterval;
+
     /**
      * How often tick() checks the busy-loop safety net: a loop that never idles makes garbage
      * while nothing ends (a server's connections), so this is the fallback for when idle-time
@@ -469,6 +472,7 @@ final class EventLoop implements \Countable
         $this->lastGarbageCollect = \microtime(true);
         $this->gcMinInterval      = \defined('PHASYNC_GC_MIN_INTERVAL') ? (float) PHASYNC_GC_MIN_INTERVAL : self::GC_MIN_INTERVAL;
         $this->gcMaxInterval      = \defined('PHASYNC_GC_MAX_INTERVAL') ? (float) PHASYNC_GC_MAX_INTERVAL : self::GC_MAX_INTERVAL;
+        $this->preemptInterval    = \defined('PHASYNC_PREEMPT_INTERVAL') ? (float) PHASYNC_PREEMPT_INTERVAL : self::PREEMPT_INTERVAL;
     }
 
     /**
@@ -770,7 +774,7 @@ final class EventLoop implements \Countable
 
     /**
      * phasync-ext's preempt function (set_preempt_function()): called between iterations of a
-     * PHP loop, about every PREEMPT_INTERVAL seconds. The running coroutine yields when it has
+     * PHP loop, about every $preemptInterval seconds. The running coroutine yields when it has
      * run a whole interval and isn't in phasync's or swerve's own code, so that timers, I/O and
      * other requests get their turn (whether any is ready is only known after the loop has
      * polled); its root context stays frozen until it resumes.
