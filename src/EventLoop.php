@@ -145,14 +145,10 @@ final class EventLoop implements \Countable
     private \WeakMap $held;
 
     /**
-     * The coroutine the loop is running (getCurrentFiber()), and whether phasync\ext\current_fiber()
-     * is the extension's: phasync::suspend() and park() tell a coroutine's own Fiber from one it runs
-     * itself with one internal call (frameless with the extension) and no method call.
+     * Whether phasync\ext\current_fiber() is the extension's (see wait()).
      *
      * @internal
      */
-    public static ?\Fiber $running = null;
-    /** @internal */
     public static bool $extFiber = false;
 
     /** How many roots are frozen: 0 keeps every check off the loop's path. */
@@ -385,7 +381,13 @@ final class EventLoop implements \Countable
     /** @var array<int, callable|int> each signal's handler before phasync took it, restored after run() */
     private array $signalPrevious = [];
 
-    private ?\Fiber $currentFiber             = null;
+    /**
+     * The coroutine the loop runs (getCurrentFiber()). Public for phasync::suspend(), which compares
+     * it with Fiber::getCurrent() without a method call; only the loop writes it.
+     *
+     * @internal
+     */
+    public ?\Fiber $currentFiber              = null;
     private ?object $currentContext           = null;
 
     /** The switch-aware context whose coroutine ran last: see SwitchAwareInterface. */
@@ -659,7 +661,6 @@ final class EventLoop implements \Countable
 
             try {
                 $this->currentFiber    = $fiber;
-                self::$running         = $fiber;
                 $this->currentContext  = $contexts[$fiber];
                 if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
                     $this->makeLive($this->currentContext);
@@ -702,7 +703,6 @@ final class EventLoop implements \Countable
             }
         }
         $this->currentFiber    = null;
-        self::$running         = null;
         $this->currentContext  = null;
 
         if ($now - $this->lastGarbageCheck > self::GC_CHECK_INTERVAL) {
@@ -779,7 +779,6 @@ final class EventLoop implements \Countable
         }
         try {
             $this->currentFiber    = $fiber;
-            self::$running         = $fiber;
             $this->currentContext  = $this->contexts[$fiber];
             if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
                 $this->makeLive($this->currentContext);
@@ -803,7 +802,6 @@ final class EventLoop implements \Countable
             $this->handleTerminatedFiber($fiber);
         }
         $this->currentFiber    = null;
-        self::$running         = null;
         $this->currentContext  = null;
     }
 
@@ -894,7 +892,6 @@ final class EventLoop implements \Countable
         // launching of coroutines as part of the event loop.
         try {
             $this->currentFiber    = $fiber;
-            self::$running         = $fiber;
             $this->currentContext  = $context;
             if ($context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
                 $this->switchAware = true;
@@ -909,7 +906,6 @@ final class EventLoop implements \Countable
             $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
         } finally {
             $this->currentFiber    = $currentFiber;
-            self::$running         = $currentFiber;
             $this->currentContext  = $currentContext;
             if ($this->switchAware && null !== $currentFiber && $currentContext instanceof SwitchAwareInterface && $currentContext !== $this->liveContext) {
                 $this->makeLive($currentContext); // the creating coroutine goes on
@@ -1160,8 +1156,9 @@ final class EventLoop implements \Countable
 
     /**
      * Wait in a Fiber the running coroutine runs itself (Drupal's renderer), after registering what
-     * the coroutine waits for; the callers check for that first and suspend the coroutine's own Fiber
-     * directly otherwise. Fiber::suspend() would return to the coroutine's own code, which does not
+     * the coroutine waits for; the callers suspend the coroutine's own Fiber directly when
+     * Fiber::getCurrent() is the coroutine, and come here otherwise (with phasync-ext, also from a
+     * virtualize() request's root coroutine, where Fiber::getCurrent() is null). Fiber::suspend() would return to the coroutine's own code, which does not
      * expect it: here the loop runs in place instead,
      * tick after tick, until it would resume the coroutine. Other coroutines run meanwhile, resumed
      * from that Fiber and suspending back to it; the Fiber stays where it is.
@@ -1176,7 +1173,12 @@ final class EventLoop implements \Countable
      */
     public function wait(): void
     {
-        $fiber             = $this->currentFiber;
+        $fiber = $this->currentFiber;
+        if (self::$extFiber && \phasync\ext\current_fiber() === $fiber) {
+            \Fiber::suspend(); // a virtualize() request's root coroutine, where Fiber::getCurrent() is null
+
+            return;
+        }
         $context           = $this->currentContext;
         $id                = \spl_object_id($fiber);
         $this->nested[$id] = null;
@@ -1189,7 +1191,6 @@ final class EventLoop implements \Countable
             --$this->nesting;
             unset($this->nested[$id]);
             $this->currentFiber    = $fiber;
-            self::$running         = $fiber;
             $this->currentContext  = $context;
             if ($this->switchAware && $context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
                 $this->makeLive($context);
@@ -1245,7 +1246,7 @@ final class EventLoop implements \Countable
             $this->addTimeout($fiber, $deadline);
         }
         try {
-            if ((self::$extFiber ? \phasync\ext\current_fiber() : \Fiber::getCurrent()) === $fiber) {
+            if (\Fiber::getCurrent() === $fiber) {
                 \Fiber::suspend();
             } else {
                 $this->wait();

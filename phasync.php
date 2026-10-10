@@ -2,10 +2,9 @@
 
 use phasync\AggregateException;
 use phasync\CancelledException;
-use phasync\ShutdownException;
-use phasync\Internal\Debug;
 use phasync\EventLoop;
 use phasync\Internal\Channel;
+use phasync\Internal\Debug;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\PromiseHandler;
 use phasync\Internal\ReadChannel;
@@ -14,6 +13,7 @@ use phasync\Internal\WriteChannel;
 use phasync\IOException;
 use phasync\ReadChannelInterface;
 use phasync\SelectableInterface;
+use phasync\ShutdownException;
 use phasync\SubscribersInterface;
 use phasync\TimeoutException;
 use phasync\WriteChannelInterface;
@@ -98,11 +98,11 @@ final class phasync
      * @param array       $args    passed to `$fn`
      * @param object|null $context the context of the run; used once
      *
-     * @return mixed what `$fn` returned
+     * @throws Throwable            what `$fn` threw, or the failure of a coroutine nobody awaited
+     * @throws AggregateException   when several coroutines failed
+     * @throws ContextUsedException if `$context` was used before
      *
-     * @throws \Throwable                what `$fn` threw, or the failure of a coroutine nobody awaited
-     * @throws AggregateException        when several coroutines failed
-     * @throws ContextUsedException      if `$context` was used before
+     * @return mixed what `$fn` returned
      *
      * @see phasync::go           starts a coroutine without waiting for it
      * @see phasync::withContext  the same, without starting a coroutine
@@ -114,7 +114,7 @@ final class phasync
         $driver = self::getDriver();
         $root   = !$driver->isRunning();
         // Any object: the coroutines of this run belong to it
-        $context ??= new \stdClass();
+        $context ??= new stdClass();
         $driver->beginRun($context, $root);
         try {
             if ($root) {
@@ -245,8 +245,8 @@ final class phasync
      * @param array       $args    passed to `$fn`
      * @param object|null $context a context of its own
      *
-     * @throws \LogicException       outside a coroutine
-     * @throws ContextUsedException  if `$context` was used before
+     * @throws LogicException       outside a coroutine
+     * @throws ContextUsedException if `$context` was used before
      *
      * @return Fiber the coroutine, for `await()`, `cancel()` and `throw()`
      *
@@ -258,7 +258,7 @@ final class phasync
     public static function go(Closure $fn, array $args = [], ?object $context = null): Fiber
     {
         $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
+        $fiber  = $driver->getCurrentFiber();
         if (!$fiber) {
             throw ExceptionTool::popTrace(new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context."));
         }
@@ -282,7 +282,7 @@ final class phasync
      * // run() returns after "service ends"
      * ```
      *
-     * @throws \LogicException outside a coroutine
+     * @throws LogicException outside a coroutine
      *
      * @see phasync::go
      * @see phasync::run
@@ -290,7 +290,7 @@ final class phasync
     public static function service(Closure $coroutine): void
     {
         $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
+        $fiber  = $driver->getCurrentFiber();
         if (null === $fiber || null === $driver->getContext($fiber)) {
             throw new LogicException('Services must be started on-demand inside a coroutine.');
         }
@@ -320,21 +320,21 @@ final class phasync
      * @param object $fiberOrPromise a coroutine from `go()` or `run()`, a SelectableInterface, or a promise-like object
      * @param float  $timeout        seconds to wait at most
      *
-     * @return mixed the coroutine's return value; for a SelectableInterface, the object
+     * @throws TimeoutException         if a coroutine or promise does not end within `$timeout`
+     * @throws InvalidArgumentException for an object that is none of the above
+     * @throws LogicException           for a Fiber that phasync did not start
+     * @throws Throwable                what the coroutine threw
      *
-     * @throws TimeoutException        if a coroutine or promise does not end within `$timeout`
-     * @throws \InvalidArgumentException for an object that is none of the above
-     * @throws \LogicException         for a Fiber that phasync did not start
-     * @throws \Throwable              what the coroutine threw
+     * @return mixed the coroutine's return value; for a SelectableInterface, the object
      *
      * @see phasync::go
      * @see phasync::cancel
      * @see phasync::awaitContext
      */
-    public static function await(object $fiberOrPromise, float $timeout = PHP_FLOAT_MAX): mixed
+    public static function await(object $fiberOrPromise, float $timeout = \PHP_FLOAT_MAX): mixed
     {
-        $startTime = \microtime(true);
-        $driver = self::getDriver();
+        $startTime    = \microtime(true);
+        $driver       = self::getDriver();
         $currentFiber = $driver->getCurrentFiber();
 
         if ($fiberOrPromise instanceof SelectableInterface) {
@@ -392,7 +392,7 @@ final class phasync
         if ($currentFiber) {
             // We are in a Fiber
             while (!$fiber->isTerminated()) {
-                $elapsed = \microtime(true) - $startTime;
+                $elapsed   = \microtime(true) - $startTime;
                 $remaining = $timeout - $elapsed;
                 if ($remaining < 0) {
                     throw new TimeoutException('The coroutine did not complete in time');
@@ -405,7 +405,7 @@ final class phasync
              * @todo Move this to the phasync::run() method.
              */
             while (!$fiber->isTerminated()) {
-                $elapsed = \microtime(true) - $startTime;
+                $elapsed   = \microtime(true) - $startTime;
                 $remaining = $timeout - $elapsed;
                 if ($remaining < 0) {
                     throw new TimeoutException('The coroutine (' . Debug::getDebugInfo($fiber) . ') did not complete in time');
@@ -424,10 +424,10 @@ final class phasync
      * Registers `$fn` to run when the current coroutine ends, or when the `withContext()` call it is in returns.
      *
      * The callbacks run last registered first, and each runs even when another threw. They are for releasing what a coroutine acquired, where a `try {} finally {}` does not fit. Their waits are not cancelled, so cleanup that does I/O completes even when the coroutine was cancelled.
- *
- * Which callbacks run when depends on where `finally()` is called. Inside a `withContext()` call, they run as it returns, in the calling coroutine and still in the context, also when the closure threw, and before `withContext()` waits for the coroutines the closure started. Otherwise they run when the coroutine ends, in a coroutine of their own.
- *
- * ```php
+     *
+     * Which callbacks run when depends on where `finally()` is called. Inside a `withContext()` call, they run as it returns, in the calling coroutine and still in the context, also when the closure threw, and before `withContext()` waits for the coroutines the closure started. Otherwise they run when the coroutine ends, in a coroutine of their own.
+     *
+     * ```php
      * phasync::run(function () {
      *     phasync::go(function () {
      *         phasync::finally(fn () => print("registered first\n"));
@@ -437,7 +437,7 @@ final class phasync
      * });
      * ```
      *
-     * @throws \LogicException outside a coroutine
+     * @throws LogicException outside a coroutine
      *
      * @see phasync::withContext
      * @see phasync::cancel
@@ -476,13 +476,13 @@ final class phasync
      * });
      * ```
      *
-     * @param object            $fiber    a coroutine, or a context
-     * @param string|Stringable|CancelledException $message the message of the CancelledException, or the CancelledException itself (such as a ShutdownException); another Throwable is refused, see {@see phasync::throw()}
-     * @param int               $code     the code of the CancelledException
-     * @param \Throwable|null   $previous what caused the cancellation, such as the failure that tears a context down
+     * @param object                               $fiber    a coroutine, or a context
+     * @param string|Stringable|CancelledException $message  the message of the CancelledException, or the CancelledException itself (such as a ShutdownException); another Throwable is refused, see {@see phasync::throw()}
+     * @param int                                  $code     the code of the CancelledException
+     * @param Throwable|null                       $previous what caused the cancellation, such as the failure that tears a context down
      *
      * @throws InvalidArgumentException if the coroutine has ended, or the message is a Throwable
- * @throws \LogicException          if the coroutine was not started by phasync
+     * @throws LogicException           if the coroutine was not started by phasync
      *
      * @see phasync::throw      interrupts one wait
      * @see phasync::go
@@ -530,7 +530,7 @@ final class phasync
      * ```
      *
      * @throws InvalidArgumentException if the coroutine has ended
-     * @throws \LogicException          if the coroutine is not waiting
+     * @throws LogicException           if the coroutine is not waiting
      *
      * @see phasync::cancel  a sticky cancellation
      */
@@ -564,7 +564,7 @@ final class phasync
     public static function sleep(float $seconds = 0): void
     {
         $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
+        $fiber  = $driver->getCurrentFiber();
         if ($seconds <= 0) {
             if (null === $fiber) {
                 return;
@@ -598,7 +598,7 @@ final class phasync
     public static function yield(): void
     {
         $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
+        $fiber  = $driver->getCurrentFiber();
         if (null === $fiber) {
             return;
         }
@@ -634,7 +634,7 @@ final class phasync
     public static function idle(float $after = 0.0): void
     {
         $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
+        $fiber  = $driver->getCurrentFiber();
         if (null === $fiber) {
             return;
         }
@@ -662,11 +662,11 @@ final class phasync
      * @param resource $resource a stream
      * @param float    $timeout  seconds to wait at most
      *
-     * @return resource `$resource`, for use in the call that reads it
-     *
      * @throws IOException      if `$resource` is not an open stream, or is closed while waiting
-     * @throws \LogicException  if another coroutine is waiting to read `$resource`
+     * @throws LogicException   if another coroutine is waiting to read `$resource`
      * @throws TimeoutException if the stream is not readable in time
+     *
+     * @return resource `$resource`, for use in the call that reads it
      *
      * @see phasync::writable
      */
@@ -690,11 +690,11 @@ final class phasync
      * @param resource $resource a stream
      * @param float    $timeout  seconds to wait at most
      *
-     * @return resource `$resource`, for use in the call that writes it
-     *
      * @throws IOException      if `$resource` is not an open stream, or is closed while waiting
-     * @throws \LogicException  if another coroutine is waiting to write to `$resource`
+     * @throws LogicException   if another coroutine is waiting to write to `$resource`
      * @throws TimeoutException if the stream is not writable in time
+     *
+     * @return resource `$resource`, for use in the call that writes it
      *
      * @see phasync::readable
      */
@@ -775,8 +775,8 @@ final class phasync
     public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize = 0): void
     {
         $channel = new Channel($bufferSize);
-        $read = new ReadChannel($channel);
-        $write = new WriteChannel($channel);
+        $read    = new ReadChannel($channel);
+        $write   = new WriteChannel($channel);
     }
 
     /**
@@ -831,8 +831,6 @@ final class phasync
      * });
      * ```
      *
-     * @param object $signal the object the waiters wait for
-     *
      * @return int the number of coroutines woken
      *
      * @see phasync::awaitFlag
@@ -860,10 +858,10 @@ final class phasync
      * @param int|list<int> $signals the signal, or signals, to wait for
      * @param float         $timeout seconds to wait at most
      *
-     * @return int the signal that arrived
-     *
      * @throws TimeoutException if none arrives in time
-     * @throws \LogicException  outside a coroutine
+     * @throws LogicException   outside a coroutine
+     *
+     * @return int the signal that arrived
      */
     public static function signal(int|array $signals, float $timeout = \PHP_FLOAT_MAX): int
     {
@@ -901,9 +899,9 @@ final class phasync
      * });
      * ```
      *
-     * @param \Closure(int):void $handler called with the signal number
+     * @param Closure(int):void $handler called with the signal number
      */
-    public static function onSignal(int $signo, \Closure $handler): void
+    public static function onSignal(int $signo, Closure $handler): void
     {
         self::getDriver()->onSignal($signo, $handler);
     }
@@ -927,9 +925,9 @@ final class phasync
      * @param float                  $window    seconds to wait at most for them to end
      * @param ShutdownException|null $exception what they get; a plain ShutdownException by default
      *
-     * @return int the coroutines still running after the window
+     * @throws LogicException outside a coroutine
      *
-     * @throws \LogicException outside a coroutine
+     * @return int the coroutines still running after the window
      */
     public static function shutdown(float $window = 1.0, ?ShutdownException $exception = null): int
     {
@@ -963,11 +961,11 @@ final class phasync
      *
      * @template T
      *
-     * @param \Closure():T $fn
+     * @param Closure():T $fn
+     *
+     * @throws LogicException outside a coroutine
      *
      * @return T what `$fn` returns
-     *
-     * @throws \LogicException outside a coroutine
      */
     public static function shielded(Closure $fn): mixed
     {
@@ -1006,16 +1004,16 @@ final class phasync
      * @param object $signal  the object a raiser will pass to `raiseFlag()`
      * @param float  $timeout seconds to wait at most
      *
-     * @throws TimeoutException  if the flag is not raised in time
+     * @throws TimeoutException   if the flag is not raised in time
      * @throws CancelledException if the flag was released while waiting
-     * @throws \LogicException   outside a coroutine
+     * @throws LogicException     outside a coroutine
      *
      * @see phasync::raiseFlag
      */
-    public static function awaitFlag(object $signal, float $timeout = PHP_FLOAT_MAX): void
+    public static function awaitFlag(object $signal, float $timeout = \PHP_FLOAT_MAX): void
     {
         $driver = self::getDriver();
-        $fiber = $driver->getCurrentFiber();
+        $fiber  = $driver->getCurrentFiber();
         if (null === $fiber) {
             throw ExceptionTool::popTrace(new LogicException('Can only await flags from within a coroutine'));
         }
@@ -1045,13 +1043,13 @@ final class phasync
      * @param object $context a context given to `run()`, `go()` or `withContext()`
      * @param float  $timeout seconds to wait at most
      *
-     * @throws \LogicException  outside a coroutine
+     * @throws LogicException   outside a coroutine
      * @throws TimeoutException if coroutines of the context still run after `$timeout` seconds
      *
      * @see phasync::cancel  given a context, cancels its coroutines
      * @see phasync::withContext
      */
-    public static function awaitContext(object $context, float $timeout = PHP_FLOAT_MAX): void
+    public static function awaitContext(object $context, float $timeout = \PHP_FLOAT_MAX): void
     {
         self::getDriver()->awaitContext($context, $timeout);
     }
@@ -1093,10 +1091,10 @@ final class phasync
      * @param Closure $fn      what to run
      * @param object  $context a context, or a ContextFactoryInterface; used once
      *
-     * @return mixed what `$fn` returned
-     *
-     * @throws \LogicException       outside a coroutine
+     * @throws LogicException       outside a coroutine
      * @throws ContextUsedException if `$context` was used before
+     *
+     * @return mixed what `$fn` returned
      *
      * @see phasync::run
      * @see phasync::finally
@@ -1132,7 +1130,6 @@ final class phasync
      *     echo $shared['count'];   // 1
      * });
      * ```
-     *
      */
     public static function adoptContextState(array &$state): void
     {
@@ -1144,7 +1141,7 @@ final class phasync
      *
      * Application code does not need it: the other methods of this class are the API of the loop.
      *
-     * @throws \LogicException outside `phasync::run()`
+     * @throws LogicException outside `phasync::run()`
      */
     public static function getLoop(): EventLoop
     {
@@ -1165,7 +1162,7 @@ final class phasync
      * });
      * ```
      *
-     * @throws \LogicException outside a coroutine
+     * @throws LogicException outside a coroutine
      *
      * @see phasync::go
      */
@@ -1190,7 +1187,7 @@ final class phasync
      * });
      * ```
      *
-     * @throws \LogicException outside a coroutine
+     * @throws LogicException outside a coroutine
      *
      * @see phasync::getContext
      */
@@ -1211,7 +1208,7 @@ final class phasync
      * }, [], new stdClass());
      * ```
      *
-     * @throws \LogicException outside a coroutine
+     * @throws LogicException outside a coroutine
      *
      * @see phasync::getRootContext
      * @see phasync::withContext
@@ -1241,7 +1238,7 @@ final class phasync
             self::$driver->checkCancelled(\phasync\ext\current_fiber());
         }
         try {
-            if ((EventLoop::$extFiber ? \phasync\ext\current_fiber() : Fiber::getCurrent()) === EventLoop::$running) {
+            if (Fiber::getCurrent() === self::$driver->currentFiber) {
                 Fiber::suspend();
             } else {
                 self::$driver->wait(); // in a Fiber the coroutine runs itself
