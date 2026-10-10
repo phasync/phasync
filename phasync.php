@@ -1241,7 +1241,11 @@ final class phasync
             self::$driver->checkCancelled(\phasync\ext\current_fiber());
         }
         try {
-            self::$driver->wait();
+            if ((EventLoop::$extFiber ? \phasync\ext\current_fiber() : Fiber::getCurrent()) === EventLoop::$running) {
+                Fiber::suspend();
+            } else {
+                self::$driver->wait(); // in a Fiber the coroutine runs itself
+            }
         } catch (Throwable $e) {
             try {
                 $className = \get_class($e);
