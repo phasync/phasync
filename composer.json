@@ -27,6 +27,7 @@
         "phasync/phasync-ext": "*"
     },
     "minimum-stability": "stable",
+    "bin": ["bin/phasync"],
     "autoload": {
         "psr-4": {
             "phasync\\": "src/"

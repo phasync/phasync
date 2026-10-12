@@ -153,12 +153,17 @@ the extension in one of these ways:
 - In `composer.json` of your project: `"extra": {"phasync": {"ext": true}}`. phasync does not
   act on it by itself; tools such as Swerve read it with `phasync\ext_enabled()` and load the
   extension.
+- From the command line: `vendor/bin/phasync script.php` instead of `php script.php`. It takes the
+  same arguments as `php`, and PHP processes the script starts load the extension too.
 - In a CLI script, as the first line: `phasync\try_enable_ext();` loads the bundled binary,
   restarting the process once.
 - Under PHP-FPM, `extension=<path to ext/phasync-<php>-nts-<arch>-<libc>.so>` in `php.ini`.
 
-Without a licence file, at most 4 blocking calls overlap per worker; the next one blocks as in
-stock PHP, and a warning is printed once. A signed licence file lifts the limit. It is read from
+Without a licence file, the extension's free tier limits how often waits it took over from
+blocking calls resume: 100 a second, shared by every phasync process of a user on a machine, after
+an unthrottled first 10 minutes. Over the limit a waiting coroutine stays parked a little longer;
+nothing blocks or fails. phasync's own waits are never counted. A signed licence file lifts the
+limit. It is read from
 the ini setting `phasync.license`, the environment variable `PHASYNC_LICENSE_FILE`, or
 `./phasync.license`, and `phasync\ext\license()` shows what is in effect.
 
