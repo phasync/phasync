@@ -91,13 +91,13 @@ function _needs_php83(): string
     return 'The phasync extension needs PHP 8.3 or later; this is PHP ' . \PHP_VERSION . '. phasync itself runs on this PHP without it.';
 }
 
-/** ABI key for this PHP build, e.g. "8.5-nts-x86_64-glibc". @internal */
+/** ABI key for this PHP build, e.g. "8.5-nts-x86_64-glibc" or "8.5-nts-arm64-darwin". @internal */
 function _abi_key(): string
 {
     return \PHP_MAJOR_VERSION . '.' . \PHP_MINOR_VERSION
         . '-' . (\PHP_ZTS ? 'zts' : 'nts')
         . '-' . \php_uname('m')
-        . '-' . (\glob('/lib/ld-musl-*.so.1') ? 'musl' : 'glibc');
+        . '-' . ('Darwin' === \PHP_OS_FAMILY ? 'darwin' : (\glob('/lib/ld-musl-*.so.1') ? 'musl' : 'glibc'));
 }
 
 /** Resolve the .so to load: env override, then the per-ABI file in ext/. @internal */

@@ -7,6 +7,7 @@ Earlier releases are listed on the GitHub releases page.
 ### Changed
 
 - The phasync extension needs PHP 8.3 to 8.5. On PHP 8.2 `phasync\ext\ensure_loaded()` and `vendor/bin/phasync` say so; phasync itself still runs on PHP 8.2 without it.
+- The extension loader finds macOS binaries: `ext/phasync-<php>-nts-<arm64|x86_64>-darwin.so`.
 - A wait in a Fiber a coroutine runs itself (Drupal's renderer) runs the event loop in place
   until it is over: other coroutines run meanwhile, and the Fiber is never suspended back to the
   code that runs it. Before, such a wait suspended that Fiber while the loop held the coroutine

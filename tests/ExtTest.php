@@ -88,8 +88,8 @@ test('ext_enabled is false for this repository, which does not opt in', function
     expect(\phasync\ext_enabled())->toBeFalse();
 });
 
-test('_abi_key has the form <major.minor>-<nts|zts>-<arch>-<glibc|musl>', function () {
-    expect(\phasync\ext\_abi_key())->toMatch('/^\d+\.\d+-(nts|zts)-[\w]+-(glibc|musl)$/');
+test('_abi_key has the form <major.minor>-<nts|zts>-<arch>-<glibc|musl|darwin>', function () {
+    expect(\phasync\ext\_abi_key())->toMatch('/^\d+\.\d+-(nts|zts)-[\w]+-(glibc|musl|darwin)$/');
 });
 
 test('_resolve_so prefers PHASYNC_EXT_SO, then ext/phasync-<abi>.so, else null', function () {
