@@ -146,7 +146,7 @@ and child processes, `sleep()`, DNS lookups, files and filesystem calls, and mor
 their own network code, such as PostgreSQL's libpq and phpredis, still block.
 
 There is nothing extra to install: release packages of `phasync/phasync` carry the prebuilt
-binaries under `ext/` (PHP 8.2 to 8.5 on Linux, x86-64 and ARM64, glibc and musl). They are closed
+binaries under `ext/` (PHP 8.3 to 8.5 on Linux, x86-64 and ARM64, glibc and musl). They are closed
 source, free to use and redistribute under the licence in `ext/LICENSE`, and optional. Enable
 the extension in one of these ways:
 

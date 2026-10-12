@@ -16,6 +16,11 @@ if (\extension_loaded('phasync')) {
     exit(1);
 }
 
+if (\PHP_VERSION_ID < 80300) {
+    \fwrite(\STDERR, 'phasync: ' . phasync\ext\_needs_php83() . " Run php directly.\n");
+    exit(1);
+}
+
 $so = phasync\ext\_resolve_so();
 if (null === $so) {
     \fwrite(\STDERR, 'phasync: no phasync binary for this platform (' . phasync\ext\_abi_key() . ").\n"

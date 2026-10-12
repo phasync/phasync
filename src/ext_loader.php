@@ -44,6 +44,9 @@ function ensure_loaded(?string $soPath = null): void
     if (\extension_loaded('phasync')) {
         return;   // already active (extension= / a prior re-exec)
     }
+    if (\PHP_VERSION_ID < 80300) {
+        throw new \RuntimeException(_needs_php83());
+    }
 
     // Loop guard: if we already re-execed and the extension still is not
     // here, the .so is missing or ABI-mismatched — do not re-exec again.
@@ -80,6 +83,12 @@ function ensure_loaded(?string $soPath = null): void
     }
 
     throw new \RuntimeException('phasync\\ext\\ensure_loaded(): cannot re-exec to load the extension (neither pcntl_exec() nor FFI execv() is available). Run with "php -d extension=' . $so . ' …" instead.');
+}
+
+/** Why there is no extension on this PHP. @internal */
+function _needs_php83(): string
+{
+    return 'The phasync extension needs PHP 8.3 or later; this is PHP ' . \PHP_VERSION . '. phasync itself runs on this PHP without it.';
 }
 
 /** ABI key for this PHP build, e.g. "8.5-nts-x86_64-glibc". @internal */

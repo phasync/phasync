@@ -72,6 +72,9 @@ function try_enable_ext(): bool
     if (\extension_loaded('phasync')) {
         return true; // already active -- however it got there (php.ini, -d, a prior call)
     }
+    if (\PHP_VERSION_ID < 80300) {
+        return false; // the extension needs PHP 8.3+: none on this PHP, wherever it runs
+    }
     try {
         \phasync\ext\ensure_loaded(); // may re-exec the process (CLI) and never return
 
