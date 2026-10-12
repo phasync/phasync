@@ -32,6 +32,8 @@ use phasync\SelectableInterface;
  * @see phasync\SelectableInterface
  *
  * @topic coordination-and-limits
+ *
+ * @example examples/WaitGroup/1-wait-for-downloads.php Wait for downloads that finish in any order
  */
 final class WaitGroup implements SelectableInterface
 {
