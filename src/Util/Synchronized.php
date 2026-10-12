@@ -25,6 +25,8 @@ namespace phasync\Util;
  * @see phasync\Util\Pool
  *
  * @topic coordination-and-limits
+ *
+ * @example examples/Synchronized/1-one-at-a-time.php One job at a time per token
  */
 final class Synchronized
 {
@@ -44,6 +46,8 @@ final class Synchronized
      * @throws \Throwable      what `$closure` threw
      *
      * @return mixed what `$closure` returned
+     *
+     * @example examples/Synchronized.run/1-tokens-and-reentry.php Tokens, the result, and asking twice
      */
     public static function run(object|string $token, \Closure $closure): mixed
     {

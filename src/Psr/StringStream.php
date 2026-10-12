@@ -19,6 +19,8 @@ use Psr\Http\Message\StreamInterface;
  * @see BufferedStream
  *
  * @topic streams-and-files
+ *
+ * @example examples/StringStream/1-a-complete-body.php Read, seek and convert
  */
 class StringStream implements StreamInterface
 {

@@ -21,6 +21,8 @@ namespace phasync\Util;
  * @see phasync\Util\ProcessRunner
  *
  * @topic processes
+ *
+ * @example examples/Process/1-run-a-command.php Run a command and read its output
  */
 final class Process
 {
@@ -39,6 +41,8 @@ final class Process
      * @return ProcessInterface the running process
      *
      * @see ProcessInterface::stop
+     *
+     * @example examples/Process.run/1-several-at-once.php Several processes side by side
      */
     public static function run(string $command, array $arguments=[], ?string $cwd=null, ?array $env=null): ProcessInterface
     {

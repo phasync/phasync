@@ -27,6 +27,8 @@ use phasync\SelectableInterface;
  * @see phasync::sleep
  *
  * @topic coordination-and-limits
+ *
+ * @example examples/RateLimiter/1-twenty-per-second.php Twenty per second
  */
 final class RateLimiter implements SelectableInterface
 {
@@ -40,6 +42,8 @@ final class RateLimiter implements SelectableInterface
      *
      * @throws \InvalidArgumentException if `$eventsPerSecond` is not above 0
      * @throws \LogicException           outside a coroutine
+     *
+     * @example examples/RateLimiter.__construct/1-burst.php Permits saved up while idle pass at once
      */
     public function __construct(float $eventsPerSecond, int $burst = 0)
     {

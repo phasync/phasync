@@ -22,6 +22,8 @@ namespace phasync\Util;
  * @see phasync\Util\LockInterface
  *
  * @topic channels-and-messaging
+ *
+ * @example examples/Queue/1-share-a-queue.php Two workers share a queue
  */
 class Queue implements QueueInterface
 {
@@ -67,6 +69,8 @@ class Queue implements QueueInterface
      * @return bool false if the queue was empty
      *
      * @see Queue::tryPeek
+     *
+     * @example examples/Queue.tryDequeue/1-drain.php Drain the queue
      */
     public function tryDequeue(mixed &$value): bool
     {
@@ -90,6 +94,8 @@ class Queue implements QueueInterface
      * @return bool false if the queue was empty
      *
      * @see Queue::tryDequeue
+     *
+     * @example examples/Queue.tryPeek/1-look-without-taking.php Look at the next value without taking it
      */
     public function tryPeek(mixed &$value): bool
     {

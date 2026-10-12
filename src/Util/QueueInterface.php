@@ -18,6 +18,8 @@ namespace phasync\Util;
  * @see phasync\Util\Queue
  *
  * @topic channels-and-messaging
+ *
+ * @example examples/QueueInterface/1-depend-on-the-interface.php Code that takes any queue
  */
 interface QueueInterface extends \Countable, LockInterface
 {

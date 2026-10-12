@@ -28,6 +28,8 @@ use phasync\TimeoutException;
  * @see phasync\Util\Synchronized
  *
  * @topic coordination-and-limits
+ *
+ * @example examples/LockInterface/1-a-lockable-account.php A class that can be locked
  */
 interface LockInterface
 {
@@ -43,6 +45,8 @@ interface LockInterface
      * @throws \Throwable       what `$callable` threw
      *
      * @return mixed what `$callable` returned
+     *
+     * @example examples/LockInterface.lock/1-timeout.php Give up waiting for the lock
      */
     public function lock(\Closure $callable, ?float $timeout=null): mixed;
 }

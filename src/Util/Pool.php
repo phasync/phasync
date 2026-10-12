@@ -38,6 +38,8 @@ use phasync\TimeoutException;
  * @see phasync\Util\RateLimiter
  *
  * @topic resource-management
+ *
+ * @example examples/Pool/1-three-connections-for-ten-jobs.php Ten jobs share three connections
  */
 final class Pool implements \Countable
 {
@@ -71,6 +73,8 @@ final class Pool implements \Countable
      * @param \Closure(T): void|null $dispose called with each instance the pool lets go of, to close or flush it
      *
      * @throws \InvalidArgumentException if `$size` is below 1, or `$window` is not above 0
+     *
+     * @example examples/Pool.__construct/1-shrink-after-a-burst.php Shrink after a burst
      */
     public function __construct(
         private readonly \Closure $create,
@@ -100,6 +104,8 @@ final class Pool implements \Countable
      *
      * @see Pool::use
      * @see Pool::release
+     *
+     * @example examples/Pool.borrow/1-by-hand-with-a-timeout.php Borrow and release by hand, with a timeout
      */
     public function borrow(float $timeout = \PHP_FLOAT_MAX): object
     {
@@ -185,6 +191,8 @@ final class Pool implements \Countable
      * @throws \LogicException if the pool did not lend it
      *
      * @see Pool::release
+     *
+     * @example examples/Pool.discard/1-replace-a-broken-connection.php Replace a broken connection
      */
     public function discard(object $instance): void
     {
@@ -211,6 +219,8 @@ final class Pool implements \Countable
      * @return R what `$fn` returned
      *
      * @see Pool::borrow
+     *
+     * @example examples/Pool.use/1-released-also-on-failure.php The instance is released when the closure throws
      */
     public function use(\Closure $fn, float $timeout = \PHP_FLOAT_MAX): mixed
     {

@@ -26,6 +26,8 @@ use Psr\Http\Message\UriInterface;
  * @see UploadedFile
  *
  * @topic http-client
+ *
+ * @example examples/ServerRequest/1-what-the-server-received.php What a server received
  */
 class ServerRequest extends Request implements ServerRequestInterface
 {
@@ -55,6 +57,8 @@ class ServerRequest extends Request implements ServerRequestInterface
      * @param string                           $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
      *
      * @throws \InvalidArgumentException when `$uploadedFiles` is not a tree of `UploadedFileInterface`
+     *
+     * @example examples/ServerRequest.__construct/1-parse-on-demand.php Parse the body when the application asks
      */
     public function __construct(
         string $method,
@@ -192,7 +196,11 @@ class ServerRequest extends Request implements ServerRequestInterface
         return $c;
     }
 
-    /** The cookies of a Cookie header, as PHP fills $_COOKIE: the first of equal names wins, values are URL-decoded. */
+    /**
+     * The cookies of a Cookie header, as PHP fills $_COOKIE: the first of equal names wins, values are URL-decoded.
+     *
+     * @example examples/ServerRequest.cookies/1-parse-a-cookie-header.php Parse a Cookie header
+     */
     public static function cookies(string $header): array
     {
         $cookies = [];
@@ -226,6 +234,11 @@ class ServerRequest extends Request implements ServerRequestInterface
         return $this->attributes[$name] ?? $default;
     }
 
+    /**
+     * Returns a copy with the attribute `$name` set to `$value`, for what middleware derived from the request.
+     *
+     * @example examples/ServerRequest.withAttribute/1-middleware-attributes.php Attributes from a router
+     */
     public function withAttribute($name, $value): ServerRequestInterface
     {
         $c                    = clone $this;

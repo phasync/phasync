@@ -26,6 +26,8 @@ namespace phasync\Util;
  * wide characters and emoji take 2, combining marks and zero-width characters 0.
  *
  * @topic console-and-logging
+ *
+ * @example examples/Console/1-styled-and-plain.php Options and a file list, laid out
  */
 final class Console
 {
@@ -75,6 +77,8 @@ final class Console
      * @throws \InvalidArgumentException for a `pad`, `lpad`, `rpad` or `center` without a width
      *
      * @see Console::log
+     *
+     * @example examples/Console.write/1-nested-spans.php Nested spans, centering and clipping
      */
     public function write(string $markup): void
     {
@@ -97,6 +101,8 @@ final class Console
      * @param string              $level   a PSR-3 level: debug, info, notice, warning, error,
      *                                     critical, alert or emergency
      * @param array<string,mixed> $context
+     *
+     * @example examples/Console.log/1-log-lines.php Log lines with placeholders
      */
     public function log(string $level, string|\Stringable $message, array $context = [], string $source = ''): void
     {
@@ -137,7 +143,11 @@ final class Console
         return \preg_match('/[\x00-\x08\x0B-\x1F\x7F]/', $text) ? \addcslashes($text, "\0..\x08\x0B..\x1F\x7F") : $text;
     }
 
-    /** $markup as this console writes it: styled, or plain. */
+    /**
+     * $markup as this console writes it: styled, or plain.
+     *
+     * @example examples/Console.render/1-styled-escape-codes.php Styled and plain rendering
+     */
     public function render(string $markup): string
     {
         $markup = self::layout($markup);
@@ -153,7 +163,11 @@ final class Console
         return $this->color;
     }
 
-    /** The terminal's width in columns: $COLUMNS, else 80. */
+    /**
+     * The terminal's width in columns: $COLUMNS, else 80.
+     *
+     * @example examples/Console.columns/1-from-the-environment.php The width from COLUMNS
+     */
     public static function columns(): int
     {
         $columns = (int) \getenv('COLUMNS');
@@ -161,7 +175,11 @@ final class Console
         return $columns > 0 ? $columns : 80;
     }
 
-    /** $markup as plain text, laid out. */
+    /**
+     * $markup as plain text, laid out.
+     *
+     * @example examples/Console.strip/1-plain-text.php Markup as plain text
+     */
     public static function strip(string $markup): string
     {
         return self::plain(self::layout($markup));
@@ -252,13 +270,21 @@ final class Console
         return $out;
     }
 
-    /** $text made safe to embed in markup: shown as it is. */
+    /**
+     * $text made safe to embed in markup: shown as it is.
+     *
+     * @example examples/Console.escape/1-untrusted-text.php Text from elsewhere
+     */
     public static function escape(string $text): string
     {
         return \str_replace('<!', '<!!', $text);
     }
 
-    /** The columns $markup takes on a terminal. */
+    /**
+     * The columns $markup takes on a terminal.
+     *
+     * @example examples/Console.width/1-terminal-columns.php Columns versus bytes
+     */
     public static function width(string $markup): int
     {
         $text = self::strip($markup);
@@ -278,6 +304,8 @@ final class Console
      *
      * `$align` is `STR_PAD_RIGHT` (the default, left-aligned), `STR_PAD_LEFT` (right-aligned) or
      * `STR_PAD_BOTH` (centered). Wider markup is returned as it is.
+     *
+     * @example examples/Console.pad/1-align-columns.php Align columns with wide characters
      */
     public static function pad(string $markup, int $width, int $align = \STR_PAD_RIGHT, string $pad = ' '): string
     {
@@ -296,6 +324,8 @@ final class Console
     /**
      * $markup cut to at most $width columns, ending with $ellipsis when anything was cut; the
      * styles still open are closed.
+     *
+     * @example examples/Console.cut/1-truncate.php Cut to a width
      */
     public static function cut(string $markup, int $width, string $ellipsis = ''): string
     {

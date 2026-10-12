@@ -22,6 +22,8 @@ namespace phasync\Util;
  * @see phasync\Util\Event::trigger
  *
  * @topic coordination-and-limits
+ *
+ * @example examples/Event/1-listeners-in-order.php Listeners run in order, once() listeners last
  */
 final class Event
 {
@@ -40,6 +42,8 @@ final class Event
      *
      * @see Event::listen
      * @see Event::once
+     *
+     * @example examples/Event.trigger/1-a-listener-throws.php A listener that throws stops the trigger
      */
     public function trigger(mixed ...$args): void
     {
@@ -69,6 +73,8 @@ final class Event
      *
      * @see Event::listen
      * @see Event::off
+     *
+     * @example examples/Event.once/1-first-trigger-only.php A listener for the first trigger only
      */
     public function once(\Closure ...$listeners): void
     {
@@ -81,6 +87,8 @@ final class Event
      * @param \Closure ...$listeners the same closure objects that were added
      *
      * @see Event::listen
+     *
+     * @example examples/Event.off/1-remove-a-listener.php Remove a listener
      */
     public function off(\Closure ...$listeners): void
     {

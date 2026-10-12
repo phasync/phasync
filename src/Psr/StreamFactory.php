@@ -19,6 +19,8 @@ use Psr\Http\Message\StreamInterface;
  * @see Request
  *
  * @topic streams-and-files
+ *
+ * @example examples/StreamFactory/1-bodies-from-anything.php Response bodies from different values
  */
 final class StreamFactory
 {
@@ -36,6 +38,8 @@ final class StreamFactory
      *
      * @see StringStream
      * @see UnbufferedStream
+     *
+     * @example examples/StreamFactory.create/1-each-kind-of-source.php A stream from each kind of source
      */
     public static function create(mixed $source): StreamInterface
     {

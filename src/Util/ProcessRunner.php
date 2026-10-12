@@ -23,6 +23,8 @@ namespace phasync\Util;
  * @see phasync\Util\ProcessInterface
  *
  * @topic processes
+ *
+ * @example examples/ProcessRunner/1-signal-shortcuts.php The signal shortcuts
  */
 final class ProcessRunner implements ProcessInterface
 {
@@ -427,6 +429,8 @@ final class ProcessRunner implements ProcessInterface
      * On Windows it ends the process at once.
      *
      * @see ProcessRunner::sendSignal
+     *
+     * @example examples/ProcessRunner.sigint/1-interrupt.php Interrupt a child, as Ctrl+C does
      */
     public function sigint(): bool
     {
@@ -439,6 +443,8 @@ final class ProcessRunner implements ProcessInterface
      * On Windows it ends the process instead.
      *
      * @see ProcessRunner::sigcont
+     *
+     * @example examples/ProcessRunner.sigstop/1-pause-and-resume.php Pause and resume a process
      */
     public function sigstop(): bool
     {

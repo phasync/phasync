@@ -35,6 +35,8 @@ use phasync\TimeoutException;
  * @see phasync\SelectableInterface
  *
  * @topic streams-and-files
+ *
+ * @example examples/StringBuffer/1-parse-length-prefixed-frames.php Parse length-prefixed frames
  */
 class StringBuffer implements SelectableInterface
 {
@@ -121,6 +123,8 @@ class StringBuffer implements SelectableInterface
      * @param float $timeout seconds to wait at most
      *
      * @see StringBuffer::isReady
+     *
+     * @example examples/StringBuffer.await/1-wait-then-check.php Wait, then check whether data came
      */
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -172,6 +176,8 @@ class StringBuffer implements SelectableInterface
      * @throws TimeoutException  if there was no room in time
      *
      * @see StringBuffer::end
+     *
+     * @example examples/StringBuffer.write/1-backpressure.php A writer held back by a slow reader
      */
     public function write(string $chunk, float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -215,6 +221,8 @@ class StringBuffer implements SelectableInterface
      * @return string the bytes read
      *
      * @see StringBuffer::readFixed
+     *
+     * @example examples/StringBuffer.read/1-whatever-is-there.php Read what is there, or wait for it
      */
     public function read(int $maxLength, float $timeout = \PHP_FLOAT_MAX): string
     {
@@ -261,6 +269,8 @@ class StringBuffer implements SelectableInterface
      * @return \Fiber the coroutine; await it to see a read error
      *
      * @see StringBuffer::writeToResource
+     *
+     * @example examples/StringBuffer.readFromResource/1-read-a-stream.php Fill the buffer from a socket
      */
     public function readFromResource($resource): \Fiber
     {
@@ -346,6 +356,8 @@ class StringBuffer implements SelectableInterface
      *
      * @see StringBuffer::read
      * @see StringBuffer::unread
+     *
+     * @example examples/StringBuffer.readFixed/1-short-at-the-end.php Fewer bytes than asked for at the end
      */
     public function readFixed(int $length, float $timeout = \PHP_FLOAT_MAX): ?string
     {
@@ -407,6 +419,8 @@ class StringBuffer implements SelectableInterface
      * @return \Fiber the coroutine; its result is the number of bytes written
      *
      * @see StringBuffer::readFromResource
+     *
+     * @example examples/StringBuffer.writeToResource/1-write-to-a-stream.php Drain the buffer into a socket
      */
     public function writeToResource($resource): \Fiber
     {
@@ -442,6 +456,8 @@ class StringBuffer implements SelectableInterface
      * @throws \LogicException if the buffer has ended and is empty
      *
      * @see StringBuffer::readFixed
+     *
+     * @example examples/StringBuffer.unread/1-peek-at-a-header.php Look at the first bytes and put them back
      */
     public function unread(string $chunk): void
     {

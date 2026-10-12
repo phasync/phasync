@@ -34,6 +34,8 @@ use Psr\Http\Message\StreamInterface;
  * @see StringStream
  *
  * @topic streams-and-files
+ *
+ * @example examples/BufferedStream/1-read-while-it-grows.php Read while the content grows
  */
 class BufferedStream implements StreamInterface
 {
@@ -111,6 +113,13 @@ class BufferedStream implements StreamInterface
         return $result;
     }
 
+    /**
+     * Returns the size of the content, once `end()` has been called: it waits until then.
+     *
+     * @throws TimeoutException when `end()` is not called within `$deadlockTimeout` seconds
+     *
+     * @example examples/BufferedStream.getSize/1-waits-for-end.php The size is known at the end
+     */
     public function getSize(): ?int
     {
         $this->blockUntilEnded();
@@ -276,6 +285,8 @@ class BufferedStream implements StreamInterface
      * @throws \LogicException after `end()`
      *
      * @see BufferedStream::end
+     *
+     * @example examples/BufferedStream.append/1-append-without-a-reader.php Append without waiting for a reader
      */
     public function append(string $chunk): void
     {

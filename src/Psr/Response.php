@@ -23,6 +23,8 @@ use Psr\Http\Message\ResponseInterface;
  * @see UnbufferedStream
  *
  * @topic http-client
+ *
+ * @example examples/Response/1-build-a-response.php Build responses
  */
 class Response implements ResponseInterface
 {
@@ -65,6 +67,11 @@ class Response implements ResponseInterface
         return $this->statusCode;
     }
 
+    /**
+     * Returns a copy with the status `$code`, and `$reasonPhrase`, or the standard phrase for the code when it is ''.
+     *
+     * @example examples/Response.withStatus/1-reason-phrases.php Standard and custom reason phrases
+     */
     public function withStatus($code, $reasonPhrase = ''): ResponseInterface
     {
         $c               = clone $this;

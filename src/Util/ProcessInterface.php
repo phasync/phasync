@@ -19,6 +19,8 @@ namespace phasync\Util;
  * @see phasync\Util\Process::run
  *
  * @topic processes
+ *
+ * @example examples/ProcessInterface/1-talk-to-a-child.php Talk to a child process
  */
 interface ProcessInterface
 {
@@ -32,6 +34,8 @@ interface ProcessInterface
      * @return bool true if the process is no longer running
      *
      * @see ProcessInterface::sendSignal
+     *
+     * @example examples/ProcessInterface.stop/1-end-a-long-runner.php End a process that runs too long
      */
     public function stop(): bool;
 
@@ -70,6 +74,8 @@ interface ProcessInterface
      * @return bool true if the signal was sent
      *
      * @see ProcessInterface::stop
+     *
+     * @example examples/ProcessInterface.sendSignal/1-sigterm.php A child that cleans up on SIGTERM
      */
     public function sendSignal(int $signal = 15): bool;
 
@@ -85,6 +91,8 @@ interface ProcessInterface
      * @return string|false what was read
      *
      * @see ProcessInterface::write
+     *
+     * @example examples/ProcessInterface.read/1-stdout-and-stderr.php Read standard output and standard error
      */
     public function read(int $fd = self::STDOUT): string|false;
 
@@ -99,6 +107,8 @@ interface ProcessInterface
      * @return int|false the number of bytes written, which may be less than all of `$data`; false if the process is not running
      *
      * @see ProcessInterface::read
+     *
+     * @example examples/ProcessInterface.write/1-feed-stdin.php Feed standard input, then close it
      */
     public function write(string $data, int $fd = self::STDIN): int|false;
 
@@ -108,6 +118,8 @@ interface ProcessInterface
      * @param int $fd `ProcessInterface::STDIN`, `STDOUT` or `STDERR`
      *
      * @return resource|null null for any other number
+     *
+     * @example examples/ProcessInterface.getStream/1-wait-for-output.php Wait for output with a timeout
      */
     public function getStream(int $fd): mixed;
 }

@@ -24,6 +24,8 @@ use Psr\Http\Message\UriInterface;
  * @see Response
  *
  * @topic http-client
+ *
+ * @example examples/Request/1-build-a-request.php Build a request
  */
 class Request implements RequestInterface
 {
@@ -65,6 +67,8 @@ class Request implements RequestInterface
      * This is the shape used by the PSR-17 request factory.
      *
      * @param string|\Stringable|UriInterface $uri full or relative URI
+     *
+     * @example examples/Request.create/1-from-a-url.php A request from a URL
      */
     public static function create(string $method, string|\Stringable|UriInterface $uri): RequestInterface
     {
@@ -130,6 +134,8 @@ class Request implements RequestInterface
     /**
      * Returns the attached URI override, or a URI derived from the
      * request-target plus the Host header.
+     *
+     * @example examples/Request.getUri/1-target-and-uri.php The request target, the URI and the Host header
      */
     public function getUri(): UriInterface
     {

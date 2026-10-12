@@ -42,6 +42,8 @@ trait DeadmanSwitchTrait
      * owning coroutine exits), the deadmanSwitchTriggered() method will be called.
      *
      * Returns the same instance if called multiple times while the switch is still alive.
+     *
+     * @example examples/StringBuffer.getDeadmanSwitch/1-writer-dies.php The reader learns that the writer is gone
      */
     public function getDeadmanSwitch(): DeadmanSwitch
     {

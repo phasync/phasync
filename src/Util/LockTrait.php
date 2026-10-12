@@ -33,6 +33,8 @@ use phasync\TimeoutException;
  * @see phasync\Util\Synchronized
  *
  * @topic coordination-and-limits
+ *
+ * @example examples/LockTrait/1-protect-state-across-waits.php Protect state across a wait
  */
 trait LockTrait
 {
@@ -54,6 +56,8 @@ trait LockTrait
      * @throws \Throwable       what `$callable` threw
      *
      * @return mixed what `$callable` returned
+     *
+     * @example examples/LockTrait.lock/1-reentrant.php The holder may lock again
      */
     public function lock(\Closure $callable, ?float $timeout=null): mixed
     {

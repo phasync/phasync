@@ -19,6 +19,8 @@ use Psr\Http\Message\UriInterface;
  * @see Request::getUri
  *
  * @topic http-client
+ *
+ * @example examples/Uri/1-parts-of-a-uri.php The parts of a URI
  */
 class Uri implements UriInterface
 {
@@ -95,9 +97,11 @@ class Uri implements UriInterface
     }
 
     /**
-     *	Parse out the value from the query string and return it.
+     * Returns the value of the query parameter `$param`, an array for `name[]` parameters, or null when it is not there.
      *
-     * @param string $param The name of the parameter to remove
+     * @param string $param the name of the parameter
+     *
+     * @example examples/Uri.getParam/1-one-query-parameter.php One parameter of the query
      */
     public function getParam($param)
     {
@@ -181,7 +185,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the url fragment.
+     * Returns the fragment of the URI: what follows the "#".
      *
      * @see Psr\Http\Message\UriInterface::getFragment()
      */
@@ -191,11 +195,9 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the url fragment.
+     * Returns a copy of the URI with the scheme replaced.
      *
      * @see Psr\Http\Message\UriInterface::withScheme()
-     *
-     * @return mixed
      */
     public function withScheme($scheme): UriInterface
     {
@@ -206,11 +208,9 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the url fragment.
+     * Returns a copy of the URI with the user and password replaced.
      *
      * @see Psr\Http\Message\UriInterface::withUserInfo()
-     *
-     * @return mixed
      */
     public function withUserInfo($user, $password = null): UriInterface
     {
@@ -221,11 +221,9 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the url fragment.
+     * Returns a copy of the URI with the host replaced.
      *
      * @see Psr\Http\Message\UriInterface::withHost()
-     *
-     * @return mixed
      */
     public function withHost($host): UriInterface
     {
@@ -240,11 +238,9 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the url fragment.
+     * Returns a copy of the URI with the port replaced; null removes it.
      *
      * @see Psr\Http\Message\UriInterface::withPort()
-     *
-     * @return mixed
      */
     public function withPort($port): UriInterface
     {
@@ -268,9 +264,11 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the url fragment.
+     * Returns a copy of the URI with the query replaced.
      *
      * @see Psr\Http\Message\UriInterface::withQuery()
+     *
+     * @example examples/Uri.withQuery/1-replace-the-query.php Replace the query
      */
     public function withQuery($query): UriInterface
     {
@@ -281,7 +279,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * Get the url fragment.
+     * Returns a copy of the URI with the fragment replaced.
      *
      * @see Psr\Http\Message\UriInterface::withFragment()
      */
@@ -294,7 +292,7 @@ class Uri implements UriInterface
     }
 
     /**
-     * When echoing this class, the URL will be displayed.
+     * Returns the URI as a string.
      *
      * @see Psr\Http\Message\UriInterface::__toString()
      */

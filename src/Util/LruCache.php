@@ -21,6 +21,8 @@ namespace phasync\Util;
  * @template T
  *
  * @topic resource-management
+ *
+ * @example examples/LruCache/1-evict-the-least-recently-used.php The least recently used entry goes first
  */
 final class LruCache implements \Countable
 {
@@ -62,6 +64,8 @@ final class LruCache implements \Countable
      *
      * @see LruCache::has
      * @see LruCache::set
+     *
+     * @example examples/LruCache.get/1-default-and-expiry.php A default, and an entry that expired
      */
     public function get(string $key, mixed $default = null): mixed
     {
@@ -100,6 +104,8 @@ final class LruCache implements \Countable
      *
      * @param T          $value
      * @param float|null $ttl   seconds until it expires; null for never
+     *
+     * @example examples/LruCache.set/1-a-byte-budget.php A cache limited by bytes
      */
     public function set(string $key, mixed $value, ?float $ttl = null): bool
     {

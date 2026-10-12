@@ -18,6 +18,8 @@ use Psr\Log\LoggerInterface;
  * `void` returns as 3 requires.
  *
  * @topic console-and-logging
+ *
+ * @example examples/ConsoleLogger/1-a-psr-3-logger.php A PSR-3 logger for code that takes one
  */
 final class ConsoleLogger implements LoggerInterface
 {
@@ -34,6 +36,8 @@ final class ConsoleLogger implements LoggerInterface
      * @param string       $source  a column after the time, such as a worker number
      *
      * @throws InvalidArgumentException for a level that is not a PSR-3 level
+     *
+     * @example examples/ConsoleLogger.__construct/1-level-and-source.php The lowest level and a source column
      */
     public function __construct(?Console $console = null, string $level = 'debug', private readonly string $source = '')
     {

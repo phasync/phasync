@@ -21,6 +21,8 @@ use Psr\Http\Message\UploadedFileInterface;
  * @see ServerRequest::getUploadedFiles
  *
  * @topic streams-and-files
+ *
+ * @example examples/UploadedFile/1-store-an-upload.php Store an upload
  */
 class UploadedFile implements UploadedFileInterface
 {
@@ -105,6 +107,17 @@ class UploadedFile implements UploadedFileInterface
         throw new \RuntimeException('Uploaded file stream is unavailable');
     }
 
+    /**
+     * Moves the file to `$targetPath`, once.
+     *
+     * A file path is moved with `move_uploaded_file()`, or with `rename()` in the CLI or with `$isUploadedFile`. A stream is
+     * copied to a new file at `$targetPath`.
+     *
+     * @throws \RuntimeException         for a second call, or an upload that failed (`getError()`)
+     * @throws \InvalidArgumentException when a stream cannot be copied because `$targetPath` exists or cannot be created
+     *
+     * @example examples/UploadedFile.moveTo/1-once-only.php A file moves once; a failed upload not at all
+     */
     public function moveTo($targetPath): void
     {
         if ($this->moved) {

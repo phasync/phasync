@@ -40,6 +40,8 @@ use Psr\Http\Message\StreamInterface;
  * @see StringStream for a body that is complete
  *
  * @topic streams-and-files
+ *
+ * @example examples/UnbufferedStream/1-stream-a-body.php A response body produced over time
  */
 class UnbufferedStream implements StreamInterface
 {
@@ -98,6 +100,8 @@ class UnbufferedStream implements StreamInterface
      *
      * Reads until `end()` has been called, so that the appending coroutine is not left waiting, and then
      * releases the buffer. It waits as long as the writer takes.
+     *
+     * @example examples/UnbufferedStream.close/1-discard-the-rest.php Stop reading without blocking the appender
      */
     public function close(): void
     {
@@ -225,6 +229,8 @@ class UnbufferedStream implements StreamInterface
      * @throws TimeoutException  when the reader makes no progress for `$deadlockTimeout` seconds
      *
      * @see UnbufferedStream::end
+     *
+     * @example examples/UnbufferedStream.append/1-backpressure.php An appender held back by the reader
      */
     public function append(string $chunk): void
     {

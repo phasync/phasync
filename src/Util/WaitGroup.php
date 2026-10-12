@@ -59,6 +59,8 @@ final class WaitGroup implements SelectableInterface
      * @throws \LogicException if the counter would become negative
      *
      * @see WaitGroup::done
+     *
+     * @example examples/WaitGroup.add/1-count-a-batch.php Count a whole batch at once
      */
     public function add(int $delta = 1): void
     {
@@ -100,6 +102,8 @@ final class WaitGroup implements SelectableInterface
      * @throws \LogicException  outside a coroutine, if the counter is not zero
      *
      * @see WaitGroup::add
+     *
+     * @example examples/WaitGroup.await/1-with-a-timeout.php Wait with a timeout
      */
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
