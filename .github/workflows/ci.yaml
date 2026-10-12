@@ -58,6 +58,7 @@ jobs:
 
       - name: 📥 Fetch the extension binary from the newest release tag
         id: ext
+        if: matrix.php != '8.2'   # the extension needs PHP 8.3 or later
         run: |
           git fetch --tags --force
           for tag in $(git tag --sort=-v:refname); do
