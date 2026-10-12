@@ -340,6 +340,20 @@ test('SCH-4: yield() resumes after the sleep(0) cohort, and timers come last', f
     expect($log)->toBe(['y1', 's1', 't1', 's2', 'y2', 't2']);
 });
 
+test('SCH-4: yield() with nothing else runnable resumes on the next tick, not at the next timer (#89)', function () {
+    $waited = null;
+    phasync::run(function () use (&$waited) {
+        phasync::go(fn () => phasync::sleep(0.3));
+        phasync::go(function () use (&$waited) {
+            phasync::sleep(0); // let the timer get scheduled
+            $t = \microtime(true);
+            phasync::yield();
+            $waited = \microtime(true) - $t;
+        });
+    });
+    expect($waited)->toBeLessThan(0.05);
+});
+
 test('SCH-4: waiters on one flag resume in the order they started waiting; raiseFlag() returns their number', function () {
     $log = [];
     phasync::run(function () use (&$log) {

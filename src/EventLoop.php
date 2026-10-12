@@ -602,7 +602,7 @@ final class EventLoop implements \Countable
 
         $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
 
-        if ($maxSleepTime > 0 && $afterNextCount > 0 && 0 === $queue->count() && $this->scheduler->isEmpty()) {
+        if ($maxSleepTime > 0 && $afterNextCount > 0) {
             $maxSleepTime = 0;
         }
 
