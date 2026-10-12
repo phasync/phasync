@@ -10,7 +10,7 @@ namespace phasync;
  * phasync-ext's phasync\ext\Poller has the same methods; the loop uses it directly when the
  * extension is loaded.
  *
- * @topic extension-and-event-loop
+ * @topic the-event-loop
  *
  * @example examples/PollerInterface/1-the-loops-poller.php Wait for a stream through the loop's poller
  */

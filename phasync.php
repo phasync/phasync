@@ -301,7 +301,7 @@ final class phasync
      * @see phasync::go
      * @see phasync::run
      *
-     * @topic extension-and-event-loop
+     * @topic the-event-loop
      *
      * @example examples/phasync.service/1-a-connection-started-on-first-use.php A connection that outlives the request that started it
      */
@@ -1159,7 +1159,7 @@ final class phasync
      *
      * @see phasync::getFiber
      *
-     * @topic extension-and-event-loop
+     * @topic the-event-loop
      */
     public static function isRunning(): bool
     {
@@ -1252,7 +1252,7 @@ final class phasync
      *
      * @throws LogicException outside `phasync::run()`
      *
-     * @topic extension-and-event-loop
+     * @topic the-event-loop
      *
      * @example examples/phasync.getLoop/1-park-and-unpark.php A mailbox on park() and unpark()
      */
@@ -1279,7 +1279,7 @@ final class phasync
      *
      * @see phasync::go
      *
-     * @topic extension-and-event-loop
+     * @topic the-event-loop
      */
     public static function getFiber(): Fiber
     {

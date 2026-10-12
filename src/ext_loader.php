@@ -39,7 +39,7 @@ if (!\function_exists('phasync\\ext\\current_fiber')) {
  *                           (no re-exec primitive, wrong SAPI, no matching binary, or the re-exec
  *                           ran but the extension still did not load)
  *
- * @topic extension-and-event-loop
+ * @topic blocking-calls-and-the-extension
  *
  * @example examples/ensure_loaded/1-load-or-run-without.php Load the extension, or run without it
  */
