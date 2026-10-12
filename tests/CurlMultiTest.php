@@ -2,18 +2,41 @@
 
 use phasync\Services\CurlMulti;
 
+// A local `php -S` instead of a public service: the timing test needs a server whose delay is the only latency
+beforeAll(function () {
+    $probe = \stream_socket_server('tcp://127.0.0.1:0');
+    $port  = (int) \substr(\strrchr(\stream_socket_get_name($probe, false), ':'), 1);
+    \fclose($probe);
+    $GLOBALS['curlMultiServer'] = \proc_open(
+        [\PHP_BINARY, '-S', "127.0.0.1:$port", __DIR__ . '/Fixtures/http-router.php'],
+        [['pipe', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']],
+        $pipes,
+        null,
+        ['PHP_CLI_SERVER_WORKERS' => '8'] + \getenv(),
+    );
+    $GLOBALS['curlMultiBase'] = "http://127.0.0.1:$port";
+    for ($i = 0; $i < 100 && !@\fsockopen('127.0.0.1', $port); ++$i) {
+        \usleep(20000);
+    }
+});
+
+afterAll(function () {
+    \proc_terminate($GLOBALS['curlMultiServer']);
+    \proc_close($GLOBALS['curlMultiServer']);
+});
+
 test('test basic curl multi functionality', function () {
     expect(function () {
         phasync::run(function () {
             $a = phasync::go(function () {
-                $ch = \curl_init('https://httpbin.org/get');
+                $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
                 return CurlMulti::await($ch);
             });
 
             $b = phasync::go(function () {
-                $ch = \curl_init('https://httpbin.org/get');
+                $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
                 return CurlMulti::await($ch);
@@ -36,7 +59,7 @@ test('test curl multi with error handling', function () {
             });
 
             $b = phasync::go(function () {
-                $ch = \curl_init('https://httpbin.org/get');
+                $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
                 return CurlMulti::await($ch);
@@ -70,7 +93,7 @@ test('test multiple concurrent curl requests', function () {
 
             for ($i = 0; $i < 10; ++$i) {
                 $handles[] = phasync::go(function () {
-                    $ch = \curl_init('https://httpbin.org/get');
+                    $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                     \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
                     return CurlMulti::await($ch);
@@ -89,7 +112,7 @@ test('test concurrent versus sequential execution time', function () {
         $start = \microtime(true);
 
         for ($i = 0; $i < 5; ++$i) {
-            $ch = \curl_init('https://httpbin.org/delay/1');
+            $ch = \curl_init($GLOBALS['curlMultiBase'] . '/delay/1');
             \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
             CurlMulti::await($ch);
         }
@@ -103,7 +126,7 @@ test('test concurrent versus sequential execution time', function () {
 
         for ($i = 0; $i < 3; ++$i) {
             $handles[] = phasync::go(function () {
-                $ch = \curl_init('https://httpbin.org/delay/1');
+                $ch = \curl_init($GLOBALS['curlMultiBase'] . '/delay/1');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
                 return CurlMulti::await($ch);
