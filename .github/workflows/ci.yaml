@@ -79,7 +79,8 @@ jobs:
             printf '%s' "$PHASYNC_CI_LICENSE" > "$RUNNER_TEMP/phasync.license"
             export PHASYNC_LICENSE_FILE="$RUNNER_TEMP/phasync.license"
           fi
-          php -d extension="${{ steps.ext.outputs.so }}" vendor/bin/pest --stop-on-defect
+          # bin/phasync loads it through PHP_INI_SCAN_DIR, so the PHP processes the tests start load it too
+          PHASYNC_EXT_SO="$PWD/${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect
 
       - name: 📤 Upload coverage to Codecov
         uses: codecov/codecov-action@v5
