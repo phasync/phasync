@@ -34,7 +34,7 @@ test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine end
     // Uncollected, a second of this is about 200 MB. A loop this busy keeps its garbage for up to
     // GC_MAX_INTERVAL (0.5 s), so PHP's root buffer grows to hold that much and stays that size.
     expect($growth)->toBeLessThan(32 << 20);
-});
+})->skip(fn () => gcGraceActive(), 'the extension\'s gc grace (phasync.virtualize=1) leaves young cycles for later');
 
 // RT-1: garbage collection state
 // ---------------------------------------------------------------------------

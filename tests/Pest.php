@@ -59,6 +59,18 @@ if (!\function_exists('heldFlagWait')) {
     }
 }
 
+if (!\function_exists('gcGraceActive')) {
+    /**
+     * Whether the phasync extension leaves cycles younger than its grace period for later
+     * collections: it does with phasync.virtualize=1, by design. Tests that pin PHP's own
+     * collection timing don't apply then.
+     */
+    function gcGraceActive(): bool
+    {
+        return \extension_loaded('phasync') && (bool) \ini_get('phasync.virtualize');
+    }
+}
+
 uses()->beforeEach(function () {
     phasyncResetProcessState();
 })->afterEach(function () {

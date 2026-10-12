@@ -522,7 +522,7 @@ test('CHN-8: an end kept alive by a reference cycle is only closed by the cycle 
 
     expect($before)->toBeFalse();
     expect($after)->toBeTrue();
-});
+})->skip(fn () => gcGraceActive(), 'the extension\'s gc grace (phasync.virtualize=1) leaves young cycles for later');
 
 // ---------------------------------------------------------------------------
 // CHN-9  Values
