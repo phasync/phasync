@@ -26,6 +26,8 @@ namespace phasync\Context;
  * @see phasync\AggregateException
  *
  * @topic contexts
+ *
+ * @example examples/ExceptionHandlerInterface/1-log-and-carry-on.php Log a failure and let the run go on
  */
 interface ExceptionHandlerInterface
 {

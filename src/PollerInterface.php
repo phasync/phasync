@@ -11,6 +11,8 @@ namespace phasync;
  * extension is loaded.
  *
  * @topic extension-and-event-loop
+ *
+ * @example examples/PollerInterface/1-the-loops-poller.php Wait for a stream through the loop's poller
  */
 interface PollerInterface
 {

@@ -34,6 +34,8 @@ namespace phasync\Context;
  * @see phasync::withContext
  *
  * @topic contexts
+ *
+ * @example examples/SwitchAwareInterface/1-swap-the-current-user.php Swap the current user in and out
  */
 interface SwitchAwareInterface
 {

@@ -24,6 +24,8 @@ namespace phasync;
  * @see phasync::run
  *
  * @topic coroutines
+ *
+ * @example examples/AggregateException/1-several-failures.php Several coroutines fail in one run
  */
 final class AggregateException extends \RuntimeException
 {

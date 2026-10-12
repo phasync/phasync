@@ -29,6 +29,8 @@ use Traversable;
  * @see phasync\SubscriberInterface  when every reader should get every value
  *
  * @topic channels-and-messaging
+ *
+ * @example examples/ReadChannelInterface/1-read-until-closed.php Read until the writer closes
  */
 interface ReadChannelInterface extends SelectableInterface, Traversable
 {
@@ -38,6 +40,8 @@ interface ReadChannelInterface extends SelectableInterface, Traversable
      * The coroutine that created the channel gets a ChannelException if it waits on the channel and no other coroutine has done so within about 100 ms. Call this when the creator is meant to wait on the channel alone, as when the other end is used by a coroutine that starts later.
      *
      * @see phasync::channel
+     *
+     * @example examples/ReadChannelInterface.activate/1-the-creator-waits-alone.php The deadlock check, and switching it off
      */
     public function activate(): void;
 
@@ -82,6 +86,8 @@ interface ReadChannelInterface extends SelectableInterface, Traversable
      * @return mixed the value, or null at the end of the channel
      *
      * @see WriteChannelInterface::write
+     *
+     * @example examples/ReadChannelInterface.read/1-null-versus-the-end.php Tell a null value from the end of the channel
      */
     public function read(float $timeout = \PHP_FLOAT_MAX, ?bool &$eof = null): mixed;
 

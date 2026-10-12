@@ -28,6 +28,8 @@ namespace phasync;
  * @see phasync\ReadChannelInterface
  *
  * @topic channels-and-messaging
+ *
+ * @example examples/WriteChannelInterface/1-a-full-buffer-holds-the-writer-back.php A full buffer holds the writer back
  */
 interface WriteChannelInterface extends SelectableInterface
 {
@@ -68,6 +70,8 @@ interface WriteChannelInterface extends SelectableInterface
      * @throws TimeoutException if the value could not be sent in time
      *
      * @see ReadChannelInterface::read
+     *
+     * @example examples/WriteChannelInterface.write/1-timeout-on-a-full-channel.php Give up when the buffer stays full
      */
     public function write(mixed $value, float $timeout = \PHP_FLOAT_MAX): void;
 

@@ -40,6 +40,8 @@ if (!\function_exists('phasync\\ext\\current_fiber')) {
  *                           ran but the extension still did not load)
  *
  * @topic extension-and-event-loop
+ *
+ * @example examples/ensure_loaded/1-load-or-run-without.php Load the extension, or run without it
  */
 function ensure_loaded(?string $soPath = null): void
 {

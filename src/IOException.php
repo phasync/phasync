@@ -19,6 +19,8 @@ namespace phasync;
  * @see phasync::writable
  *
  * @topic waiting-and-timeouts
+ *
+ * @example examples/IOException/1-closed-while-waiting.php No stream, and a stream closed while waited for
  */
 class IOException extends \Exception
 {

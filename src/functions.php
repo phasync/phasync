@@ -40,6 +40,8 @@ namespace phasync;
  * @see \phasync::sleep
  *
  * @topic waiting-and-timeouts
+ *
+ * @example examples/sleep/1-the-native-name.php sleep() that lets the other coroutines run
  */
 function sleep(float $seconds=0): void
 {
@@ -66,6 +68,8 @@ function sleep(float $seconds=0): void
  * @see file_put_contents
  *
  * @topic streams-and-files
+ *
+ * @example examples/file_get_contents/1-read-files-concurrently.php Read files in several coroutines
  */
 function file_get_contents(string $filename): string|false
 {
@@ -100,6 +104,8 @@ function file_get_contents(string $filename): string|false
  * @see flock
  *
  * @topic streams-and-files
+ *
+ * @example examples/file_put_contents/1-append-to-a-log.php Append to a log from several coroutines
  */
 function file_put_contents(string $filename, mixed $data, int $flags = 0): int|false
 {
@@ -129,6 +135,8 @@ function file_put_contents(string $filename, mixed $data, int $flags = 0): int|f
  * @see file_put_contents
  *
  * @topic streams-and-files
+ *
+ * @example examples/flock/1-one-holder-at-a-time.php One holder of the lock at a time
  */
 function flock($stream, int $operation, ?int &$would_block = null): bool
 {

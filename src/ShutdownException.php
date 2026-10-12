@@ -11,6 +11,8 @@ namespace phasync;
  * @see phasync::shutdown
  *
  * @topic cancellation-and-cleanup
+ *
+ * @example examples/ShutdownException/1-why-it-stopped.php Tell the client why the coroutine stops
  */
 class ShutdownException extends CancelledException
 {

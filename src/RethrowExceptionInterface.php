@@ -12,6 +12,8 @@ namespace phasync;
  * @see phasync\TimeoutException
  *
  * @topic coroutines
+ *
+ * @example examples/RethrowExceptionInterface/1-trace-starts-in-your-code.php Point the trace at the code that waited
  */
 interface RethrowExceptionInterface extends \Throwable
 {

@@ -30,6 +30,8 @@ use IteratorAggregate;
  * @see phasync\SubscribersInterface::subscribe
  *
  * @topic channels-and-messaging
+ *
+ * @example examples/SubscriberInterface/1-a-late-subscriber-misses-earlier-messages.php A late subscription misses earlier messages
  */
 interface SubscriberInterface extends ReadChannelInterface, IteratorAggregate
 {

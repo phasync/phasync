@@ -42,6 +42,8 @@ use phasync\WriteChannelInterface;
  * @see phasync\Util\WaitGroup
  *
  * @topic coroutines
+ *
+ * @example examples/phasync/1-fetch-two-pages.php Two waits at once take as long as the slower one
  */
 final class phasync
 {
@@ -112,6 +114,9 @@ final class phasync
      * @see phasync::service
      *
      * @topic coroutines
+     *
+     * @example examples/phasync.run/1-returns-after-every-coroutine.php run() returns after every coroutine it started
+     * @example examples/phasync.run/2-a-failure-cancels-the-rest.php A failure nobody awaits cancels the rest and is thrown
      */
     public static function run(Closure $fn, ?array $args = [], ?object $context = null): mixed
     {
@@ -260,6 +265,9 @@ final class phasync
      * @see phasync\Util\WaitGroup  to wait for many
      *
      * @topic coroutines
+     *
+     * @example examples/phasync.go/1-start-and-await.php The coroutine runs up to its first wait before go() returns
+     * @example examples/phasync.go/2-a-context-of-its-own.php Cancel a job and everything it started
      */
     public static function go(Closure $fn, array $args = [], ?object $context = null): Fiber
     {
@@ -294,6 +302,8 @@ final class phasync
      * @see phasync::run
      *
      * @topic extension-and-event-loop
+     *
+     * @example examples/phasync.service/1-a-connection-started-on-first-use.php A connection that outlives the request that started it
      */
     public static function service(Closure $coroutine): void
     {
@@ -340,6 +350,10 @@ final class phasync
      * @see phasync::awaitContext
      *
      * @topic coroutines
+     *
+     * @example examples/phasync.await/1-timeout-then-result.php A timeout leaves the coroutine running
+     * @example examples/phasync.await/2-the-exception-it-ended-with.php Awaiting a failed coroutine throws its exception
+     * @example examples/phasync.await/3-a-promise.php Await an object with a then() method
      */
     public static function await(object $fiberOrPromise, float $timeout = \PHP_FLOAT_MAX): mixed
     {
@@ -453,6 +467,8 @@ final class phasync
      * @see phasync::cancel
      *
      * @topic cancellation-and-cleanup
+     *
+     * @example examples/phasync.finally/1-release-when-the-coroutine-ends.php Cleanup that runs, and may wait, after a cancellation
      */
     public static function finally(Closure $fn): void
     {
@@ -501,6 +517,9 @@ final class phasync
      * @see phasync::awaitContext
      *
      * @topic cancellation-and-cleanup
+     *
+     * @example examples/phasync.cancel/1-cancel-a-worker.php Cancel a worker; its finally block runs
+     * @example examples/phasync.cancel/2-the-cancellation-is-sticky.php Every later wait is cancelled too
      */
     public static function cancel(object $fiber, string|Stringable|CancelledException $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void
     {
@@ -549,6 +568,8 @@ final class phasync
      * @see phasync::cancel  a sticky cancellation
      *
      * @topic cancellation-and-cleanup
+     *
+     * @example examples/phasync.throw/1-interrupt-one-wait.php Interrupt a wait, and carry on
      */
     public static function throw(Fiber $fiber, Throwable $exception): void
     {
@@ -578,6 +599,8 @@ final class phasync
      * @see phasync\sleep
      *
      * @topic waiting-and-timeouts
+     *
+     * @example examples/phasync.sleep/1-interleaved.php Two coroutines sleeping at different intervals
      */
     public static function sleep(float $seconds = 0): void
     {
@@ -614,6 +637,8 @@ final class phasync
      * @see phasync::sleep
      *
      * @topic coroutines
+     *
+     * @example examples/phasync.yield/1-take-turns.php Coroutines take turns
      */
     public static function yield(): void
     {
@@ -652,6 +677,8 @@ final class phasync
      * @see phasync::sleep
      *
      * @topic waiting-and-timeouts
+     *
+     * @example examples/phasync.idle/1-after-the-busy-work.php Run housekeeping once the loop is idle
      */
     public static function idle(float $after = 0.0): void
     {
@@ -693,6 +720,8 @@ final class phasync
      * @see phasync::writable
      *
      * @topic waiting-and-timeouts
+     *
+     * @example examples/phasync.readable/1-read-a-socket.php Read lines from a socket as they arrive
      */
     public static function readable(mixed $resource, float $timeout = \PHP_FLOAT_MAX): mixed
     {
@@ -723,6 +752,8 @@ final class phasync
      * @see phasync::readable
      *
      * @topic waiting-and-timeouts
+     *
+     * @example examples/phasync.writable/1-write-until-the-buffer-is-full.php Write more than the socket buffer holds
      */
     public static function writable(mixed $resource, float $timeout = \PHP_FLOAT_MAX): mixed
     {
@@ -799,6 +830,9 @@ final class phasync
      * @see WriteChannelInterface
      *
      * @topic channels-and-messaging
+     *
+     * @example examples/phasync.channel/1-a-pipeline.php Two stages connected by channels
+     * @example examples/phasync.channel/2-workers-share-a-queue.php Workers sharing the jobs of one channel
      */
     public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize = 0): void
     {
@@ -838,6 +872,8 @@ final class phasync
      * @see SubscribersInterface
      *
      * @topic channels-and-messaging
+     *
+     * @example examples/phasync.publisher/1-every-subscriber-gets-every-message.php Every subscriber gets every message
      */
     public static function publisher(?SubscribersInterface &$subscribers, ?WriteChannelInterface &$publisher): void
     {
@@ -874,6 +910,8 @@ final class phasync
      * @return int the signal that arrived
      *
      * @topic cancellation-and-cleanup
+     *
+     * @example examples/phasync.signal/1-stop-on-sigterm.php Stop a server on SIGTERM
      */
     public static function signal(int|array $signals, float $timeout = \PHP_FLOAT_MAX): int
     {
@@ -914,6 +952,8 @@ final class phasync
      * @param Closure(int):void $handler called with the signal number
      *
      * @topic cancellation-and-cleanup
+     *
+     * @example examples/phasync.onSignal/1-run-at-the-signal.php A handler that runs inside the signal handler
      */
     public static function onSignal(int $signo, Closure $handler): void
     {
@@ -944,6 +984,8 @@ final class phasync
      * @return int the coroutines still running after the window
      *
      * @topic cancellation-and-cleanup
+     *
+     * @example examples/phasync.shutdown/1-stop-every-coroutine.php Stop every coroutine, with a window for cleanup
      */
     public static function shutdown(float $window = 1.0, ?ShutdownException $exception = null): int
     {
@@ -984,6 +1026,8 @@ final class phasync
      * @return T what `$fn` returns
      *
      * @topic cancellation-and-cleanup
+     *
+     * @example examples/phasync.shielded/1-finish-what-was-started.php Finish a goodbye after a cancellation
      */
     public static function shielded(Closure $fn): mixed
     {
@@ -1021,6 +1065,8 @@ final class phasync
      * @see phasync::awaitFlag
      *
      * @topic waiting-and-timeouts
+     *
+     * @example examples/phasync.raiseFlag/1-wake-every-waiter.php Wake every coroutine waiting for a flag
      */
     public static function raiseFlag(object $signal): int
     {
@@ -1051,6 +1097,9 @@ final class phasync
      * @see phasync::raiseFlag
      *
      * @topic waiting-and-timeouts
+     *
+     * @example examples/phasync.awaitFlag/1-a-gate-of-your-own.php A gate built on a flag
+     * @example examples/phasync.awaitFlag/2-timeout.php A flag that is not raised in time
      */
     public static function awaitFlag(object $signal, float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -1092,6 +1141,8 @@ final class phasync
      * @see phasync::withContext
      *
      * @topic contexts
+     *
+     * @example examples/phasync.awaitContext/1-wait-for-background-jobs.php Wait for the coroutines of a context
      */
     public static function awaitContext(object $context, float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -1147,6 +1198,8 @@ final class phasync
      * @see phasync::awaitContext
      *
      * @topic contexts
+     *
+     * @example examples/phasync.withContext/1-a-context-per-request.php A context per request
      */
     public static function withContext(Closure $fn, object $context): mixed
     {
@@ -1161,6 +1214,8 @@ final class phasync
      * @see phasync::adoptContextState
      *
      * @topic contexts
+     *
+     * @example examples/phasync.enableContextState/1-state-per-request.php State that belongs to each request
      */
     public static function enableContextState(): void
     {
@@ -1182,6 +1237,8 @@ final class phasync
      * ```
      *
      * @topic contexts
+     *
+     * @example examples/phasync.adoptContextState/1-state-that-outlives-the-context.php State kept between requests
      */
     public static function adoptContextState(array &$state): void
     {
@@ -1196,6 +1253,8 @@ final class phasync
      * @throws LogicException outside `phasync::run()`
      *
      * @topic extension-and-event-loop
+     *
+     * @example examples/phasync.getLoop/1-park-and-unpark.php A mailbox on park() and unpark()
      */
     public static function getLoop(): EventLoop
     {
@@ -1248,6 +1307,8 @@ final class phasync
      * @see phasync::getContext
      *
      * @topic contexts
+     *
+     * @example examples/phasync.getRootContext/1-nested-contexts.php Which context is the root
      */
     public static function getRootContext(): object
     {

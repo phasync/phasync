@@ -22,6 +22,8 @@ namespace phasync;
  * @see phasync::withContext
  *
  * @topic contexts
+ *
+ * @example examples/ContextUsedException/1-a-context-is-used-once.php A context is used once
  */
 class ContextUsedException extends \RuntimeException
 {

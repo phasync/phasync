@@ -26,6 +26,8 @@ use phasync\Internal\RethrowExceptionTrait;
  * @see phasync\CancelledException
  *
  * @topic waiting-and-timeouts
+ *
+ * @example examples/TimeoutException/1-give-up-waiting.php A timeout ends only that wait
  */
 class TimeoutException extends \RuntimeException implements RethrowExceptionInterface
 {

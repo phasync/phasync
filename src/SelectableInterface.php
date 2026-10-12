@@ -23,6 +23,8 @@ namespace phasync;
  * @see phasync\Util\WaitGroup
  *
  * @topic waiting-and-timeouts
+ *
+ * @example examples/SelectableInterface/1-wait-for-any-selectable.php Wait for a channel and a wait group alike
  */
 interface SelectableInterface
 {

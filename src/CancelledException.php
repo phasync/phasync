@@ -31,6 +31,8 @@ use phasync\Internal\RethrowExceptionTrait;
  * @see phasync\TimeoutException
  *
  * @topic cancellation-and-cleanup
+ *
+ * @example examples/CancelledException/1-clean-up-and-let-it-through.php Clean up, then let the cancellation end the coroutine
  */
 class CancelledException extends \RuntimeException implements RethrowExceptionInterface
 {

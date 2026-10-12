@@ -27,6 +27,8 @@ use phasync\Internal\RethrowExceptionTrait;
  * @see phasync\WriteChannelInterface::write
  *
  * @topic channels-and-messaging
+ *
+ * @example examples/ChannelException/1-write-after-close.php Writing to a closed channel
  */
 class ChannelException extends \RuntimeException implements RethrowExceptionInterface
 {

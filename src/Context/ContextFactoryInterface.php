@@ -26,6 +26,8 @@ namespace phasync\Context;
  * @see phasync::withContext
  *
  * @topic contexts
+ *
+ * @example examples/ContextFactoryInterface/1-a-context-only-when-needed.php A context only for requests that need one
  */
 interface ContextFactoryInterface
 {

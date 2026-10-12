@@ -23,6 +23,8 @@ namespace phasync;
  * @see phasync\SubscriberInterface
  *
  * @topic channels-and-messaging
+ *
+ * @example examples/SubscribersInterface/1-subscribe-per-listener.php A subscription per listener
  */
 interface SubscribersInterface extends \IteratorAggregate
 {
