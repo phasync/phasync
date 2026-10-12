@@ -33,6 +33,8 @@ use phasync\TimeoutException;
  *
  * @see phasync::channel
  * @see phasync\SelectableInterface
+ *
+ * @topic streams-and-files
  */
 class StringBuffer implements SelectableInterface
 {

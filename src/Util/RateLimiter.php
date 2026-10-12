@@ -25,6 +25,8 @@ use phasync\SelectableInterface;
  *
  * @see SelectableInterface
  * @see phasync::sleep
+ *
+ * @topic coordination-and-limits
  */
 final class RateLimiter implements SelectableInterface
 {

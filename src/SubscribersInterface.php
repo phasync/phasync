@@ -21,6 +21,8 @@ namespace phasync;
  *
  * @see phasync::publisher
  * @see phasync\SubscriberInterface
+ *
+ * @topic channels-and-messaging
  */
 interface SubscribersInterface extends \IteratorAggregate
 {

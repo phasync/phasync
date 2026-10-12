@@ -38,6 +38,8 @@ namespace phasync;
  * @param float $seconds how long to wait; 0 or less only lets the other coroutines run first
  *
  * @see \phasync::sleep
+ *
+ * @topic waiting-and-timeouts
  */
 function sleep(float $seconds=0): void
 {
@@ -62,6 +64,8 @@ function sleep(float $seconds=0): void
  * @throws \Exception when the file cannot be opened or a read fails
  *
  * @see file_put_contents
+ *
+ * @topic streams-and-files
  */
 function file_get_contents(string $filename): string|false
 {
@@ -94,6 +98,8 @@ function file_get_contents(string $filename): string|false
  *
  * @see file_get_contents
  * @see flock
+ *
+ * @topic streams-and-files
  */
 function file_put_contents(string $filename, mixed $data, int $flags = 0): int|false
 {
@@ -121,6 +127,8 @@ function file_put_contents(string $filename, mixed $data, int $flags = 0): int|f
  * @throws \TypeError when `$stream` is not a stream resource
  *
  * @see file_put_contents
+ *
+ * @topic streams-and-files
  */
 function flock($stream, int $operation, ?int &$would_block = null): bool
 {

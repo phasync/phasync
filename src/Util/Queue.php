@@ -20,6 +20,8 @@ namespace phasync\Util;
  *
  * @see phasync::channel  to wait for values
  * @see phasync\Util\LockInterface
+ *
+ * @topic channels-and-messaging
  */
 class Queue implements QueueInterface
 {

@@ -17,6 +17,8 @@ namespace phasync\Util;
  * ```
  *
  * @see phasync\Util\Process::run
+ *
+ * @topic processes
  */
 interface ProcessInterface
 {

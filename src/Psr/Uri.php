@@ -17,6 +17,8 @@ use Psr\Http\Message\UriInterface;
  * ```
  *
  * @see Request::getUri
+ *
+ * @topic http-client
  */
 class Uri implements UriInterface
 {

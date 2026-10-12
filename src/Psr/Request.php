@@ -22,6 +22,8 @@ use Psr\Http\Message\UriInterface;
  *
  * @see ServerRequest
  * @see Response
+ *
+ * @topic http-client
  */
 class Request implements RequestInterface
 {

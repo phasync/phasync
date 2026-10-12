@@ -17,6 +17,8 @@ use Psr\Http\Message\StreamInterface;
  *
  * @see Response
  * @see Request
+ *
+ * @topic streams-and-files
  */
 final class StreamFactory
 {

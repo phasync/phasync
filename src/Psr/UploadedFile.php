@@ -19,6 +19,8 @@ use Psr\Http\Message\UploadedFileInterface;
  * ```
  *
  * @see ServerRequest::getUploadedFiles
+ *
+ * @topic streams-and-files
  */
 class UploadedFile implements UploadedFileInterface
 {

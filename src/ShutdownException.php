@@ -9,6 +9,8 @@ namespace phasync;
  * stop catches nothing, or CancelledException; code that must tell someone why catches this.
  *
  * @see phasync::shutdown
+ *
+ * @topic cancellation-and-cleanup
  */
 class ShutdownException extends CancelledException
 {

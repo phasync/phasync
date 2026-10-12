@@ -17,6 +17,8 @@ use Psr\Http\Message\StreamInterface;
  *
  * @see UnbufferedStream
  * @see BufferedStream
+ *
+ * @topic streams-and-files
  */
 class StringStream implements StreamInterface
 {

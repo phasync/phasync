@@ -20,6 +20,8 @@ namespace phasync;
  *
  * @see phasync::run
  * @see phasync::withContext
+ *
+ * @topic contexts
  */
 class ContextUsedException extends \RuntimeException
 {

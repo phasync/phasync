@@ -19,6 +19,8 @@ namespace phasync\Util;
  *
  * @see phasync\Util\ProcessInterface
  * @see phasync\Util\ProcessRunner
+ *
+ * @topic processes
  */
 final class Process
 {

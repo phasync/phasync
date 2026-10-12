@@ -23,6 +23,8 @@ namespace phasync\Util;
  *
  * @see phasync\Util\LockTrait
  * @see phasync\Util\Pool
+ *
+ * @topic coordination-and-limits
  */
 final class Synchronized
 {

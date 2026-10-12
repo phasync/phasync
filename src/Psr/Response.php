@@ -21,6 +21,8 @@ use Psr\Http\Message\ResponseInterface;
  *
  * @see Request
  * @see UnbufferedStream
+ *
+ * @topic http-client
  */
 class Response implements ResponseInterface
 {

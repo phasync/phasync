@@ -24,6 +24,8 @@ namespace phasync\Context;
  *
  * @see phasync::run
  * @see phasync\AggregateException
+ *
+ * @topic contexts
  */
 interface ExceptionHandlerInterface
 {

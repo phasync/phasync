@@ -21,6 +21,8 @@ namespace phasync;
  *
  * @see phasync::await
  * @see phasync\Util\WaitGroup
+ *
+ * @topic waiting-and-timeouts
  */
 interface SelectableInterface
 {

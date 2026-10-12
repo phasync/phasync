@@ -24,6 +24,8 @@ namespace phasync\Util;
  *
  * Text from elsewhere goes through escape() first. Widths count terminal columns: East Asian
  * wide characters and emoji take 2, combining marks and zero-width characters 0.
+ *
+ * @topic console-and-logging
  */
 final class Console
 {

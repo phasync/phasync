@@ -27,6 +27,8 @@ use Traversable;
  * @see phasync::channel
  * @see phasync\WriteChannelInterface
  * @see phasync\SubscriberInterface  when every reader should get every value
+ *
+ * @topic channels-and-messaging
  */
 interface ReadChannelInterface extends SelectableInterface, Traversable
 {

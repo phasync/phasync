@@ -26,6 +26,8 @@ use phasync\TimeoutException;
  *
  * @see phasync\Util\LockTrait
  * @see phasync\Util\Synchronized
+ *
+ * @topic coordination-and-limits
  */
 interface LockInterface
 {

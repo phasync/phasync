@@ -30,6 +30,8 @@ use phasync\SelectableInterface;
  *
  * @see phasync::go
  * @see phasync\SelectableInterface
+ *
+ * @topic coordination-and-limits
  */
 final class WaitGroup implements SelectableInterface
 {

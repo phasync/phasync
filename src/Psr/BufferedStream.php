@@ -32,6 +32,8 @@ use Psr\Http\Message\StreamInterface;
  *
  * @see UnbufferedStream
  * @see StringStream
+ *
+ * @topic streams-and-files
  */
 class BufferedStream implements StreamInterface
 {

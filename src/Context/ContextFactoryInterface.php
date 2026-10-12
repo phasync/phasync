@@ -24,6 +24,8 @@ namespace phasync\Context;
  * ```
  *
  * @see phasync::withContext
+ *
+ * @topic contexts
  */
 interface ContextFactoryInterface
 {

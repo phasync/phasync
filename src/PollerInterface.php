@@ -9,6 +9,8 @@ namespace phasync;
  * to do, and poll() unparks the waiters whose streams are ready ({@see EventLoop::park()}).
  * phasync-ext's phasync\ext\Poller has the same methods; the loop uses it directly when the
  * extension is loaded.
+ *
+ * @topic extension-and-event-loop
  */
 interface PollerInterface
 {

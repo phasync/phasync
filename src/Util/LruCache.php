@@ -19,6 +19,8 @@ namespace phasync\Util;
  * - Every operation is O(1): the entries are one PHP array in the order of their last use.
  *
  * @template T
+ *
+ * @topic resource-management
  */
 final class LruCache implements \Countable
 {

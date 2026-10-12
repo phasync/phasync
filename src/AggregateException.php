@@ -22,6 +22,8 @@ namespace phasync;
  * ```
  *
  * @see phasync::run
+ *
+ * @topic coroutines
  */
 final class AggregateException extends \RuntimeException
 {

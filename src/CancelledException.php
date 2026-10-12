@@ -29,6 +29,8 @@ use phasync\Internal\RethrowExceptionTrait;
  * @see phasync::cancel
  * @see phasync::finally
  * @see phasync\TimeoutException
+ *
+ * @topic cancellation-and-cleanup
  */
 class CancelledException extends \RuntimeException implements RethrowExceptionInterface
 {

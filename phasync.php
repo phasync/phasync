@@ -40,6 +40,8 @@ use phasync\WriteChannelInterface;
  * @see phasync::go
  * @see phasync::channel
  * @see phasync\Util\WaitGroup
+ *
+ * @topic coroutines
  */
 final class phasync
 {
@@ -108,6 +110,8 @@ final class phasync
      * @see phasync::withContext  the same, without starting a coroutine
      * @see phasync::await
      * @see phasync::service
+     *
+     * @topic coroutines
      */
     public static function run(Closure $fn, ?array $args = [], ?object $context = null): mixed
     {
@@ -254,6 +258,8 @@ final class phasync
      * @see phasync::await
      * @see phasync::service
      * @see phasync\Util\WaitGroup  to wait for many
+     *
+     * @topic coroutines
      */
     public static function go(Closure $fn, array $args = [], ?object $context = null): Fiber
     {
@@ -286,6 +292,8 @@ final class phasync
      *
      * @see phasync::go
      * @see phasync::run
+     *
+     * @topic extension-and-event-loop
      */
     public static function service(Closure $coroutine): void
     {
@@ -330,6 +338,8 @@ final class phasync
      * @see phasync::go
      * @see phasync::cancel
      * @see phasync::awaitContext
+     *
+     * @topic coroutines
      */
     public static function await(object $fiberOrPromise, float $timeout = \PHP_FLOAT_MAX): mixed
     {
@@ -441,6 +451,8 @@ final class phasync
      *
      * @see phasync::withContext
      * @see phasync::cancel
+     *
+     * @topic cancellation-and-cleanup
      */
     public static function finally(Closure $fn): void
     {
@@ -487,6 +499,8 @@ final class phasync
      * @see phasync::throw      interrupts one wait
      * @see phasync::go
      * @see phasync::awaitContext
+     *
+     * @topic cancellation-and-cleanup
      */
     public static function cancel(object $fiber, string|Stringable|CancelledException $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void
     {
@@ -533,6 +547,8 @@ final class phasync
      * @throws LogicException           if the coroutine is not waiting
      *
      * @see phasync::cancel  a sticky cancellation
+     *
+     * @topic cancellation-and-cleanup
      */
     public static function throw(Fiber $fiber, Throwable $exception): void
     {
@@ -560,6 +576,8 @@ final class phasync
      *
      * @see phasync::yield
      * @see phasync\sleep
+     *
+     * @topic waiting-and-timeouts
      */
     public static function sleep(float $seconds = 0): void
     {
@@ -594,6 +612,8 @@ final class phasync
      * ```
      *
      * @see phasync::sleep
+     *
+     * @topic coroutines
      */
     public static function yield(): void
     {
@@ -630,6 +650,8 @@ final class phasync
      *
      * @see phasync::yield
      * @see phasync::sleep
+     *
+     * @topic waiting-and-timeouts
      */
     public static function idle(float $after = 0.0): void
     {
@@ -669,6 +691,8 @@ final class phasync
      * @return resource `$resource`, for use in the call that reads it
      *
      * @see phasync::writable
+     *
+     * @topic waiting-and-timeouts
      */
     public static function readable(mixed $resource, float $timeout = \PHP_FLOAT_MAX): mixed
     {
@@ -697,6 +721,8 @@ final class phasync
      * @return resource `$resource`, for use in the call that writes it
      *
      * @see phasync::readable
+     *
+     * @topic waiting-and-timeouts
      */
     public static function writable(mixed $resource, float $timeout = \PHP_FLOAT_MAX): mixed
     {
@@ -771,6 +797,8 @@ final class phasync
      * @see phasync::publisher  to deliver every value to many readers
      * @see ReadChannelInterface
      * @see WriteChannelInterface
+     *
+     * @topic channels-and-messaging
      */
     public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize = 0): void
     {
@@ -808,6 +836,8 @@ final class phasync
      *
      * @see phasync::channel  when each value goes to one reader
      * @see SubscribersInterface
+     *
+     * @topic channels-and-messaging
      */
     public static function publisher(?SubscribersInterface &$subscribers, ?WriteChannelInterface &$publisher): void
     {
@@ -815,26 +845,6 @@ final class phasync
         $subscribers = new Subscribers($internalReadChannel);
     }
 
-    /**
-     * Wakes every coroutine waiting for `$signal` in {@see phasync::awaitFlag()}, and returns how many it woke.
-     *
-     * A flag is any object: the one the waiters and the raiser share is the signal. Raising a flag nobody waits for does nothing, and is not remembered. This and `awaitFlag()` are what the other waits of phasync are built on.
-     *
-     * ```php
-     * phasync::run(function () {
-     *     $ready = new stdClass();
-     *     phasync::go(function () use ($ready) {
-     *         phasync::awaitFlag($ready);
-     *         echo "ready\n";
-     *     });
-     *     echo phasync::raiseFlag($ready), " woken\n";   // 1 woken
-     * });
-     * ```
-     *
-     * @return int the number of coroutines woken
-     *
-     * @see phasync::awaitFlag
-     */
     /**
      * Suspends the current coroutine until one of `$signals` (POSIX signal numbers such as
      * `SIGTERM`) arrives, and returns the one that did. Any number of coroutines may wait for the
@@ -862,6 +872,8 @@ final class phasync
      * @throws LogicException   outside a coroutine
      *
      * @return int the signal that arrived
+     *
+     * @topic cancellation-and-cleanup
      */
     public static function signal(int|array $signals, float $timeout = \PHP_FLOAT_MAX): int
     {
@@ -900,6 +912,8 @@ final class phasync
      * ```
      *
      * @param Closure(int):void $handler called with the signal number
+     *
+     * @topic cancellation-and-cleanup
      */
     public static function onSignal(int $signo, Closure $handler): void
     {
@@ -928,6 +942,8 @@ final class phasync
      * @throws LogicException outside a coroutine
      *
      * @return int the coroutines still running after the window
+     *
+     * @topic cancellation-and-cleanup
      */
     public static function shutdown(float $window = 1.0, ?ShutdownException $exception = null): int
     {
@@ -966,6 +982,8 @@ final class phasync
      * @throws LogicException outside a coroutine
      *
      * @return T what `$fn` returns
+     *
+     * @topic cancellation-and-cleanup
      */
     public static function shielded(Closure $fn): mixed
     {
@@ -982,6 +1000,28 @@ final class phasync
         }
     }
 
+    /**
+     * Wakes every coroutine waiting for `$signal` in {@see phasync::awaitFlag()}, and returns how many it woke.
+     *
+     * A flag is any object: the one the waiters and the raiser share is the signal. Raising a flag nobody waits for does nothing, and is not remembered. This and `awaitFlag()` are what the other waits of phasync are built on.
+     *
+     * ```php
+     * phasync::run(function () {
+     *     $ready = new stdClass();
+     *     phasync::go(function () use ($ready) {
+     *         phasync::awaitFlag($ready);
+     *         echo "ready\n";
+     *     });
+     *     echo phasync::raiseFlag($ready), " woken\n";   // 1 woken
+     * });
+     * ```
+     *
+     * @return int the number of coroutines woken
+     *
+     * @see phasync::awaitFlag
+     *
+     * @topic waiting-and-timeouts
+     */
     public static function raiseFlag(object $signal): int
     {
         return self::getDriver()->raiseFlag($signal);
@@ -1009,6 +1049,8 @@ final class phasync
      * @throws LogicException     outside a coroutine
      *
      * @see phasync::raiseFlag
+     *
+     * @topic waiting-and-timeouts
      */
     public static function awaitFlag(object $signal, float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -1048,6 +1090,8 @@ final class phasync
      *
      * @see phasync::cancel  given a context, cancels its coroutines
      * @see phasync::withContext
+     *
+     * @topic contexts
      */
     public static function awaitContext(object $context, float $timeout = \PHP_FLOAT_MAX): void
     {
@@ -1063,6 +1107,8 @@ final class phasync
      * ```
      *
      * @see phasync::getFiber
+     *
+     * @topic extension-and-event-loop
      */
     public static function isRunning(): bool
     {
@@ -1099,6 +1145,8 @@ final class phasync
      * @see phasync::run
      * @see phasync::finally
      * @see phasync::awaitContext
+     *
+     * @topic contexts
      */
     public static function withContext(Closure $fn, object $context): mixed
     {
@@ -1111,6 +1159,8 @@ final class phasync
      * From then on, whenever the loop runs a coroutine of another context than the one that ran last, `phasync::$contextState` is bound to that context's array. Before it, a switch checks one flag. Inside a coroutine, its context gets its array at once.
      *
      * @see phasync::adoptContextState
+     *
+     * @topic contexts
      */
     public static function enableContextState(): void
     {
@@ -1130,6 +1180,8 @@ final class phasync
      *     echo $shared['count'];   // 1
      * });
      * ```
+     *
+     * @topic contexts
      */
     public static function adoptContextState(array &$state): void
     {
@@ -1142,6 +1194,8 @@ final class phasync
      * Application code does not need it: the other methods of this class are the API of the loop.
      *
      * @throws LogicException outside `phasync::run()`
+     *
+     * @topic extension-and-event-loop
      */
     public static function getLoop(): EventLoop
     {
@@ -1165,6 +1219,8 @@ final class phasync
      * @throws LogicException outside a coroutine
      *
      * @see phasync::go
+     *
+     * @topic extension-and-event-loop
      */
     public static function getFiber(): Fiber
     {
@@ -1190,6 +1246,8 @@ final class phasync
      * @throws LogicException outside a coroutine
      *
      * @see phasync::getContext
+     *
+     * @topic contexts
      */
     public static function getRootContext(): object
     {
@@ -1212,6 +1270,8 @@ final class phasync
      *
      * @see phasync::getRootContext
      * @see phasync::withContext
+     *
+     * @topic contexts
      */
     public static function getContext(): object
     {

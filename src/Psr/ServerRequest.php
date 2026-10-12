@@ -24,6 +24,8 @@ use Psr\Http\Message\UriInterface;
  *
  * @see Request
  * @see UploadedFile
+ *
+ * @topic http-client
  */
 class ServerRequest extends Request implements ServerRequestInterface
 {

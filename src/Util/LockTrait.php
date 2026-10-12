@@ -31,6 +31,8 @@ use phasync\TimeoutException;
  *
  * @see phasync\Util\LockInterface
  * @see phasync\Util\Synchronized
+ *
+ * @topic coordination-and-limits
  */
 trait LockTrait
 {

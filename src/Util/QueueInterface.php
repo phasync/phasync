@@ -16,6 +16,8 @@ namespace phasync\Util;
  * @template TType
  *
  * @see phasync\Util\Queue
+ *
+ * @topic channels-and-messaging
  */
 interface QueueInterface extends \Countable, LockInterface
 {

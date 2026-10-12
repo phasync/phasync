@@ -21,6 +21,8 @@ namespace phasync\Util;
  *
  * @see phasync\Util\Process::run
  * @see phasync\Util\ProcessInterface
+ *
+ * @topic processes
  */
 final class ProcessRunner implements ProcessInterface
 {

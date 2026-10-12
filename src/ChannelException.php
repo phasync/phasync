@@ -25,6 +25,8 @@ use phasync\Internal\RethrowExceptionTrait;
  *
  * @see phasync::channel
  * @see phasync\WriteChannelInterface::write
+ *
+ * @topic channels-and-messaging
  */
 class ChannelException extends \RuntimeException implements RethrowExceptionInterface
 {

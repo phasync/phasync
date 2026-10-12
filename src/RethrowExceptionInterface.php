@@ -10,6 +10,8 @@ namespace phasync;
  * @see phasync\CancelledException
  * @see phasync\ChannelException
  * @see phasync\TimeoutException
+ *
+ * @topic coroutines
  */
 interface RethrowExceptionInterface extends \Throwable
 {

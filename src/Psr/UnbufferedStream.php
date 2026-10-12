@@ -38,6 +38,8 @@ use Psr\Http\Message\StreamInterface;
  *
  * @see BufferedStream when the body must be seekable or have a size
  * @see StringStream for a body that is complete
+ *
+ * @topic streams-and-files
  */
 class UnbufferedStream implements StreamInterface
 {

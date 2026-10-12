@@ -20,6 +20,8 @@ namespace phasync\Util;
  *
  * @see phasync\Util\Event::listen
  * @see phasync\Util\Event::trigger
+ *
+ * @topic coordination-and-limits
  */
 final class Event
 {

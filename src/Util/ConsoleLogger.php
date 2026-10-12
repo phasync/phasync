@@ -16,6 +16,8 @@ use Psr\Log\LoggerInterface;
  *
  * It satisfies psr/log 1, 2 and 3 alike: untyped parameters where earlier versions have them,
  * `void` returns as 3 requires.
+ *
+ * @topic console-and-logging
  */
 final class ConsoleLogger implements LoggerInterface
 {

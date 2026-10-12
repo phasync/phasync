@@ -38,6 +38,8 @@ if (!\function_exists('phasync\\ext\\current_fiber')) {
  * @throws \RuntimeException if the extension is absent and cannot be loaded
  *                           (no re-exec primitive, wrong SAPI, no matching binary, or the re-exec
  *                           ran but the extension still did not load)
+ *
+ * @topic extension-and-event-loop
  */
 function ensure_loaded(?string $soPath = null): void
 {
@@ -85,13 +87,21 @@ function ensure_loaded(?string $soPath = null): void
     throw new \RuntimeException('phasync\\ext\\ensure_loaded(): cannot re-exec to load the extension (neither pcntl_exec() nor FFI execv() is available). Run with "php -d extension=' . $so . ' …" instead.');
 }
 
-/** Why there is no extension on this PHP. @internal */
+/**
+ * Why there is no extension on this PHP.
+ *
+ * @internal
+ */
 function _needs_php83(): string
 {
     return 'The phasync extension needs PHP 8.3 or later; this is PHP ' . \PHP_VERSION . '. phasync itself runs on this PHP without it.';
 }
 
-/** ABI key for this PHP build, e.g. "8.5-nts-x86_64-glibc" or "8.5-nts-arm64-darwin". @internal */
+/**
+ * ABI key for this PHP build, e.g. "8.5-nts-x86_64-glibc" or "8.5-nts-arm64-darwin".
+ *
+ * @internal
+ */
 function _abi_key(): string
 {
     return \PHP_MAJOR_VERSION . '.' . \PHP_MINOR_VERSION
@@ -100,7 +110,11 @@ function _abi_key(): string
         . '-' . ('Darwin' === \PHP_OS_FAMILY ? 'darwin' : (\glob('/lib/ld-musl-*.so.1') ? 'musl' : 'glibc'));
 }
 
-/** Resolve the .so to load: env override, then the per-ABI file in ext/. @internal */
+/**
+ * Resolve the .so to load: env override, then the per-ABI file in ext/.
+ *
+ * @internal
+ */
 function _resolve_so(): ?string
 {
     $env = \getenv('PHASYNC_EXT_SO');
@@ -116,7 +130,9 @@ function _resolve_so(): ?string
  * The real interpreter argv (including flags the user passed before the
  * script), minus argv[0]. Uses /proc/self/cmdline where available so that
  * flags like -d memory_limit=… survive the re-exec; falls back to the script
- * argv (which drops interpreter flags). @internal
+ * argv (which drops interpreter flags).
+ *
+ * @internal
  *
  * @return list<string>
  */
@@ -136,7 +152,9 @@ function _original_args(): array
 
 /**
  * Replace the current process via libc execv() through FFI. Returns false if
- * FFI is unusable; does not return on success. @internal
+ * FFI is unusable; does not return on success.
+ *
+ * @internal
  *
  * @param list<string> $argv full argv including argv[0]
  */

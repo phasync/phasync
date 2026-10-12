@@ -28,6 +28,8 @@ use IteratorAggregate;
  *
  * @see phasync::publisher
  * @see phasync\SubscribersInterface::subscribe
+ *
+ * @topic channels-and-messaging
  */
 interface SubscriberInterface extends ReadChannelInterface, IteratorAggregate
 {

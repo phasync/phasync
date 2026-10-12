@@ -36,6 +36,8 @@ use phasync\TimeoutException;
  *
  * @see phasync\Util\Synchronized
  * @see phasync\Util\RateLimiter
+ *
+ * @topic resource-management
  */
 final class Pool implements \Countable
 {

@@ -17,6 +17,8 @@ namespace phasync;
  *
  * @see phasync::readable
  * @see phasync::writable
+ *
+ * @topic waiting-and-timeouts
  */
 class IOException extends \Exception
 {

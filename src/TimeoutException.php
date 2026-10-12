@@ -24,6 +24,8 @@ use phasync\Internal\RethrowExceptionTrait;
  *
  * @see phasync::await
  * @see phasync\CancelledException
+ *
+ * @topic waiting-and-timeouts
  */
 class TimeoutException extends \RuntimeException implements RethrowExceptionInterface
 {

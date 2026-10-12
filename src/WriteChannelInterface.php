@@ -26,6 +26,8 @@ namespace phasync;
  *
  * @see phasync::channel
  * @see phasync\ReadChannelInterface
+ *
+ * @topic channels-and-messaging
  */
 interface WriteChannelInterface extends SelectableInterface
 {
