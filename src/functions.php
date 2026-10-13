@@ -83,8 +83,6 @@ function file_get_contents(string $filename): string|false
  * `phasync::writable()` between the writes. Outside one, it is the native `file_put_contents()`.
  * Only `FILE_APPEND` and `LOCK_EX` of the native flags are handled.
  *
- * A stream resource as `$data` fails inside a coroutine with a `TypeError`, after the file was truncated.
- *
  * ```php
  * use function phasync\file_put_contents;
  *
@@ -92,11 +90,11 @@ function file_get_contents(string $filename): string|false
  * ```
  *
  * @param string $filename the file to write
- * @param mixed  $data     a string, or an array of strings that are joined
+ * @param mixed  $data     a string, an array of strings that are joined, or a stream resource that is read to its end
  * @param int    $flags    `FILE_APPEND` and `LOCK_EX`
  *
  * @throws \Exception        when the file cannot be opened
- * @throws \RuntimeException when a write fails
+ * @throws \RuntimeException when a read of the stream resource or a write fails
  *
  * @return int|false the number of bytes written
  *

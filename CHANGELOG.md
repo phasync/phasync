@@ -26,6 +26,8 @@ Earlier releases are listed on the GitHub releases page.
 - Without the extension, `readable()` or `writable()` on a stream without a file descriptor
   (`php://memory`) throws `ValueError` in the waiting coroutine, as the extension does; it failed
   the event loop, or, with other streams waited on, waited forever. (#77)
+- `phasync\file_put_contents()` in a coroutine writes a stream resource given as `$data`, read to
+  its end, as the native function does; it threw `TypeError` after truncating the file. (#76)
 
 ## 2.0.0-beta8 (2026-10-13)
 

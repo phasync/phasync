@@ -62,32 +62,14 @@ class io
 
         \stream_set_blocking($fp, false);
 
-        if (\is_resource($data)) {
-            return self::_ensure_nonblocking([$data, $filename, $fp], function ($data, $filename, $fp) {
-                while (!\feof($data)) {
-                    $chunk = \fread(\phasync::readable($data), 65536);
-                    if (false === $chunk) {
-                        throw new \RuntimeException('Unable to read from stream resource ' . \get_resource_id($data));
-                    }
-                    while (true) {
-                        $written = \fwrite(\phasync::writable($fp), $chunk);
-                        if (false === $written) {
-                            throw new \RuntimeException("Unable to write to $filename");
-                        } elseif ($written < \strlen($chunk)) {
-                            $chunk = \substr($chunk, $written);
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-
         if (\is_array($data)) {
             $data = \implode('', $data);
         }
 
         try {
+            if (\is_resource($data)) {
+                return self::_ensure_nonblocking([$data, $filename, $fp], self::copy_stream(...));
+            }
             $len     = \strlen($data);
             $written = 0;
 
@@ -102,6 +84,37 @@ class io
             return $written;
         } finally {
             \fclose($fp);
+        }
+    }
+
+    /**
+     * Copies the non-blocking stream $data to its end into $fp, and returns the number of bytes.
+     * A read that finds nothing yet waits for the stream; a stream with nothing to wait for (a
+     * file, php://memory) never finds nothing before its end.
+     */
+    private static function copy_stream($data, string $filename, $fp): int
+    {
+        $total = 0;
+        while (true) {
+            $chunk = \fread($data, 65536);
+            if (false === $chunk) {
+                throw new \RuntimeException('Unable to read from stream resource ' . \get_resource_id($data));
+            }
+            if ('' === $chunk) {
+                if (\feof($data)) {
+                    return $total;
+                }
+                \phasync::readable($data);
+                continue;
+            }
+            $total += \strlen($chunk);
+            while ('' !== $chunk) {
+                $written = \fwrite(\phasync::writable($fp), $chunk);
+                if (false === $written) {
+                    throw new \RuntimeException("Unable to write to $filename");
+                }
+                $chunk = \substr($chunk, $written);
+            }
         }
     }
 

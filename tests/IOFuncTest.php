@@ -40,3 +40,32 @@ it('can asynchronously lock and unlock a file', function () {
     expect($result)->toBeTrue();
     \unlink($filename);
 });
+
+it('writes a stream resource read to its end, as the native function does (#76)', function () {
+    $filename = \tempnam(\sys_get_temp_dir(), 'phasync');
+    try {
+        $result = phasync::run(function () use ($filename) {
+            $memory = \fopen('php://memory', 'w+');
+            \fwrite($memory, \str_repeat('m', 100000));
+            \rewind($memory);
+            $fromMemory = \phasync\file_put_contents($filename, $memory);
+            $inFile     = \file_get_contents($filename);
+
+            [$a, $b] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+            phasync::go(function () use ($b) {
+                foreach (['first ', 'second'] as $chunk) {
+                    phasync::sleep(0.01);
+                    \fwrite($b, $chunk);
+                }
+                \fclose($b);
+            });
+            $fromSocket = \phasync\file_put_contents($filename, $a, \FILE_APPEND);
+
+            return [$fromMemory, $inFile, $fromSocket, \stream_get_meta_data($a)['blocked']];
+        });
+        expect($result)->toBe([100000, \str_repeat('m', 100000), 12, true]);
+        expect(\file_get_contents($filename))->toBe(\str_repeat('m', 100000) . 'first second');
+    } finally {
+        \unlink($filename);
+    }
+});
