@@ -4,6 +4,12 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Fixed
+
+- A wait in a `SwitchAwareInterface` hook, or in a Fiber the hook starts, throws `LogicException`.
+  It was registered for the coroutine the loop was switching to, ran the loop in place inside the
+  hook, and later woke that coroutine for a wait it never made. (#85)
+
 ## 2.0.0-beta8 (2026-10-13)
 
 ### Changed

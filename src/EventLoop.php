@@ -393,6 +393,15 @@ final class EventLoop implements \Countable
     /** The switch-aware context whose coroutine ran last: see SwitchAwareInterface. */
     private ?SwitchAwareInterface $liveContext = null;
 
+    /**
+     * While SwitchAwareInterface hooks run, the coroutine they run for: currentFiber, which is not
+     * what runs them, so a wait there must not be registered for it (#85). Public for
+     * phasync::suspend(); only makeLive() writes it.
+     *
+     * @internal
+     */
+    public ?\Fiber $hookFiber = null;
+
     /** Whether a switch-aware context was ever used: until then, switches check nothing. */
     private bool $switchAware = false;
 
@@ -1241,6 +1250,9 @@ final class EventLoop implements \Countable
      */
     public function park(int $slot, float $timeout = \PHP_FLOAT_MAX): void
     {
+        if (null !== $this->hookFiber && $this->hookFiber === $this->currentFiber) {
+            $this->refuseHookWait();
+        }
         if ($timeout <= 0) {
             throw new TimeoutException('The timeout had run out before waiting'); // a deadline already past
         }
@@ -1705,8 +1717,26 @@ final class EventLoop implements \Countable
     {
         $was               = $this->liveContext;
         $this->liveContext = $context;
-        $was?->suspend();
-        $context->resume();
+        $outer             = $this->hookFiber;
+        $this->hookFiber   = $this->currentFiber;
+        try {
+            $was?->suspend();
+            $context->resume();
+        } finally {
+            $this->hookFiber = $outer;
+        }
+    }
+
+    /**
+     * A wait in a SwitchAwareInterface hook, or in a Fiber the hook runs: it is undone, then refused.
+     *
+     * @throws \LogicException always
+     */
+    public function refuseHookWait(): never
+    {
+        $this->discard($this->currentFiber);
+
+        throw new \LogicException('A SwitchAwareInterface hook must not wait: resume() and suspend() run in the event loop, outside any coroutine; start a coroutine with phasync::go() for work that waits');
     }
 
     /** $context's coroutine runs next: phasync::$contextState becomes its array, a copy of the defaults at first. */

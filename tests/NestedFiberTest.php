@@ -94,3 +94,66 @@ test('Fibers nest: a wait in a Fiber of a coroutine resumed by a wait in place r
     });
     expect($log)->toBe(['inner', 'outer']);
 });
+
+/*
+ * phasync/phasync#85: a SwitchAwareInterface hook runs in the event loop, outside any coroutine,
+ * while the loop records the coroutine it switches to (or back to) as the current one. A wait
+ * there, also in a Fiber the hook starts, used to be registered for that coroutine: it ran the
+ * loop in place inside the hook and woke the coroutine for a wait it never made.
+ */
+
+final class NestedFiberWaitingHook implements phasync\Context\SwitchAwareInterface
+{
+    public array $failures = [];
+
+    public function __construct(private readonly bool $catch, private readonly bool $inFiber)
+    {
+    }
+
+    public function resume(): void
+    {
+        $wait = fn () => phasync::sleep(0.01);
+        try {
+            $this->inFiber ? (new Fiber($wait))->start() : $wait();
+        } catch (LogicException $e) {
+            if (!$this->catch) {
+                throw $e;
+            }
+            $this->failures[] = $e->getMessage();
+        }
+    }
+
+    public function suspend(): void
+    {
+    }
+}
+
+test('a wait in a Fiber a SwitchAwareInterface hook starts throws LogicException, which ends run()', function () {
+    expect(fn () => phasync::run(function () {
+        phasync::go(fn () => phasync::sleep(0.01), [], new NestedFiberWaitingHook(false, true));
+    }))->toThrow(LogicException::class, 'must not wait');
+});
+
+test('a wait in a SwitchAwareInterface hook itself throws LogicException', function () {
+    expect(fn () => phasync::run(function () {
+        phasync::go(fn () => phasync::sleep(0.01), [], new NestedFiberWaitingHook(false, false));
+    }))->toThrow(LogicException::class, 'must not wait');
+});
+
+test('a hook that catches the LogicException of its wait leaves the coroutines it switches to intact', function () {
+    $log   = [];
+    $hooks = [];
+    phasync::run(function () use (&$log, &$hooks) {
+        foreach (['a', 'b'] as $name) {
+            phasync::go(function () use ($name, &$log) {
+                for ($i = 0; $i < 3; ++$i) {
+                    $t = \microtime(true);
+                    phasync::sleep(0.02);
+                    $log[] = $name . (\microtime(true) - $t >= 0.02 ? ' slept' : ' woke early');
+                }
+            }, [], $hooks[] = new NestedFiberWaitingHook(true, true));
+        }
+    });
+    expect($log)->toBe(['a slept', 'b slept', 'a slept', 'b slept', 'a slept', 'b slept']);
+    expect(\count($hooks[0]->failures))->toBeGreaterThan(0);
+});

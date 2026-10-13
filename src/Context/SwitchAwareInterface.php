@@ -5,7 +5,7 @@ namespace phasync\Context;
 /**
  * A context that is told when it becomes live and when another does, to swap per-request state in and out.
  *
- * A server can keep global variables, static properties or the locale of a request swapped in for the coroutines of that request. The event loop calls `resume()` before a coroutine of this context runs when another context ran last, and `suspend()` before a coroutine of another context runs. Switches between coroutines of one context call neither. Both run in the event loop, outside of any coroutine: they must not wait, and an exception from either ends `phasync::run()`.
+ * A server can keep global variables, static properties or the locale of a request swapped in for the coroutines of that request. The event loop calls `resume()` before a coroutine of this context runs when another context ran last, and `suspend()` before a coroutine of another context runs. Switches between coroutines of one context call neither. Both run in the event loop, outside of any coroutine: they must not wait (a wait there, also in a Fiber they start, throws `LogicException`), and an exception from either ends `phasync::run()`.
  *
  * ```php
  * final class Current
