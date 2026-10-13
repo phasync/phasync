@@ -13,6 +13,10 @@ Earlier releases are listed on the GitHub releases page.
   is entered once; the coroutine's start entered it again, without end. (#86)
 - `BufferedStream` moves content past `$bufferSize` to its temporary file; `append()` held the
   stream's lock and the move took it again, so it waited on itself until the deadlock timeout. (#91)
+- `BufferedStream` can be read, seeked and read again after `end()`; `read()`, `seek()` and
+  `getContents()` threw `LogicException` then. `append()` after `end()` throws its own
+  `LogicException`. `getContents()` before `end()` no longer holds the stream's lock while it
+  waits, which kept the writer from appending. (#74, #92, #105)
 
 ## 2.0.0-beta8 (2026-10-13)
 

@@ -46,3 +46,50 @@ test('content that outgrows the memory buffer moves to a temporary file, and rea
         expect($stream->eof())->toBeTrue();
     });
 });
+
+test('after end(), the content can be read, seeked and read again, in memory and from the file (#74)', function () {
+    phasync::run(function () {
+        foreach ([1024, 4] as $bufferSize) {
+            $stream = new BufferedStream($bufferSize, 1);
+            $stream->append('Hello ');
+            $stream->append('World');
+            $stream->end();
+            expect($stream->read(5))->toBe('Hello');
+            expect($stream->getContents())->toBe(' World');
+            expect($stream->eof())->toBeTrue();
+            expect($stream->read(5))->toBe('');
+            $stream->seek(6);
+            expect($stream->read(100))->toBe('World');
+            $stream->rewind();
+            expect($stream->getContents())->toBe('Hello World');
+            expect((string) $stream)->toBe('Hello World');
+            expect($stream->getMetadata('eof'))->toBeTrue();
+        }
+    });
+});
+
+test('append() after end() throws LogicException of its own (#92)', function () {
+    phasync::run(function () {
+        $stream = new BufferedStream(1024, 1);
+        $stream->append('done');
+        $stream->end();
+        expect(fn () => $stream->append('more'))->toThrow(LogicException::class, "can't be appended to after ending");
+        expect($stream->getContents())->toBe('done');
+    });
+});
+
+test('getContents() before end() waits for the writer, which can still append and end (#105)', function () {
+    phasync::run(function () {
+        foreach ([1024, 4] as $bufferSize) {
+            $stream = new BufferedStream($bufferSize, 1);
+            phasync::go(function () use ($stream) {
+                foreach (['alpha ', 'beta ', 'gamma'] as $chunk) {
+                    phasync::sleep(0.01);
+                    $stream->append($chunk);
+                }
+                $stream->end();
+            });
+            expect($stream->getContents())->toBe('alpha beta gamma');
+        }
+    });
+});

@@ -16,9 +16,6 @@ use Psr\Http\Message\StreamInterface;
  * {@see UnbufferedStream} for a body that is not needed after it was read. `getSize()` waits until
  * `end()`.
  *
- * Known limitation: after `end()`, `read()`, `seek()` and `getContents()` throw a `LogicException`
- * ("No updates will occur in an ended stream"), so the content has to be read before `end()` is called.
- *
  * ```php
  * $stream = new BufferedStream();
  *
@@ -197,11 +194,11 @@ class BufferedStream implements StreamInterface
         if ($this->closed) {
             throw new \RuntimeException('Stream is closed');
         }
+        while ($this->readOffset === $this->writeOffset && null === $this->endOffset) {
+            $this->waitForUpdate();
+        }
         if ($this->eof()) {
             return '';
-        }
-        if ($this->readOffset === $this->writeOffset) {
-            $this->waitForUpdate();
         }
         $this->lock();
         try {
@@ -228,28 +225,13 @@ class BufferedStream implements StreamInterface
 
     public function getContents(): string
     {
-        $this->lock();
-        try {
-            $this->blockUntilEnded();
-
-            if (null === $this->file) {
-                $chunk            = \substr($this->buffer, $this->readOffset);
-                $this->readOffset = $this->writeOffset;
-
-                return $chunk;
-            }
-
-            $chunks = [];
-            while (!$this->eof()) {
-                $chunks[] = $this->read(65536);
-            }
-
-            return \implode('', $chunks);
-        } catch (\Throwable $e) {
-            throw ExceptionTool::popTrace($e, __FILE__);
-        } finally {
-            $this->unlock();
+        $this->blockUntilEnded();
+        $chunks = [];
+        while (!$this->eof()) {
+            $chunks[] = $this->read(65536);
         }
+
+        return \implode('', $chunks);
     }
 
     public function getMetadata($key = null)
@@ -298,7 +280,7 @@ class BufferedStream implements StreamInterface
         $this->lock();
         try {
             if (null !== $this->endOffset) {
-                throw new \RuntimeException("Stream can't be appended to after ending");
+                throw new \LogicException("Stream can't be appended to after ending");
             }
             $length = \strlen($chunk);
             if ($this->writeOffset + $length > $this->bufferSize) {
@@ -314,7 +296,6 @@ class BufferedStream implements StreamInterface
                 \fwrite($this->file, $chunk);
             }
             $this->writeOffset += $length;
-            $this->notifyUpdate();
         } finally {
             $this->unlock();
         }
@@ -382,19 +363,12 @@ class BufferedStream implements StreamInterface
     }
 
     /**
-     * Release the lock on the stream. This should only be called if
-     * {@see self::lock()} was called first.
-     *
-     * @throws \LogicException
+     * Release the lock taken with {@see self::lock()}, and wake those waiting for it or for content.
      */
     private function unlock(): void
     {
-        if (!$this->locked) {
-            throw new \LogicException('Stream is not locked. Only call unlock if you successfully called lock!');
-        }
         $this->locked = false;
-        // Notify that the lock is gone
-        $this->notifyUpdate();
+        \phasync::raiseFlag($this);
     }
 
     private function blockUntilEnded(): void
@@ -408,24 +382,13 @@ class BufferedStream implements StreamInterface
         }
     }
 
-    private function notifyUpdate(): void
-    {
-        if (null !== $this->endOffset) {
-            throw new \LogicException('No updates will occur in an ended stream');
-        }
-        \phasync::raiseFlag($this);
-    }
-
+    /** Waits for an append, end() or the lock's release. */
     private function waitForUpdate(): void
     {
-        if (null === $this->endOffset) {
-            try {
-                \phasync::awaitFlag($this, $this->deadlockTimeout);
-            } catch (TimeoutException) {
-                throw ExceptionTool::popTrace(new \RuntimeException('Possible deadlock detected, no update in ' . $this->deadlockTimeout . ' seconds'), __FILE__);
-            }
-        } else {
-            throw new \LogicException('No point waiting in an ended stream');
+        try {
+            \phasync::awaitFlag($this, $this->deadlockTimeout);
+        } catch (TimeoutException) {
+            throw ExceptionTool::popTrace(new \RuntimeException('Possible deadlock detected, no update in ' . $this->deadlockTimeout . ' seconds'), __FILE__);
         }
     }
 }
