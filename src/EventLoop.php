@@ -1323,8 +1323,12 @@ final class EventLoop implements \Countable
         if (\function_exists('pcntl_signal_get_handler')) {
             // A handler of the application's own (pcntl_signal()) may raise a flag when its signal comes
             for ($signo = 1, $last = \defined('SIGRTMAX') ? \SIGRTMAX : 31; $signo <= $last; ++$signo) {
-                if (\is_callable(\pcntl_signal_get_handler($signo))) {
-                    return;
+                try {
+                    if (\is_callable(\pcntl_signal_get_handler($signo))) {
+                        return;
+                    }
+                } catch (\ValueError) {
+                    break; // before PHP 8.4, pcntl handles signals up to 32 only, so none above has a handler
                 }
             }
         }
