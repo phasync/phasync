@@ -9,6 +9,8 @@ Earlier releases are listed on the GitHub releases page.
 - A wait in a `SwitchAwareInterface` hook, or in a Fiber the hook starts, throws `LogicException`.
   It was registered for the coroutine the loop was switching to, ran the loop in place inside the
   hook, and later woke that coroutine for a wait it never made. (#85)
+- A lazily created context (`withContext()` given a factory) whose `resume()` starts a coroutine
+  is entered once; the coroutine's start entered it again, without end. (#86)
 
 ## 2.0.0-beta8 (2026-10-13)
 

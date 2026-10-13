@@ -285,3 +285,33 @@ test('a switch-aware context is resumed when it is created, and the coroutine go
         }, $factory);
     });
 });
+
+test('a switch-aware context whose resume() starts a coroutine is created once, and the coroutine runs in it (#86)', function () {
+    $context = new class implements SwitchAwareInterface {
+        public array $log    = [];
+        public ?object $seen = null;
+
+        public function resume(): void
+        {
+            $this->log[] = 'resume';
+            if (1 === \count($this->log)) {
+                phasync::go(function () {
+                    $this->seen = phasync::getContext();
+                });
+            }
+        }
+
+        public function suspend(): void
+        {
+            $this->log[] = 'suspend';
+        }
+    };
+    $factory = lazyFactory($context);
+    phasync::run(function () use ($factory, $context) {
+        phasync::withContext(function () use ($context) {
+            expect(phasync::getContext())->toBe($context);
+        }, $factory);
+    });
+    expect($factory->calls)->toBe(1);
+    expect($context->seen)->toBe($context);
+});

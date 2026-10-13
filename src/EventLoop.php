@@ -1449,11 +1449,18 @@ final class EventLoop implements \Countable
      */
     private function enterLazyContext(\Fiber $fiber, int $id): void
     {
-        $lazy               = $this->lazyContexts[$id];
-        $context            = $lazy->factory->createContext();
+        $lazy = $this->lazyContexts[$id];
+        // Entered from here on: a resume() hook that starts a coroutine must not enter it again (#86)
+        unset($this->lazyContexts[$id]);
+        try {
+            $context = $lazy->factory->createContext();
+        } catch (\Throwable $e) {
+            $this->lazyContexts[$id] = $lazy; // not entered: the next ask tries the factory again
+
+            throw $e;
+        }
         $lazy->outerFinally = $this->enterContext($fiber, $id, $context);
         $lazy->context      = $context;
-        unset($this->lazyContexts[$id]);
     }
 
     /**
