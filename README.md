@@ -142,12 +142,12 @@ The phasync extension is an optional PHP extension. Inside
 `phasync::run()`, blocking I/O in code that knows nothing about phasync suspends the coroutine
 instead of the process, and returns exactly what PHP would have returned, timeouts and warnings
 included. That covers sockets and TLS, MySQL through mysqli or PDO, curl and Guzzle, pipes
-and child processes, `sleep()`, DNS lookups, files and filesystem calls, and more. Clients with
-their own network code, such as PostgreSQL's libpq and phpredis, still block.
+and child processes, `sleep()`, DNS lookups, files and filesystem calls, PostgreSQL and SQLite,
+and more. Clients with their own network code, such as phpredis, still block.
 
 There is nothing extra to install: release packages of `phasync/phasync` carry the prebuilt
-binaries under `ext/` (PHP 8.3 to 8.5 on Linux, x86-64 and ARM64, glibc and musl, and on macOS,
-Apple silicon and Intel). They are closed source, free to use and redistribute under the licence
+binaries under `ext/` (PHP 8.3 to 8.5 on Linux, x86-64 and ARM64, glibc and musl; macOS builds
+follow in a later release). They are closed source, free to use and redistribute under the licence
 in `ext/LICENSE`, and optional. Enable the extension in one of these ways:
 
 - In `composer.json` of your project: `"extra": {"phasync": {"ext": true}}`. phasync does not
@@ -167,8 +167,8 @@ limit. It is read from
 the ini setting `phasync.license`, the environment variable `PHASYNC_LICENSE_FILE`, or
 `./phasync.license`, and `phasync\ext\license()` shows what is in effect.
 
-The extension waits with epoll instead of
-`stream_select()`, so a process can watch any number of sockets: without it, PHP's `stream_select()`
+The extension waits with `select()` and switches to epoll at 1024 watched descriptors, so a
+process can watch any number of sockets: without it, PHP's `stream_select()`
 cannot use file descriptors numbered 1024 and up.
 
 phasync behaves the same with and without the extension. The extension only lets more code wait

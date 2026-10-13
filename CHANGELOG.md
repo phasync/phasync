@@ -4,6 +4,8 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+## 2.0.0-beta8 (2026-10-13)
+
 ### Changed
 
 - A nested `run()` waits for its coroutines instead of yielding until they are done, so the loop
@@ -28,8 +30,19 @@ Earlier releases are listed on the GitHub releases page.
   finds garbage puts them back. Collection costs per root, and in a long-lived server most roots
   are live values of the requests in flight. WordPress under swerve: about 1 ms less CPU per
   request; Laravel, which makes plenty of cyclic garbage, keeps 0.5 s.
+- The event loop collects cyclic garbage only when it has a spare moment: nothing runnable
+  and a `poll(0)` finds no ready I/O, at most once per `GC_MIN_INTERVAL` (0.5 s). A loop kept
+  busy by always-runnable coroutines never has one, so as a safety net it collects once
+  `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect, and not before:
+  until then its garbage stays in memory, since it has no time to spare for collecting it.
+  The roots threshold (and its adaptive doubling) is gone. Both intervals can be set with the
+  `PHASYNC_GC_MIN_INTERVAL` and `PHASYNC_GC_MAX_INTERVAL` constants. (#87: collecting before
+  every wait cost a loaded WordPress worker 17% more CPU per page.)
 
 ### Added
+
+- `vendor/bin/phasync` runs PHP with the phasync extension loaded, taking `php`'s own arguments;
+  PHP processes it starts load the extension too.
 
 - `phasync\DeadlockException`: when coroutines wait and nothing can ever wake them, the
   outermost `run()` throws it instead of waiting forever. The loop finds this exactly, never by
@@ -69,16 +82,30 @@ Earlier releases are listed on the GitHub releases page.
   (~214 ms vs ~205 ms, no cap 248 ms) while keeping a slow-I/O page's throughput the fixed cap lost
   (77 req/s vs 9.6 req/s).
 
+### phasync-ext 0.5.0-beta6
+
+The release packages bundle phasync-ext 0.5.0-beta6 (was 0.5.0-beta5):
+
+- The free tier no longer caps concurrency. Waits it took over from blocking calls resume from a
+  token bucket of 100 a second, shared by every phasync process of a user on a machine, after an
+  unthrottled first 10 minutes; over the limit a coroutine stays parked a little longer, nothing
+  blocks. The old cap of 4 overlapping blocking calls per worker could deadlock.
+- The extension needs PHP 8.3 or newer (12 Linux binaries); phasync itself still runs on 8.2
+  without it.
+- `virtualize()` gives each request its own function, class and global symbol tables, function
+  statics and class static properties; a request never sees another request's declarations.
+  `virtualize()` is a module of its own (`phasync_virtualize`); the core builds without it.
+- The Poller waits with `select()` below 1024 watched descriptors and switches to epoll at or
+  above it.
+- PostgreSQL (libpq: `pg_*`, PDO pgsql) and SQLite (SQLite3, PDO sqlite) waits are cooperative.
+  A coroutine that enters a connection another coroutine is in a call on gets a `LogicException`.
+- The blocking calls the extension turned into waits count for `DeadlockException`'s stall check.
+- No macOS binaries in this release; they follow in a later one.
+
+## 2.0.0-beta7 (2026-10-04)
+
 ### Changed
 
-- The event loop collects cyclic garbage only when it has a spare moment: nothing runnable
-  and a `poll(0)` finds no ready I/O, at most once per `GC_MIN_INTERVAL` (0.5 s). A loop kept
-  busy by always-runnable coroutines never has one, so as a safety net it collects once
-  `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect, and not before:
-  until then its garbage stays in memory, since it has no time to spare for collecting it.
-  The roots threshold (and its adaptive doubling) is gone. Both intervals can be set with the
-  `PHASYNC_GC_MIN_INTERVAL` and `PHASYNC_GC_MAX_INTERVAL` constants. (#87: collecting before
-  every wait cost a loaded WordPress worker 17% more CPU per page.)
 - The phasync extension ships inside the release packages of phasync under `ext/` (closed source
   binaries with their own licence in `ext/LICENSE`; phasync itself stays MIT). It is no longer a
   separate `composer require`, and the `suggest` entry for `phasync/phasync-ext` is gone. The
