@@ -2,6 +2,7 @@
 
 use phasync\AggregateException;
 use phasync\CancelledException;
+use phasync\DeadlockException;
 use phasync\EventLoop;
 use phasync\Internal\Channel;
 use phasync\Internal\Debug;
@@ -81,7 +82,7 @@ final class phasync
      *
      * Outside a coroutine, `run()` starts the event loop and blocks the process until then. This is how a script, a test or a controller under PHP-FPM enters phasync. Inside a coroutine it opens a nested scope in the same loop: the calling coroutine waits and the others go on.
      *
-     * The coroutines started inside belong to `$context`. If one of them throws and nobody awaits it, and no handler takes it (see {@see ExceptionHandlerInterface}), the run fails: its other coroutines are cancelled with a CancelledException, their `finally` blocks run, and `run()` throws the failure, or an AggregateException when several coroutines failed. A cancellation a coroutine ends with is no failure. What `$fn` itself throws is thrown from `run()` in the same way. A nested `run()` fails alone, and throws into the coroutine that called it.
+     * The coroutines started inside belong to `$context`. If one of them throws and nobody awaits it, and no handler takes it (see {@see ExceptionHandlerInterface}), the run fails: its other coroutines are cancelled with a CancelledException, their `finally` blocks run, and `run()` throws the failure, or an AggregateException when several coroutines failed. A cancellation a coroutine ends with is no failure. What `$fn` itself throws is thrown from `run()` in the same way. A nested `run()` fails alone, and throws into the coroutine that called it. When coroutines wait and nothing can ever wake them, the outermost `run()` fails in the same way with a DeadlockException.
      *
      * `$context` may be any object. A context can be used once: a second `run()`, `go()` or `withContext()` with the same object throws ContextUsedException. Without one, the run gets a new `stdClass`.
      *
@@ -104,6 +105,7 @@ final class phasync
      *
      * @throws Throwable            what `$fn` threw, or the failure of a coroutine nobody awaited
      * @throws AggregateException   when several coroutines failed
+     * @throws DeadlockException    from the outermost `run()`, when coroutines wait and nothing can wake them
      * @throws ContextUsedException if `$context` was used before
      *
      * @return mixed what `$fn` returned
@@ -112,6 +114,7 @@ final class phasync
      * @see phasync::withContext  the same, without starting a coroutine
      * @see phasync::await
      * @see phasync::service
+     * @see phasync\DeadlockException
      *
      * @topic coroutines
      *
@@ -158,9 +161,7 @@ final class phasync
                         $driver->tick();
                     }
                 } else {
-                    while ([] !== $driver->getFibers($context)) {
-                        self::yield();
-                    }
+                    $driver->awaitContext($context, \PHP_FLOAT_MAX);
                 }
             };
 

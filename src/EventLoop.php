@@ -416,13 +416,19 @@ final class EventLoop implements \Countable
     private PollerInterface|ext\Poller $poller;
 
     /**
+     * Coroutines waiting through the poller ({@see self::parkForPoller()}): while there is one, the
+     * loop is never stalled, since what it waits for may come from another process.
+     */
+    private int $pollerWaits = 0;
+
+    /**
      * Create a new EventLoop instance.
      */
     public function __construct()
     {
         // What a failure needs, loaded now: without file descriptors left, it can't be autoloaded
         foreach ([AggregateException::class, CancelledException::class, ChannelException::class, ContextUsedException::class,
-            DeadmanException::class, IOException::class, TimeoutException::class, Debug::class,
+            DeadlockException::class, DeadmanException::class, IOException::class, TimeoutException::class, Debug::class,
             ExceptionTool::class, FiberExceptionHolder::class] as $class) {
             \class_exists($class);
         }
@@ -485,8 +491,9 @@ final class EventLoop implements \Countable
             \register_shutdown_function(static function () { self::$exiting = true; });
         }
         $this->poller                = \class_exists(ext\Poller::class, false)
-            ? new ext\Poller($this->getSlot(...), $this->park(...), $this->unpark(...))
+            ? new ext\Poller($this->getSlot(...), $this->parkForPoller(...), $this->unpark(...))
             : new StreamSelectPoller($this);
+        $this->pollerWaits           = 0;
         $this->parked                = [];
         $this->parkedSlots           = [];
         $this->callbackQueue         = new \SplQueue();
@@ -603,6 +610,11 @@ final class EventLoop implements \Countable
         $afterNextCount = isset($this->flaggedFibers[$this->afterNextFlag]) ? $this->flaggedFibers[$this->afterNextFlag]->count() : 0;
 
         if ($maxSleepTime > 0 && $afterNextCount > 0) {
+            $maxSleepTime = 0;
+        }
+
+        if ($maxSleepTime > 0 && 0 === $this->pollerWaits && $this->isStalled()) {
+            $this->stalled();
             $maxSleepTime = 0;
         }
 
@@ -1258,6 +1270,88 @@ final class EventLoop implements \Countable
                 throw new $className($e->getMessage(), $e->getCode(), $e);
             } catch (\Throwable) {
                 throw $e;
+            }
+        }
+    }
+
+    /**
+     * park() for a wait on the poller (a stream, or with phasync-ext any hooked blocking call):
+     * counted, since such a wait can end by what another process does (DLK-3).
+     *
+     * @internal the pollers
+     *
+     * @throws TimeoutException after $timeout seconds
+     */
+    public function parkForPoller(int $slot, float $timeout = \PHP_FLOAT_MAX): void
+    {
+        ++$this->pollerWaits;
+        try {
+            $this->park($slot, $timeout);
+        } finally {
+            --$this->pollerWaits;
+        }
+    }
+
+    /**
+     * Whether coroutines wait and nothing can ever wake them (DLK-3): none can run, no callback is
+     * queued, and no timer, timeout, idle() waiter or signal is left. Waits on the poller are
+     * checked by the caller (tick()), as is the afterNext flag.
+     */
+    private function isStalled(): bool
+    {
+        return 0 !== $this->pending->count() && 0 === $this->queue->count() && $this->callbackQueue->isEmpty()
+            && $this->scheduler->isEmpty() && [] === $this->timeoutBuckets && [] === $this->idleWaiters
+            && [] === $this->signalCounts;
+    }
+
+    /**
+     * The loop is stalled: the outermost run() fails with a DeadlockException naming every
+     * waiting coroutine, which cancels its coroutines. A stall while the run's coroutines already
+     * unwind (a shielded wait) fails it again, and drops the coroutines still waiting, so the run
+     * ends; they are destroyed as their last references go.
+     */
+    private function stalled(): void
+    {
+        if (\gc_status()['roots'] > 0) {
+            // A flag freed with a cycle wakes its waiters (FLG-1)
+            $this->collectCycles();
+            $this->lastGarbageCollect = \microtime(true);
+            if (!$this->isStalled()) {
+                return;
+            }
+        }
+        $own   = [\dirname(__DIR__) . \DIRECTORY_SEPARATOR . 'phasync.php', \dirname(__DIR__) . \DIRECTORY_SEPARATOR . 'io.php'];
+        $lines = [];
+        foreach ($this->pending as $fiber) {
+            $line = '  coroutine #' . \spl_object_id($fiber);
+            if ($fiber->isSuspended()) {
+                // The call it waits in: the first one made from outside phasync
+                $rf    = new \ReflectionFiber($fiber);
+                $where = ' at ' . $rf->getExecutingFile() . ':' . $rf->getExecutingLine();
+                foreach ($rf->getTrace(\DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+                    if (isset($frame['file']) && !\str_starts_with($frame['file'], __DIR__ . \DIRECTORY_SEPARATOR) && !\in_array($frame['file'], $own, true)) {
+                        $where = ' in ' . ($frame['class'] ?? '') . ($frame['type'] ?? '') . $frame['function'] . '() at ' . $frame['file'] . ':' . $frame['line'];
+                        break;
+                    }
+                }
+                $line .= $where;
+            }
+            if (isset($this->flagGraph[$fiber])) {
+                $line .= ', for coroutine #' . \spl_object_id($this->flagGraph[$fiber]);
+            }
+            $lines[] = $line;
+        }
+        $exception = new DeadlockException((1 === \count($lines) ? '1 coroutine waits and nothing can wake it' : \count($lines) . ' coroutines wait and nothing can wake them') . ":\n" . \implode("\n", $lines));
+        $root      = $this->rootRunContext ?? throw $exception;
+        $failing   = isset($this->runCancellations[$root]);
+        $this->failRun($root, $exception);
+        if ($failing) {
+            $dropped = [];
+            foreach ($this->pending as $fiber) {
+                $dropped[] = $fiber;
+            }
+            foreach ($dropped as $fiber) {
+                $this->discard($fiber);
             }
         }
     }

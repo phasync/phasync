@@ -134,7 +134,7 @@ final class StreamSelectPoller implements PollerInterface
         $this->readSlots[$id]   = $slot;
         $failures               = $this->failures;
         try {
-            $this->loop->park($slot, $timeout);
+            $this->loop->parkForPoller($slot, $timeout);
         } finally {
             if (($this->readSlots[$id] ?? null) === $slot) {
                 // Not unparked: the wait was cancelled or timed out
@@ -157,7 +157,7 @@ final class StreamSelectPoller implements PollerInterface
         $this->writeSlots[$id]   = $slot;
         $failures                = $this->failures;
         try {
-            $this->loop->park($slot, $timeout);
+            $this->loop->parkForPoller($slot, $timeout);
         } finally {
             if (($this->writeSlots[$id] ?? null) === $slot) {
                 // Not unparked: the wait was cancelled or timed out

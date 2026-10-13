@@ -260,7 +260,7 @@ test('DLK-2: a three-coroutine await cycle throws LogicException in the last cor
     expect($log)->toBe(['2: LogicException']);
 });
 
-test('DLK-2: a two-channel cross deadlock (A fills X waiting for B, B fills Y waiting for A) is not detected [DIVERGENCE]', function () {
+test('DLK-2: a two-channel cross deadlock (A fills X waiting for B, B fills Y waiting for A) is not detected when it forms, only as a global stall (DLK-3) [DIVERGENCE]', function () {
     // The contract (DLK-2) says await cycles are detected "when they form". That is true
     // for phasync::await($fiber) chains (EventLoop's flagGraph, which only tracks
     // \Fiber-typed flags), but Channel blocks on its own private \stdClass flag -- never a
@@ -280,9 +280,11 @@ test('DLK-2: a two-channel cross deadlock (A fills X waiting for B, B fills Y wa
             . ' $a = phasync::go(function () use ($w1, $r2) { $w1->write("from a"); $r2->read(); });'
             . ' $b = phasync::go(function () use ($w2, $r1) { $w2->write("from b"); $r1->read(); });'
             . ' phasync::await($a); phasync::await($b);',
-    ], 2.0);
+    ], 1.0);
 
-    expect($report['cross-channel']['running'])->toBeTrue();
+    // Changed on the maintainer's decision (2026-10-13): nothing else can run, so the stall is
+    // global, and run() throws DeadlockException (to stderr here) instead of waiting forever.
+    expect($report['cross-channel']['running'])->toBeFalse();
     expect($report['cross-channel']['stdout'])->toBe("waiting\n");
 })->group('divergence');
 
@@ -290,19 +292,18 @@ test('DLK-2: a two-channel cross deadlock (A fills X waiting for B, B fills Y wa
 // DLK-3 / DLK-4: stalls
 // ---------------------------------------------------------------------------
 
-test('DLK-3: a global stall (nothing can ever wake anyone) is not detected, run() just keeps waiting [DIVERGENCE]', function () {
-    // The contract (DLK-3) says run() throws DeadlockException. Today the child processes
-    // below are still running, silently, after the observation window.
+test('DLK-3: a global stall (nothing can ever wake anyone) makes run() throw DeadlockException', function () {
+    // Changed on the maintainer's decision (2026-10-13): detected exactly, see tests/DeadlockTest.php.
     $report = dlkRunStalled([
-        'flag'    => '$flag = new stdClass(); phasync::awaitFlag($flag); unset($flag);',
-        'channel' => 'phasync::channel($r, $w); $reader = phasync::go(fn () => $r->read()); phasync::await($reader);',
-    ], 2.0);
+        'flag'    => 'try { $flag = new stdClass(); phasync::awaitFlag($flag); unset($flag); } catch (Throwable $e) { echo get_class($e), "\\n"; }',
+        'channel' => 'phasync::channel($r, $w); $reader = phasync::go(fn () => $r->read()); try { phasync::await($reader); } catch (Throwable $e) { echo get_class($e), "\\n"; }',
+    ], 1.0);
 
-    expect($report['flag']['running'])->toBeTrue();
-    expect($report['flag']['stdout'])->toBe("waiting\n");
-    expect($report['channel']['running'])->toBeTrue();
-    expect($report['channel']['stdout'])->toBe("waiting\n");
-})->group('divergence');
+    expect($report['flag']['running'])->toBeFalse();
+    expect($report['flag']['stdout'])->toBe("waiting\nphasync\\CancelledException\nfinished\n");
+    expect($report['channel']['running'])->toBeFalse();
+    expect($report['channel']['stdout'])->toBe("waiting\nphasync\\CancelledException\nfinished\n");
+});
 
 test('DLK-4: a blocked coroutine is left alone while others make progress (partial stalls are not detected)', function () {
     $log = phasync::run(static function () {

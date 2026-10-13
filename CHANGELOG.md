@@ -6,6 +6,8 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Changed
 
+- A nested `run()` waits for its coroutines instead of yielding until they are done, so the loop
+  can sleep, or find a stall, while it waits. (#103)
 - The phasync extension needs PHP 8.3 to 8.5. On PHP 8.2 `phasync\ext\ensure_loaded()` and `vendor/bin/phasync` say so; phasync itself still runs on PHP 8.2 without it.
 - The extension loader finds macOS binaries: `ext/phasync-<php>-nts-<arm64|x86_64>-darwin.so`.
 - A wait in a Fiber a coroutine runs itself (Drupal's renderer) runs the event loop in place
@@ -28,6 +30,14 @@ Earlier releases are listed on the GitHub releases page.
   request; Laravel, which makes plenty of cyclic garbage, keeps 0.5 s.
 
 ### Added
+
+- `phasync\DeadlockException`: when coroutines wait and nothing can ever wake them, the
+  outermost `run()` throws it instead of waiting forever. The loop finds this exactly, never by
+  time: nothing runnable or queued, and no timer, timeout, `idle()` waiter, signal handler or wait
+  on a stream left (with phasync-ext, also no blocking call it turned into a wait). A wait on a
+  stream always counts, since the other end may be in another process. The message names each
+  blocked coroutine, the call it waits in and where; the run's coroutines are cancelled as for
+  any failure, so their `finally` blocks run. (#103)
 
 - `PHASYNC_PREEMPT_INTERVAL`: defined before the event loop starts, it replaces
   `EventLoop::PREEMPT_INTERVAL` (20 ms) as the time a coroutine runs in a PHP loop before

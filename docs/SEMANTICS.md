@@ -384,10 +384,17 @@ assume", no library-imposed 30 or 60 second limits. ❌ Present in `Channel::rea
 **DLK-2. Await cycles are detected when they form.** `await($a)` inside `$a`'s own wait
 chain throws `LogicException`. ✅ EdgeCaseTest "circular dependency deadlock"
 
-**DLK-3. Global stall is detected exactly.** If no coroutine is runnable, and no timer,
-stream watcher or child process is pending, yet coroutines are still blocked, nothing can
-ever wake them. `run()` throws `DeadlockException` carrying who is blocked on what.
-🆕 ❌ Currently `tick()` idles in 0.5 s sleeps forever.
+**DLK-3. Global stall is detected exactly.** If no coroutine is runnable, no callback is
+queued, and no timer, timeout, `idle()` waiter, signal handler or wait on the poller (a
+stream, or with phasync-ext any blocking call it turns into a wait) is pending, yet
+coroutines are still blocked, nothing can ever wake them. A wait on a stream always counts,
+since its other end may be in another process: a `stream_socket_pair()` deadlock is not
+detected. Before deciding, the loop collects cycles once, since a freed flag wakes its
+waiters (FLG-1). The outermost `run()` then fails with `DeadlockException`, whose message
+names each blocked coroutine, the call it waits in and where: its coroutines are cancelled
+and unwind as for any failure (SCO-3). If its coroutines stall again while they unwind (a
+shielded wait), the run fails again and the coroutines still waiting are dropped. ✅
+DeadlockTest (#103)
 
 **DLK-4. Partial stalls are not detected.** A subset of coroutines blocked while others
 make progress is the developer's responsibility. This is the accepted limit of P6.
@@ -644,7 +651,7 @@ fail on purpose and is reported before it is accepted.
 | TMO-7 *new* | A zero or negative timeout waits for the next timeout check, so its delay depends on when the last check ran (0 to about 0.5 s) | Fires promptly |
 | TMO-1 | `readable()` and `stream()` apply the default timeout | **Fixed:** infinite unless given; the default timeout and `setDefaultTimeout()` are gone (D6) |
 | DLK-1 | Creator-fiber heuristic (100 ms) and an extra `sleep()` in `Channel::read()` and `write()` | Removed |
-| DLK-3 | A global stall is not detected | `DeadlockException` |
+| DLK-3 | A global stall is not detected: `tick()` idles in 0.5 s sleeps forever | `DeadlockException`. **Done** (#103) |
 | CHN-1 | An unbuffered `write()` returns before any reader has read, and its timeout is ignored; `isReadyForWrite()` looks inverted | Rendezvous |
 | CHN-5 / D1 | `foreach` over a `ReadChannel` stops at a written `null` and leaves the rest unread | **Fixed:** `read()` takes `?bool &$eof = null`; `getIterator()` uses it. Also fixed in `Subscriber`/`Subscribers` (two further bugs found in the same family, see CHN-5) |
 | CHN-9 / D2 | `stdClass`, `Closure`, `DateTime` and resources throw `TypeError` | **Fixed:** `read()`/`write()` are `mixed`. Resolved by recognizing cross-process transport as a separate concern (clustering, `docs/roadmap-2.0.md`), not something in-process channels need to be typed around |
