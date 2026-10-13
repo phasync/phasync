@@ -21,6 +21,8 @@ Earlier releases are listed on the GitHub releases page.
   the values left after the writer closed, `eof()` becomes true at the end of the channel, and
   `read()` then returns `''`. `read($length)` returns at most `$length` bytes and keeps the rest of
   a longer chunk for the next read. (#93)
+- `RateLimiter::await($timeout)` throws `TimeoutException` when no permit comes in time; it
+  ignored the timeout. (#75)
 
 ## 2.0.0-beta8 (2026-10-13)
 

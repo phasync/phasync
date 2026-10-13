@@ -6,6 +6,7 @@ use phasync;
 use phasync\ChannelException;
 use phasync\ReadChannelInterface;
 use phasync\SelectableInterface;
+use phasync\TimeoutException;
 
 /**
  * Lets events pass at a fixed rate, shared by every coroutine that calls `wait()`.
@@ -68,13 +69,13 @@ final class RateLimiter implements SelectableInterface
     /**
      * Waits for a permit and takes it.
      *
-     * `$timeout` is not used: this waits for as long as it takes.
+     * @param float $timeout seconds to wait at most
      *
-     * @param float $timeout ignored
+     * @throws TimeoutException if no permit came in time
      */
     public function await(float $timeout = \PHP_FLOAT_MAX): void
     {
-        $this->readChannel->read();
+        $this->readChannel->read($timeout);
     }
 
     /**

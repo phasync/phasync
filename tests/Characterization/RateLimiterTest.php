@@ -123,25 +123,26 @@ test('RL-1: isReady() is true while a token is available and false right after i
     expect($out)->toBe([false, true, false, true]);
 });
 
-test('RL-1: await() ignores its timeout argument and waits for a token without throwing [DIVERGENCE]', function () {
-    // SEMANTICS SEL/TMO expect a timeout parameter to be honoured.
-    [$elapsed, $threw] = phasync::run(function () {
+test('RL-1: await() throws TimeoutException when no permit comes within its timeout (#75)', function () {
+    [$elapsed, $exception] = phasync::run(function () {
         $rl = new RateLimiter(2);
         $rl->wait();
-        $t     = \microtime(true);
-        $threw = false;
+        $t         = \microtime(true);
+        $exception = null;
         try {
-            $rl->await(0.01);
-        } catch (Throwable) {
-            $threw = true;
+            $rl->await(0.05);
+        } catch (Throwable $e) {
+            $exception = $e;
         }
+        $elapsed = \microtime(true) - $t;
+        $rl->await(1);   // the permit still comes at the rate
 
-        return [\microtime(true) - $t, $threw];
+        return [$elapsed, $exception];
     });
 
-    expect($threw)->toBeFalse();
-    expect($elapsed)->toBeGreaterThanOrEqual(0.4);
-})->group('divergence');
+    expect($exception)->toBeInstanceOf(phasync\TimeoutException::class);
+    expect($elapsed)->toBeGreaterThanOrEqual(0.04)->toBeLessThan(0.3);
+});
 
 test('RL-1: wait() behaves like await() and a RateLimiter is a SelectableInterface', function () {
     $out = phasync::run(function () {
