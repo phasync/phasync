@@ -17,10 +17,7 @@ class io
         if (!\phasync\ext\current_fiber()) {
             return \file_get_contents($filename);
         }
-        $fp = \fopen($filename, 'r');
-        if (!$fp) {
-            throw new \Exception("Unable to open file '$filename'");
-        }
+        $fp = self::open($filename, 'r');
 
         \stream_set_blocking($fp, false);
         $content = '';
@@ -48,13 +45,7 @@ class io
         if (!\phasync\ext\current_fiber()) {
             return \file_put_contents($filename, $data, $flags);
         }
-        $context = \stream_context_create();
-        $mode    = ($flags & \FILE_APPEND) ? 'a' : 'w';
-
-        $fp = \fopen($filename, $mode, false, $context);
-        if (!$fp) {
-            throw new \Exception("Unable to open file '$filename' for writing.");
-        }
+        $fp = self::open($filename, ($flags & \FILE_APPEND) ? 'a' : 'w');
 
         if ($flags & \LOCK_EX) {
             self::flock($fp, \LOCK_EX);
@@ -85,6 +76,33 @@ class io
         } finally {
             \fclose($fp);
         }
+    }
+
+    /**
+     * fopen(), with its warning as the message of the exception it throws instead.
+     *
+     * @return resource
+     *
+     * @throws \Exception when the file cannot be opened
+     */
+    private static function open(string $filename, string $mode)
+    {
+        $warning = null;
+        \set_error_handler(static function (int $code, string $message) use (&$warning): bool {
+            $warning = $message;
+
+            return true;
+        });
+        try {
+            $fp = \fopen($filename, $mode);
+        } finally {
+            \restore_error_handler();
+        }
+        if (false === $fp) {
+            throw new \Exception("Unable to open file '$filename': " . ($warning ?? 'no error was reported'));
+        }
+
+        return $fp;
     }
 
     /**

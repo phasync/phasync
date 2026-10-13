@@ -69,3 +69,34 @@ it('writes a stream resource read to its end, as the native function does (#76)'
         \unlink($filename);
     }
 });
+
+it('throws for a missing file without a PHP warning, and the exception says why (#101)', function () {
+    $warnings = [];
+    \set_error_handler(function (int $code, string $message) use (&$warnings) {
+        $warnings[] = $message;
+
+        return true;
+    });
+    try {
+        [$exception, $putException] = phasync::run(function () {
+            $result = [];
+            try {
+                \phasync\file_get_contents(__DIR__ . '/no-such-file.txt');
+            } catch (Exception $e) {
+                $result[] = $e;
+            }
+            try {
+                \phasync\file_put_contents(__DIR__ . '/no-such-dir/file.txt', 'x');
+            } catch (Exception $e) {
+                $result[] = $e;
+            }
+
+            return $result;
+        });
+    } finally {
+        \restore_error_handler();
+    }
+    expect($warnings)->toBe([]);
+    expect($exception->getMessage())->toContain('no-such-file.txt')->toContain('No such file or directory');
+    expect($putException->getMessage())->toContain('no-such-dir/file.txt')->toContain('No such file or directory');
+});

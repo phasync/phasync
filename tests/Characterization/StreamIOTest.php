@@ -449,7 +449,7 @@ test('IO-1: io::file_get_contents() and io::file_put_contents() read and write f
     iochar_with_file("line1\nline2\nline3", function (string $path) {
         phasync::run(function () use ($path) {
             expect(io::file_get_contents($path))->toBe("line1\nline2\nline3");
-            // The failing fopen() also emits a PHP warning, on top of the exception.
+            // The failing fopen()'s warning is not emitted: it ends the exception's message (#101).
             $warnings = [];
             \set_error_handler(function (int $no, string $str) use (&$warnings) {
                 $warnings[] = $str;
@@ -461,8 +461,8 @@ test('IO-1: io::file_get_contents() and io::file_put_contents() read and write f
             } finally {
                 \restore_error_handler();
             }
-            expect($warnings)->toHaveCount(1);
-            expect($warnings[0])->toContain('Failed to open stream');
+            expect($warnings)->toBe([]);
+            expect(fn () => io::file_get_contents('/nonexistent/file'))->toThrow(Exception::class, 'Failed to open stream');
 
             $out = $path . '.out';
             expect(io::file_put_contents($out, 'written'))->toBe(7);

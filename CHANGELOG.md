@@ -28,6 +28,8 @@ Earlier releases are listed on the GitHub releases page.
   the event loop, or, with other streams waited on, waited forever. (#77)
 - `phasync\file_put_contents()` in a coroutine writes a stream resource given as `$data`, read to
   its end, as the native function does; it threw `TypeError` after truncating the file. (#76)
+- `phasync\file_get_contents()` and `phasync\file_put_contents()` in a coroutine throw for a file
+  they cannot open without emitting PHP's warning first; the exception's message carries it. (#101)
 
 ## 2.0.0-beta8 (2026-10-13)
 
