@@ -17,6 +17,10 @@ Earlier releases are listed on the GitHub releases page.
   `getContents()` threw `LogicException` then. `append()` after `end()` throws its own
   `LogicException`. `getContents()` before `end()` no longer holds the stream's lock while it
   waits, which kept the writer from appending. (#74, #92, #105)
+- A stream of a read channel (`StreamFactory::create($readChannel)`) reads to its end: it reads
+  the values left after the writer closed, `eof()` becomes true at the end of the channel, and
+  `read()` then returns `''`. `read($length)` returns at most `$length` bytes and keeps the rest of
+  a longer chunk for the next read. (#93)
 
 ## 2.0.0-beta8 (2026-10-13)
 

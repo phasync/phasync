@@ -16,6 +16,10 @@ final class ReadChannelStream implements StreamInterface
     private ?ReadChannelInterface $source;
     private ?int $size;
     private int $offset = 0;
+    private bool $ended = false;
+
+    /** The rest of a chunk longer than a read() asked for */
+    private string $pending = '';
 
     public function __construct(ReadChannelInterface $source, ?int $size=null)
     {
@@ -92,7 +96,7 @@ final class ReadChannelStream implements StreamInterface
      */
     public function eof(): bool
     {
-        return $this->offset === $this->size;
+        return $this->ended || $this->offset === $this->size;
     }
 
     /**
@@ -165,7 +169,7 @@ final class ReadChannelStream implements StreamInterface
      */
     public function isReadable(): bool
     {
-        return $this->source && !$this->source->isClosed();
+        return null !== $this->source;
     }
 
     /**
@@ -182,16 +186,33 @@ final class ReadChannelStream implements StreamInterface
      */
     public function read($length): string
     {
-        if (!$this->isReadable()) {
+        if (null === $this->source) {
             throw new \RuntimeException('Not readable');
         }
-        $chunk = $this->source->read();
-        if (\is_string($chunk)) {
-            $this->offset += \strlen($chunk);
+        if ('' === $this->pending) {
+            if ($this->eof()) {
+                return '';
+            }
+            $chunk = $this->source->read(eof: $eof);
+            if ($eof) {
+                $this->ended = true;
 
-            return $chunk;
+                return '';
+            }
+            if (!\is_string($chunk)) {
+                throw new \RuntimeException('The channel delivered ' . \get_debug_type($chunk) . ', not a string');
+            }
+        } else {
+            $chunk         = $this->pending;
+            $this->pending = '';
         }
-        throw new \RuntimeException('Unable to read from stream');
+        if (\strlen($chunk) > $length) {
+            $this->pending = \substr($chunk, $length);
+            $chunk         = \substr($chunk, 0, $length);
+        }
+        $this->offset += \strlen($chunk);
+
+        return $chunk;
     }
 
     /**
@@ -204,11 +225,7 @@ final class ReadChannelStream implements StreamInterface
     {
         $chunks = [];
         while (!$this->eof()) {
-            $chunk = $this->read(65536);
-            if (null === $chunk) {
-                $this->close();
-            }
-            $chunks[] = $chunk;
+            $chunks[] = $this->read(\PHP_INT_MAX);
         }
 
         return \implode('', $chunks);
