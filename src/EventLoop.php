@@ -1305,7 +1305,7 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * The loop is stalled: the outermost run() fails with a DeadlockException naming every
+     * The loop is stalled, unless a signal handler phasync doesn't know of is installed: the outermost run() fails with a DeadlockException naming every
      * waiting coroutine, which cancels its coroutines. A stall while the run's coroutines already
      * unwind (a shielded wait) fails it again, and drops the coroutines still waiting, so the run
      * ends; they are destroyed as their last references go.
@@ -1318,6 +1318,14 @@ final class EventLoop implements \Countable
             $this->lastGarbageCollect = \microtime(true);
             if (!$this->isStalled()) {
                 return;
+            }
+        }
+        if (\function_exists('pcntl_signal_get_handler')) {
+            // A handler of the application's own (pcntl_signal()) may raise a flag when its signal comes
+            for ($signo = 1, $last = \defined('SIGRTMAX') ? \SIGRTMAX : 31; $signo <= $last; ++$signo) {
+                if (\is_callable(\pcntl_signal_get_handler($signo))) {
+                    return;
+                }
             }
         }
         $own   = [\dirname(__DIR__) . \DIRECTORY_SEPARATOR . 'phasync.php', \dirname(__DIR__) . \DIRECTORY_SEPARATOR . 'io.php'];

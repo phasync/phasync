@@ -385,9 +385,9 @@ assume", no library-imposed 30 or 60 second limits. ❌ Present in `Channel::rea
 chain throws `LogicException`. ✅ EdgeCaseTest "circular dependency deadlock"
 
 **DLK-3. Global stall is detected exactly.** If no coroutine is runnable, no callback is
-queued, and no timer, timeout, `idle()` waiter, signal handler or wait on the poller (a
-stream, or with phasync-ext any blocking call it turns into a wait) is pending, yet
-coroutines are still blocked, nothing can ever wake them. A wait on a stream always counts,
+queued, and no timer, timeout, `idle()` waiter, signal handler (phasync's or one installed with
+`pcntl_signal()`) or wait on the poller (a stream, or with phasync-ext any blocking call it turns into a wait)
+is pending, yet coroutines are still blocked, nothing can ever wake them. A wait on a stream always counts,
 since its other end may be in another process: a `stream_socket_pair()` deadlock is not
 detected. Before deciding, the loop collects cycles once, since a freed flag wakes its
 waiters (FLG-1). The outermost `run()` then fails with `DeadlockException`, whose message

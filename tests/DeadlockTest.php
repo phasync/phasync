@@ -241,6 +241,19 @@ test('DLK-3: blocking calls, which phasync-ext turns into waits on the loop, are
     expect($r)->toBe(['running' => false, 'stdout' => "line\nexit 0\nwoken\nreturned\n"]);
 });
 
+test('DLK-3: a flag raised from a pcntl_signal() handler of the application\'s own is no stall', function () {
+    $r = dlkChild(<<<'PHP'
+        pcntl_async_signals(true);
+        $stop = new stdClass();
+        pcntl_signal(SIGUSR1, function () use ($stop) { phasync::raiseFlag($stop); });
+        $kill = proc_open([PHP_BINARY, '-r', 'usleep(200000); posix_kill(' . getmypid() . ', SIGUSR1);'], [], $pipes);
+        phasync::awaitFlag($stop);
+        proc_close($kill);
+        PHP);
+
+    expect($r)->toBe(['running' => false, 'stdout' => "returned\n"]);
+})->skip(!\function_exists('pcntl_signal') || !\function_exists('posix_kill'), 'needs pcntl and posix');
+
 test('DLK-3: an idle() waiter is no stall', function () {
     $r = dlkChild(<<<'PHP'
         $flag = new stdClass();
