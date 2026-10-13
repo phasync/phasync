@@ -11,6 +11,8 @@ Earlier releases are listed on the GitHub releases page.
   hook, and later woke that coroutine for a wait it never made. (#85)
 - A lazily created context (`withContext()` given a factory) whose `resume()` starts a coroutine
   is entered once; the coroutine's start entered it again, without end. (#86)
+- `BufferedStream` moves content past `$bufferSize` to its temporary file; `append()` held the
+  stream's lock and the move took it again, so it waited on itself until the deadlock timeout. (#91)
 
 ## 2.0.0-beta8 (2026-10-13)
 

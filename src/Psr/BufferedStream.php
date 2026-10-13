@@ -103,7 +103,12 @@ class BufferedStream implements StreamInterface
 
         // Ensure there is a stream resource to detach
         if (null === $this->file) {
-            $this->transitionToFile();
+            $this->lock();
+            try {
+                $this->transitionToFile();
+            } finally {
+                $this->unlock();
+            }
         }
 
         $result       = $this->file;
@@ -337,37 +342,27 @@ class BufferedStream implements StreamInterface
     }
 
     /**
-     * Transition the in-memory buffer to a disk backed file.
-     *
-     * @throws TimeoutException
-     * @throws \Throwable
-     * @throws \LogicException
-     * @throws \FiberError
+     * Transition the in-memory buffer to a disk backed file. The caller holds the lock.
      */
     private function transitionToFile(): void
     {
-        $this->lock();
-        try {
-            if (null !== $this->file) {
+        if (null !== $this->file) {
+            return;
+        }
+        $this->file = \tmpfile();
+        for ($i = 0; $i < $this->writeOffset;) {
+            // Block Fiber until file is readable
+            \phasync::writable($this->file);
+            $written = \fwrite($this->file, \substr($this->buffer, $i, 32768));
+            if (false === $written) {
+                // Abort transition, failed writing so fall back to memory one more chunk
+                $this->file = null;
+
                 return;
             }
-            $this->file = \tmpfile();
-            for ($i = 0; $i < $this->writeOffset;) {
-                // Block Fiber until file is readable
-                \phasync::writable($this->file);
-                $written = \fwrite($this->file, \substr($this->buffer, $i, 32768));
-                if (false === $written) {
-                    // Abort transition, failed writing so fall back to memory one more chunk
-                    $this->file = null;
-
-                    return;
-                }
-                $i += $written;
-            }
-            $this->buffer = '';
-        } finally {
-            $this->unlock();
+            $i += $written;
         }
+        $this->buffer = '';
     }
 
     /**

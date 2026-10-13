@@ -31,3 +31,18 @@ phasync::run(function () {
         expect($stream->eof())->toBe(true);
     });
 });
+
+test('content that outgrows the memory buffer moves to a temporary file, and reads back whole (#91)', function () {
+    phasync::run(function () {
+        $stream = new BufferedStream(16, 1);
+        $stream->append('0123456789');
+        $stream->append('abcdefghij');   // past 16 bytes: to the file
+        $stream->append('KLMNOPQRST');
+        expect($stream->read(5))->toBe('01234');
+        $stream->append('uvwxyz');
+        expect($stream->read(100))->toBe('56789abcdefghijKLMNOPQRSTuvwxyz');
+        $stream->end();
+        expect($stream->getSize())->toBe(36);
+        expect($stream->eof())->toBeTrue();
+    });
+});
