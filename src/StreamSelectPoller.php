@@ -42,6 +42,14 @@ final class StreamSelectPoller implements PollerInterface
     private int $failures         = 0;
     private ?IOException $failure = null;
 
+    /**
+     * Waited-for streams stream_select() cannot wait on (no file descriptor, as php://memory), by
+     * resource id: their waiters throw the ValueError stream_select() throws, as phasync-ext does.
+     *
+     * @var array<int, true>
+     */
+    private array $unselectable = [];
+
     public function __construct(private readonly EventLoop $loop)
     {
     }
@@ -71,25 +79,22 @@ final class StreamSelectPoller implements PollerInterface
             $microseconds = (int) (($timeout - $seconds) * 1000000);
             $result       = \stream_select($reads, $writes, $excepts, $seconds, $microseconds);
         } catch (\TypeError|\ValueError $e) {
-            // A stream was closed while waited for (ValueError when no open stream is left to
-            // select on). Rare, so only now look for it: a closed stream is ready.
-            $reads = $writes = [];
-            foreach ($this->readStreams as $id => $stream) {
-                if (!\is_resource($stream)) {
-                    $reads[$id] = $stream;
-                }
-            }
-            foreach ($this->writeStreams as $id => $stream) {
-                if (!\is_resource($stream)) {
-                    $writes[$id] = $stream;
-                }
-            }
+            // A stream was closed while waited for, or none of them can be waited on (ValueError
+            // when no stream is left to select on). Rare, so only now look for them: a closed
+            // stream is ready, and an unselectable one fails its waiter.
+            [$reads, $writes] = $this->unwaitable();
             if (!$reads && !$writes) {
-                throw $e; // not a closed stream, for example one stream_select() can't wait on
+                throw $e;
             }
             $result = 1;
         } finally {
             \restore_error_handler();
+        }
+        if (null !== $selectWarning && \str_contains($selectWarning, 'select()able')) {
+            // stream_select() skipped a stream it cannot wait on, and waited on the others
+            [$failedReads, $failedWrites] = $this->unwaitable();
+            $reads += $failedReads;
+            $writes += $failedWrites;
         }
 
         if (false === $result) {
@@ -123,6 +128,35 @@ final class StreamSelectPoller implements PollerInterface
         }
     }
 
+    /**
+     * The waited-for streams that are closed, or that stream_select() cannot wait on (those are
+     * marked unselectable), as [reads, writes].
+     *
+     * @return array{array<int, resource>, array<int, resource>}
+     */
+    private function unwaitable(): array
+    {
+        $found = [[], []];
+        foreach ([$this->readStreams, $this->writeStreams] as $i => $streams) {
+            foreach ($streams as $id => $stream) {
+                if (!\is_resource($stream)) {
+                    $found[$i][$id] = $stream;
+                    continue;
+                }
+                $one  = [$stream];
+                $none = [];
+                try {
+                    @\stream_select($one, $none, $none, 0);
+                } catch (\ValueError) {
+                    $this->unselectable[$id] = true;
+                    $found[$i][$id]          = $stream;
+                }
+            }
+        }
+
+        return $found;
+    }
+
     public function readable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
     {
         $id = \get_resource_id($stream);
@@ -140,6 +174,11 @@ final class StreamSelectPoller implements PollerInterface
                 // Not unparked: the wait was cancelled or timed out
                 unset($this->readStreams[$id], $this->readSlots[$id]);
             }
+        }
+        if (isset($this->unselectable[$id])) {
+            unset($this->unselectable[$id]);
+
+            throw new \ValueError('No stream arrays were passed');
         }
         if ($failures !== $this->failures) {
             throw $this->failure;
@@ -163,6 +202,11 @@ final class StreamSelectPoller implements PollerInterface
                 // Not unparked: the wait was cancelled or timed out
                 unset($this->writeStreams[$id], $this->writeSlots[$id]);
             }
+        }
+        if (isset($this->unselectable[$id])) {
+            unset($this->unselectable[$id]);
+
+            throw new \ValueError('No stream arrays were passed');
         }
         if ($failures !== $this->failures) {
             throw $this->failure;

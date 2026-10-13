@@ -23,6 +23,9 @@ Earlier releases are listed on the GitHub releases page.
   a longer chunk for the next read. (#93)
 - `RateLimiter::await($timeout)` throws `TimeoutException` when no permit comes in time; it
   ignored the timeout. (#75)
+- Without the extension, `readable()` or `writable()` on a stream without a file descriptor
+  (`php://memory`) throws `ValueError` in the waiting coroutine, as the extension does; it failed
+  the event loop, or, with other streams waited on, waited forever. (#77)
 
 ## 2.0.0-beta8 (2026-10-13)
 

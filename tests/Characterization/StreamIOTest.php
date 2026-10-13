@@ -246,18 +246,23 @@ test('IO-2: readable() and writable() on something that is not an open stream th
     });
 });
 
-test('IO-2: waiting on a php://memory stream makes phasync::run() throw ValueError from the driver', function () {
-    // stream_select() cannot poll memory streams and the driver does not guard against it. Run in
-    // a child process because the driver of the test process would be left half finished.
+test('IO-2: waiting on a php://memory stream throws ValueError in the waiting coroutine, as stream_select() does, with and without the extension (#77)', function () {
+    // stream_select() cannot wait on a stream without a file descriptor; phasync-ext's poller
+    // throws the same ValueError. The coroutine can catch it, and the loop goes on. Run in a child
+    // process, so a driver that fails cannot leave the test process's loop half finished.
     foreach (['readable', 'writable'] as $function) {
-        $result = iochar_child(
-            'try { phasync::run(function () { $m = fopen("php://memory", "w+"); phasync::' . $function . '($m); echo "returned"; }); }'
-            . ' catch (Throwable $e) { echo get_class($e), ": ", $e->getMessage(); }',
-            10.0
-        );
-        expect($result)->toBe(['stdout' => 'ValueError: No stream arrays were passed', 'timedOut' => false]);
+        foreach (['', 'phasync::go(function () { [$a, $b] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP); fwrite($b, "x"); phasync::readable($a); });'] as $other) {
+            $result = iochar_child(
+                'try { phasync::run(function () { ' . $other . ' $m = fopen("php://memory", "w+");'
+                . ' try { phasync::' . $function . '($m); echo "returned"; } catch (Throwable $e) { echo get_class($e), ": ", $e->getMessage(), "; "; }'
+                . ' phasync::sleep(0.01); echo "the loop goes on"; }); }'
+                . ' catch (Throwable $e) { echo "run() threw ", get_class($e), ": ", $e->getMessage(); }',
+                10.0
+            );
+            expect($result)->toBe(['stdout' => 'ValueError: No stream arrays were passed; the loop goes on', 'timedOut' => false]);
+        }
     }
-})->group('surprise');
+});
 
 test('IO-2: outside phasync::run() readable() and writable() return at once for a blocking resource', function () {
     [$a, $b] = iochar_pair();
