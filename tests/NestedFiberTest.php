@@ -106,7 +106,7 @@ final class NestedFiberWaitingHook implements phasync\Context\SwitchAwareInterfa
 {
     public array $failures = [];
 
-    public function __construct(private readonly bool $catch, private readonly bool $inFiber)
+    public function __construct(private readonly bool $inFiber)
     {
     }
 
@@ -116,9 +116,7 @@ final class NestedFiberWaitingHook implements phasync\Context\SwitchAwareInterfa
         try {
             $this->inFiber ? (new Fiber($wait))->start() : $wait();
         } catch (LogicException $e) {
-            if (!$this->catch) {
-                throw $e;
-            }
+            // Caught here: an exception out of a hook ends run()
             $this->failures[] = $e->getMessage();
         }
     }
@@ -128,16 +126,15 @@ final class NestedFiberWaitingHook implements phasync\Context\SwitchAwareInterfa
     }
 }
 
-test('a wait in a Fiber a SwitchAwareInterface hook starts throws LogicException, which ends run()', function () {
-    expect(fn () => phasync::run(function () {
-        phasync::go(fn () => phasync::sleep(0.01), [], new NestedFiberWaitingHook(false, true));
-    }))->toThrow(LogicException::class, 'must not wait');
-});
-
-test('a wait in a SwitchAwareInterface hook itself throws LogicException', function () {
-    expect(fn () => phasync::run(function () {
-        phasync::go(fn () => phasync::sleep(0.01), [], new NestedFiberWaitingHook(false, false));
-    }))->toThrow(LogicException::class, 'must not wait');
+test('a wait in a SwitchAwareInterface hook, or in a Fiber it starts, throws LogicException there', function () {
+    foreach ([true, false] as $inFiber) {
+        $hook = new NestedFiberWaitingHook($inFiber);
+        phasync::run(function () use ($hook) {
+            phasync::go(fn () => phasync::sleep(0.01), [], $hook);
+        });
+        expect($hook->failures)->not->toBeEmpty();
+        expect($hook->failures[0])->toContain('must not wait');
+    }
 });
 
 test('a hook that catches the LogicException of its wait leaves the coroutines it switches to intact', function () {
@@ -151,7 +148,7 @@ test('a hook that catches the LogicException of its wait leaves the coroutines i
                     phasync::sleep(0.02);
                     $log[] = $name . (\microtime(true) - $t >= 0.02 ? ' slept' : ' woke early');
                 }
-            }, [], $hooks[] = new NestedFiberWaitingHook(true, true));
+            }, [], $hooks[] = new NestedFiberWaitingHook(true));
         }
     });
     expect($log)->toBe(['a slept', 'b slept', 'a slept', 'b slept', 'a slept', 'b slept']);
