@@ -1080,7 +1080,7 @@ final class phasync
      *
      * @see phasync::go
      *
-     * @topic coroutines
+     * @topic scopes-and-frames
      *
      * @example examples/phasync.onScopeChange/1-a-locale-per-request.php A locale per request
      */
@@ -1105,7 +1105,7 @@ final class phasync
      * @see phasync\Frame
      * @see phasync::run
      *
-     * @topic coroutines
+     * @topic scopes-and-frames
      */
     public static function frame(): Frame
     {

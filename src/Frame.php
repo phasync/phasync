@@ -21,7 +21,7 @@ namespace phasync;
  * @see phasync::frame
  * @see phasync::cancel  cancels one coroutine
  *
- * @topic coroutines
+ * @topic scopes-and-frames
  *
  * @example examples/Frame/1-cancel-a-job-and-what-it-started.php Cancel a job and everything it started
  */
