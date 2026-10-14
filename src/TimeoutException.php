@@ -7,7 +7,9 @@ use phasync\Internal\RethrowExceptionTrait;
 /**
  * A wait with a timeout ran out before it was satisfied.
  *
- * Thrown in the waiting coroutine only; what it waited for is not cancelled: an awaited coroutine keeps running, and a channel keeps its values.
+ * Thrown in the waiting coroutine only; what it waited for is not cancelled: an awaited coroutine keeps running, and a channel keeps its values. `run()` throws it, too, when its frame's deadline passed ({@see Frame::setTimeout()}).
+ *
+ * It implements fiber-interop's `async\TimeoutException`, so code written against fiber-interop/api catches it.
  *
  * ```php
  * phasync::run(function () {

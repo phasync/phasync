@@ -42,7 +42,7 @@ ordinary function (below); nothing else in the application changes.
 - **Legacy code joins in.** With the phasync extension loaded, the code you already have (MySQL through PDO or
   mysqli, curl and Guzzle, `file_get_contents()`, `http://` streams, DNS lookups, `sleep()`) waits
   cooperatively inside coroutines instead of blocking the process. No rewrite.
-- **Yours to own.** MIT (the optional extension binaries have their own licence), and no dependencies beyond PHP and PSR interfaces: small enough for you,
+- **Yours to own.** MIT (the optional extension binaries have their own licence), and no dependencies beyond PHP, PSR interfaces and `fiber-interop/scope`: small enough for you,
   or your coding agent, to read whole and maintain for a decade. See
   [the Ennerd philosophy](PHILOSOPHY.md).
 
@@ -55,7 +55,7 @@ is done, not when the sum of them is.
 
 **Under [swerve](https://github.com/phasync/swerve): an asynchronous server, end to end.** Your
 PSR-15 application stays loaded, and every worker serves thousands of requests at once, each in
-a phasync context of its own. The same code that overlapped three API calls under FPM now also
+a `Scope` of its own. The same code that overlapped three API calls under FPM now also
 overlaps requests, WebSocket connections and background work.
 
 ## The path from PHP-FPM to real-time
@@ -110,7 +110,8 @@ $pages = phasync::run(function () {
 ```
 
 - `phasync::run($fn)` runs `$fn` as a coroutine, and returns its result once it and every
-  coroutine it started have finished. Called inside a coroutine, it is a nested scope.
+  coroutine it started have finished. Called inside a coroutine, it runs `$fn` in that coroutine
+  and waits only for what `$fn` started.
 - `phasync::go($fn)` starts a coroutine and returns it at once; `phasync::await($coroutine)`
   waits for its result, or throws its exception.
 - `phasync::sleep($seconds)` pauses only the current coroutine; `phasync::sleep()` lets the others
@@ -118,6 +119,27 @@ $pages = phasync::run(function () {
 - `phasync::cancel($coroutine)` throws a `CancelledException` into it; every wait accepts a
   timeout and throws a `TimeoutException` when it runs out. Without one, a wait waits for as long
   as it takes.
+
+### Frames and scopes
+
+Every `run()` creates a frame (`phasync\Frame`): the coroutines started inside it, which it
+waits for. A failure cancels nothing; once the rest have ended, `run()` throws what `$fn` threw,
+else the earliest failure nobody awaited. The frame can be cancelled, given a deadline, or given
+a handler for the failures nobody awaited:
+
+```php
+phasync::run(function () {
+    phasync::frame()->setTimeout(2.0);   // run() throws TimeoutException after 2 seconds
+    phasync::go(fn () => fetch('https://www.php.net/'));
+    phasync::go(fn () => fetch('https://getcomposer.org/'));
+});
+```
+
+Which request or job the code belongs to is a separate thing: the ambient `\Scope` from
+[`fiber-interop/scope`](https://packagist.org/packages/fiber-interop/scope). A coroutine keeps
+the scope it was started in across every wait, so per-request state lives in a `WeakMap` keyed
+by `Scope::getCurrent()`, and `phasync::onScopeChange()` swaps global state as the loop moves
+between requests.
 
 ## Making your own I/O cooperative
 

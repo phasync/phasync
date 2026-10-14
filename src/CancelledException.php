@@ -11,6 +11,8 @@ use phasync\Internal\RethrowExceptionTrait;
  *
  * A wait on a flag that can no longer be raised throws it too ("The flag no longer exists").
  *
+ * It implements fiber-interop's `async\CancelledException`, so code written against fiber-interop/api catches it.
+ *
  * ```php
  * phasync::run(function () {
  *     $worker = phasync::go(function () {

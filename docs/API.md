@@ -7,43 +7,49 @@ The phasync library provides a comprehensive API for building and managing async
 ## Key Components
 
  * Fibers: Lightweight threads that allow for non-blocking execution.
- * Contexts: any object groups the coroutines of a run, a request or a task; `getContext()` returns the current one.
+ * Frames (`phasync\Frame`): the lifetime of a `run()`. Every `run()` creates one; the coroutines started inside it belong to it, and it waits for them, cancels them and rethrows their failures. `phasync::frame()` returns the current one.
+ * Scopes (`\Scope`, from `fiber-interop/scope`): the identity of the operation (a request, a job) the code belongs to. `Scope::getCurrent()` returns it; coroutines keep the scope they were started in. Keep per-request state in a `WeakMap` keyed by it.
  * EventLoop: runs coroutines, and waits for timers, flags and (through its poller) streams.
 
 ## Core Functions
 
-### `phasync::run(Closure $coroutine, array $arguments = [], ?object $context = null): mixed`
+### `phasync::run(callable $fn, mixed ...$args): mixed`
 
-Executes a coroutine within an event loop, ensuring that all nested coroutines complete before returning. This function is blocking until the coroutine and all its nested operations are completed.
+Runs `$fn` and returns its result once it and every coroutine started inside it have ended. Outside a coroutine it starts the event loop and blocks until then. Inside a coroutine it runs `$fn` inline in that coroutine, in a new frame nested in the caller's, and waits only for what `$fn` started.
 
-Parameters:
-
- * $coroutine: The coroutine to execute.
- * $arguments: Optional arguments to pass to the coroutine.
- * $context: Optional *fresh* context to associate with this coroutine run. This context MUST NOT be shared with other run instances.
-
-
-### `phasync::go(Closure $coroutine, mixed ...$args): Fiber`
-
-Launches a new coroutine immediately without waiting for it to finish, effectively creating and starting a fiber that runs in the background.
+A failure does not cancel the other coroutines. Once they have all ended, `run()` throws what `$fn` threw; else the earliest failure of a coroutine nobody awaited; else it returns what `$fn` returned. Later failures are not thrown; with `Frame::setExceptionHandler()` they all go to the handler instead. When the outermost `run()` has no coroutine left, it cancels the services and returns once they have ended. `run()` does not change the current `Scope`.
 
 Parameters:
 
- * $coroutine: The coroutine to be executed asynchronously.
- * $args: Arguments to pass to the coroutine.
+ * $fn: What to run.
+ * $args: Passed to `$fn`.
 
 
-### `phasync::background(callable $coroutine, array $arguments): Fiber`
+### `phasync::go(callable $fn, mixed ...$args): Fiber`
 
-Launches a callable (Closure or serializable callback in the shape of a string or an array) in an isolated environment in parallel with the main loop. Technically, this leverages php-fpm to launch the callable in a configurable worker pool queue, so the coroutine will not be able to interact with other coroutines running in your main program.
-
-If the `$coroutine` is passed as a Closure, `opis/closure` will be used to serialize the closure before passing it to be run in the worker pool.
+Starts `$fn` as a coroutine and returns it without waiting for it. The coroutine runs at once, up to its first wait. It belongs to the caller's frame, and runs in the `Scope` current where `go()` is called, also after it waited. Throws `LogicException` outside a coroutine.
 
 Parameters:
 
- * $coroutine: The coroutine to be executed in parallel.
- * $args: A serializable array of arguments.
- 
+ * $fn: The coroutine.
+ * $args: Passed to `$fn`.
+
+
+### `phasync::frame(): Frame`
+
+The frame of the running coroutine: that of the innermost `run()` it is in. Throws `LogicException` outside a coroutine and in a service.
+
+```php
+phasync::run(function () {
+    $frame = phasync::frame();
+    $frame->setTimeout(2.0);    // cancels the frame after 2 seconds; run() throws TimeoutException
+    $frame->setExceptionHandler(fn (Throwable $e) => error_log($e->getMessage()));
+    phasync::go(fn () => fetch('a'));
+    phasync::go(fn () => fetch('b'));
+    // $frame->cancel() cancels every coroutine of the frame and of the frames nested in it
+});
+```
+
 
 ### `phasync::await(Fiber|promise-like $awaitable, ?float $timeout = null): mixed`
 
@@ -55,27 +61,24 @@ Parameters:
  * $timeout: Maximum time in seconds to wait before timing out.
 
 
-### `phasync::awaitContext(object $context, float $timeout = PHP_FLOAT_MAX): void`
+### `phasync::service(callable $fn, mixed ...$args): Fiber`
 
-Suspends the calling coroutine until every coroutine started in `$context` has ended, including those of nested contexts and any started while waiting. The calling coroutine itself is not waited for. Throws `TimeoutException` if some are still running when the timeout expires; the call can be repeated.
-
-Parameters:
-
- * $context: The context object given to `phasync::withContext()` or `phasync::run()`.
- * $timeout: Maximum time in seconds to wait.
-
-### `phasync::service(Closure $coroutine): void`
-
-Creates a long-running and context-free coroutine which can be used to extend the functionality of phasync by for example polling `curl_multi_*` functions. The coroutine should terminate itself if it no longer provides such services. Also it should use the `phasync::yield()` function to sleep between each tick efficiently, or if a guaranteed polling frequency is needed `phasync::sleep(0.1)` would sleep 0.1 seconds between each tick.
+Starts `$fn` as a service and returns its coroutine: one coroutine that serves many others and is started on first use, such as a connection manager or the `curl_multi_*` poller. It runs in the root scope (`Scope::getRootScope()`) and has no frame, so no `run()` waits for it. When the outermost `run()` has no coroutine left, it cancels its services and returns once they have ended, so a service must be written to be started again by the next use. A failure nobody awaits goes to the outermost `run()`.
 
 Parameters:
 
- * $coroutine: The function that performs the polling in a loop.
+ * $fn: The service.
+ * $args: Passed to `$fn`.
 
 
-### `phasync::cancel(object $fiberOrContext, string|Stringable $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void`
+### `phasync::cancel(Fiber $fiber, string|Stringable|CancelledException $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void`
 
-Cancels a coroutine, or every waiting coroutine of a context. Sticky: the coroutine's waits throw a `CancelledException` until it ends, so a coroutine that catches it and waits again is cancelled again. `$previous` is what caused the cancellation, such as the failure that tears a context down.
+Cancels a coroutine, and not the coroutines it started; to cancel a frame, use `$frame->cancel()`. Sticky: the coroutine's waits throw a `CancelledException` until it ends, so a coroutine that catches it and waits again is cancelled again. `$previous` is what caused the cancellation.
+
+
+### `phasync::onScopeChange(callable $fn): void`
+
+Registers `$fn(Scope $new, ?Scope $old)`, called before a coroutine runs when its scope differs from the one the loop last made current: on start and on resume, never between coroutines of one scope. Use it to swap state PHP keeps globally (a locale, a library's static) per request. Hooks run in the event loop, outside any coroutine: they must not wait, and an exception from one ends `phasync::run()`. They stay registered for the life of the loop.
 
 ### `phasync::throw(Fiber $fiber, Throwable $exception): void`
 
@@ -84,7 +87,7 @@ Interrupts the wait of a suspended coroutine with an exception, once. The corout
 
 ### `phasync::sleep(float $seconds = 0): void`
 
-Suspends the current coroutine for the specified number of seconds. If called without a fiber context, it defaults to a simple sleep.
+Suspends the current coroutine for the specified number of seconds. Outside a coroutine, it is a plain sleep.
 
 Parameters:
 
@@ -154,6 +157,8 @@ $loop->unpark($slot);            // from elsewhere: true if it resumed a corouti
 ```
 
 What is parked must be unparked, or it waits until its timeout: nothing notices a forgotten slot, as the garbage collector notices a forgotten flag. Flags are for objects other code holds; slots are for waits inside one component.
+
+A `Fiber` that phasync did not start can drive the loop in place with `$loop->tick()`; the running coroutine and its frame are restored when it returns.
 
 ### Notes
 

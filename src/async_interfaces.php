@@ -9,14 +9,22 @@
 namespace async;
 
 if (!\interface_exists(TimeoutException::class)) {
-    /** Thrown by await*, readable() and writable() when the timeout expires. The awaited task keeps running. */
+    /**
+     * Thrown by await*, readable() and writable() when the timeout expires. The awaited task keeps running.
+     *
+     * @internal fiber-interop/api's, declared by phasync only when the api is not installed
+     */
     interface TimeoutException extends \Throwable
     {
     }
 }
 
 if (!\interface_exists(CancelledException::class)) {
-    /** Thrown by sleep() and the waits when the owning loop cancels the task. Loops implement it on their own exception class. */
+    /**
+     * Thrown by sleep() and the waits when the owning loop cancels the task. Loops implement it on their own exception class.
+     *
+     * @internal fiber-interop/api's, declared by phasync only when the api is not installed
+     */
     interface CancelledException extends \Throwable
     {
     }

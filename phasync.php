@@ -1065,7 +1065,7 @@ final class phasync
      *
      * The hooks run in the event loop, outside any coroutine, in the order registered: they must not wait (a wait there throws LogicException), and an exception from one ends `phasync::run()`. They stay registered for the life of the event loop.
      *
-     * Without the phasync extension, a generator runs in the scope of the code that iterates it (fiber-interop/scope's polyfill); with it, in the scope it was created in, and the hooks fire when a generator of another scope resumes.
+     * A generator runs in the scope of the code that iterates it (fiber-interop/scope's polyfill gap), and resuming one calls nothing. Reporting a generator's own scope is planned for the phasync extension.
      *
      * ```php
      * $locales = new WeakMap();   // per Scope

@@ -26,7 +26,7 @@ public function __construct(float $eventsPerSecond, int $burst = 0)
 
 ### Example
 
-Here's an example of how to use the `RateLimiter` class within a `phasync` context:
+Here's an example of how to use the `RateLimiter` class inside `phasync::run()`:
 
 ```php
 <?php

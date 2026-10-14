@@ -4,6 +4,12 @@ This is the contract for phasync's core: single-process concurrency on PHP Fiber
 Every rule has an ID so that a test can name the rule it verifies. Where Go has an
 established answer, it is the reference, and every deliberate difference is marked.
 
+In 2.x, contexts were replaced by two separate things: the ambient `\Scope`
+(fiber-interop/scope) is the identity of an operation, and `phasync\Frame` is the lifetime of
+a `run()` (section 3). In older issues, a "root context" is now a scope, `withContext()` is a
+nested `run()`, `cancel($context)` is `$frame->cancel()`, and `AggregateException` is gone
+(ERR-4).
+
 **Status legend**
 
 | Mark | Meaning |
@@ -23,7 +29,7 @@ Treat ⚠️ as "write the test and find out".
 
 phasync is an async IO and concurrency library for one PHP process.
 
-In scope: the scheduler and driver, coroutines and scopes, cancellation, timeouts,
+In scope: the scheduler and driver, coroutines, frames and scopes, cancellation, timeouts,
 channels, `WaitGroup`, `RateLimiter`, flags, non-blocking stream IO, `Process`
 pipes, and `StringBuffer`.
 
@@ -92,9 +98,9 @@ which they became runnable. ⚠️
 
 **SCH-5. Operations are atomic between suspension points.** Because scheduling is
 cooperative, a sequence of statements that does not suspend cannot be interleaved with
-another coroutine of its root context. Every rule below relies on this. ⚠️
+another coroutine of its scope. Every rule below relies on this. ⚠️
 
-**SCH-6. Preemption (with phasync-ext) switches only between root contexts, and only between
+**SCH-6. Preemption (with phasync-ext) switches only between scopes, and only between
 loop iterations.** A coroutine that runs a whole `EventLoop::PREEMPT_INTERVAL` (20 ms; the
 `PHASYNC_PREEMPT_INTERVAL` constant, defined before the loop starts, overrides it) in a PHP
 loop yields, so that timers, I/O and other requests get their turn. It is never preempted:
@@ -104,11 +110,12 @@ loop yields, so that timers, I/O and other requests get their turn. It is never 
 - in phasync's or swerve's own code, the event loop's tick included, or in a `Fiber` that a
   coroutine runs itself.
 
-Its root context (a request) stays frozen until it resumes: none of that root's other
-coroutines run before it, so from inside a request, SCH-5 holds unchanged. Coroutines of that
-root that became ready meanwhile run right after it, unless it was preempted again. A coroutine
-preempted before its first suspension returns control to the `go()` that started it; if that
-caller is of the same root, it waits too, so `go()` returns once the root thaws. Across roots,
+Its scope (the `Scope` current in it when it was preempted, a request for instance) stays frozen
+until it resumes: no other coroutine of that scope runs before it, so from inside a request,
+SCH-5 holds unchanged. Coroutines of other scopes run meanwhile. Coroutines of that scope that
+became ready meanwhile run right after it, unless it was preempted again. A coroutine preempted
+before its first suspension returns control to the `go()` that started it; if that caller is of
+the same scope, it waits too, so `go()` returns once the scope thaws. Across scopes,
 a sequence of statements without a loop and without a suspension point is atomic: code can build
 its own atomic operations (test-and-set, compare-and-swap) in plain PHP. Without phasync-ext
 there is no preemption. ✅ PreemptionTest
@@ -124,59 +131,82 @@ like `afterNext()`. Cancelling a waiting coroutine removes it from the queue, so
 consume an idle moment that was meant for the next waiter. ✅ IdleTest
 
 
-## 3. Scopes (structured concurrency)
+## 3. Frames and scopes (structured concurrency)
 
 *Go reference: no equivalent in the language; `errgroup` is the closest tool.*
 
-**SCO-1. `run()` opens a scope.** Every coroutine belongs to exactly one scope. A coroutine
-created by `go()` joins the creator's scope. ✅ RunTest
+Two separate things. A frame (`phasync\Frame`) is the lifetime: which `run()` waits for a
+coroutine, and what a cancellation or a deadline reaches. A scope (`\Scope`) is the identity:
+which operation (a request, a job) the code belongs to. SCO-1 to SCO-6 are about frames, SCO-7
+about scopes.
 
-**SCO-2. A scope does not exit until all its coroutines have finished.** `run()` returns
-or throws only after every coroutine in its scope has terminated. ✅ RunTest
+**SCO-1. `run()` creates a frame.** Every coroutine belongs to exactly one frame, except a
+service, which has none (SCO-6). A coroutine created by `go()` joins the creator's frame: only
+`run()` and `service()` start code outside it. `phasync::frame()` returns the frame of the
+running coroutine, that of the innermost `run()` it is in; it throws `LogicException` outside a
+coroutine and in a service. ✅ ScopesTest, ScopeFrameTest
 
-**SCO-3. An unhandled failure goes to a handler, or fails its run.** A failure no coroutine
-takes (nobody awaits the failed coroutine) goes outward through the contexts: its own, then
-the one that was entered from. The first implementing `ExceptionHandlerInterface` gets it,
-from the event loop. A handler that returns has handled it: only the failed coroutine ended.
-One that throws passes its exception on outward, as if it had no handler. With no handler
-taking it, it fails the nearest `run()`: the run cancels its scope (its coroutines, those of
-contexts nested in it, and for the outermost run the services) with a `CancelledException`
-whose previous exception is the failure, and waits until they have unwound (CAN-4). The main
-coroutine failing fails its run the same way. phasync logs nothing. ✅ ContextTest,
-ScopesTest, ErrorsTest
-
-**SCO-4. `run()` throws the scope's failure.** A failed run throws its failure, or an
-`AggregateException` when there were several (ERR-4); the main coroutine's own failure comes
-first. The cancellations its coroutines unwind with are no failures; anything else they throw
-is. A nested `run()` fails alone and throws into the coroutine that called it. ✅ RunTest,
+**SCO-2. A frame does not end until all its coroutines have ended.** `run()` returns or throws
+only after every coroutine of its frame, and of the frames nested in it, has ended. ✅ RunTest,
 ScopesTest
 
-**SCO-5. Nested `run()` does not cascade.** Cancelling a coroutine that is blocked in a
-nested `run()` stops that coroutine only. The outer `run()` still waits for the nested
-children. ✅ Matches today.
+**SCO-3. A failure nobody awaits cancels nothing.** The other coroutines of the frame, and
+`$fn`, go on; `run()` throws the failure once they have all ended (SCO-4). Awaiting the failed
+coroutine before `run()` ends counts as handling it (ERR-2). With an exception handler on the
+frame (`Frame::setExceptionHandler()`), every failure nobody awaits goes to it instead, and
+`run()` does not throw it. The handler runs in the event loop, outside any coroutine, and must
+not wait; what it throws, `run()` throws. Code that wants the rest stopped on a failure cancels
+the frame itself (`phasync::frame()->cancel()`, CAN-5). phasync logs nothing. *Differs from
+Trio's nurseries and Kotlin's `coroutineScope`, which cancel the siblings on the first failure.*
+✅ ScopesTest, ScopeFrameTest
 
-**SCO-6. Detached work is explicit.** `service()` is the only way to start a coroutine
-that outlives its scope. Its unhandled failures go to the outermost `run()` (a handler on its
-context, or its failure). ✅ ScopesTest
+**SCO-4. What `run()` throws.** Once every coroutine of its frame has ended, `run()` throws what
+`$fn` threw; else the earliest failure nobody awaited, by the time it happened (not by when it
+became known); else it returns what `$fn` returned. It throws one exception: later failures
+nobody awaited are not thrown (ERR-4). The cancellations its coroutines end with are no failures
+(CAN-9); anything else they throw is. A nested `run()` throws into the coroutine that called it,
+which can handle it. ✅ ScopesTest, ScopeFrameTest
 
-**SCO-7. A context is any object.** `run()`, `go()` and `withContext()` take an optional
-context object and `phasync::getContext()` returns the one the current coroutine belongs
-to, so an application can keep per-request services in a `WeakMap` keyed by it. phasync
-tracks the member coroutines itself (`EventLoop::getFibers($context)`), refuses to use a
-context twice, and keeps no reference to the object after its coroutines finish, so that
-such services are freed with the request. A context entered from another (`withContext()`,
-or `go()` with a context of its own) is nested in it. `getRootContext()` gives the context's
-root: a `run()`'s context is its own root, and so is a context entered from it (a request);
-contexts nested deeper share that one's root. A context may implement
-`SwitchAwareInterface` to swap per-request state in and out; or, without implementing anything,
-use `phasync::$contextState`, an array bound to the running coroutine's context once
-`phasync::enableContextState()` or `phasync::adoptContextState($array)` has turned that on
-(`phasync::$contextStateDefaults` is what a new context starts with). `withContext()` may be given a
-`ContextFactoryInterface` instead: the context is created when the closure first needs it, and
-a closure that never does runs in its coroutine's own context. `withContext()` is `run()` without
-the coroutine: it returns when the coroutines the closure started have ended, and cancels them
-when the closure throws or the caller is cancelled. There is no storage API on
-the context (D4). ✅ ScopesTest, ContextTest, WithContextTest, LazyContextTest, ContextStateTest
+**SCO-5. A nested `run()` is a child frame.** Inside a coroutine, `run()` runs `$fn` inline in
+the calling coroutine (no new coroutine), in a new frame nested in the caller's; the coroutines
+`$fn` starts join it, and the call returns once they have ended. `phasync::finally()` callbacks
+registered inside it run as `$fn` returns (ERR-5). Cancelling the coroutine blocked in a nested
+`run()` cancels the nested frame's coroutines too, waits for them to unwind (shielded), and then
+rethrows the cancellation in that coroutine. ✅ ScopesTest "SCO-5: cancelling a coroutine blocked
+in a nested run() cancels the nested frame's children too", CancellationTest "CAN-5", NestedRunTest.
+Before the 2.x redesign the nested coroutines went on; that divergence is gone.
+
+**SCO-6. Detached work is explicit.** `service()` is the only way to start a coroutine that
+outlives its frame. It returns the coroutine, runs it in the root scope (`Scope::getRootScope()`)
+whatever scope started it, and gives it no frame. No `run()` waits for a service: when the
+outermost `run()`'s frame has no coroutine left, it cancels the services and returns once they
+have ended. A service's failure nobody awaits goes to the outermost `run()`'s frame: its
+exception handler, or `run()` throws it. ✅ ScopesTest, ScopeFrameTest
+
+**SCO-7. The scope is the identity, the frame the lifetime.** The operation code belongs to is
+the ambient `\Scope` of the Composer package `fiber-interop/scope` (the native ext-scope, or its
+userland polyfill). phasync requires that package and does not declare `\Scope`.
+`Scope::getCurrent()` returns the current scope; `Scope::getRootScope()` is the one for "no
+operation". `go()` runs the new coroutine in the scope current where it is called, and the
+coroutine keeps it across waits. A coroutine that suspends inside `$scope->run(...)` finds that
+scope again when it resumes; other coroutines don't see it. `run()` does not change the current
+scope, services run in the root scope, and queued loop callbacks run in the scope they were
+queued from. A frame neither creates nor changes a scope: one scope may span several frames, and
+one frame hold coroutines of several scopes.
+
+Per-request state is kept in a `WeakMap` keyed by `Scope::getCurrent()`, and is freed with the
+scope. State that PHP keeps globally (a locale, a static of a library that is not scope-aware) is
+swapped with `phasync::onScopeChange($fn)`: `$fn(Scope $new, ?Scope $old)` is called before a
+coroutine runs, on start and on resume, when its scope differs from the one the loop last made
+current; never between coroutines of one scope. The hooks run in the loop, outside any coroutine,
+and must not wait (a wait throws `LogicException`); an exception from one ends `run()`. They stay
+registered for the life of the loop. Entering or leaving `$scope->run()` inside a coroutine calls
+nothing: the code doing it makes the change itself. Under the polyfill, phasync activates the
+polyfill's per-scope superglobals (`$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`) whenever the loop
+switches to a coroutine of another scope. Without the phasync extension a generator runs in the
+scope of the code iterating it (a limit of the polyfill). ✅ ScopeFrameTest, ScopesTest "SCO-7",
+NestedRunTest "onScopeChange() keeps a value of its own per scope". With the extension, a
+generator keeps the scope it was created in and the hooks fire for it. 🆕
 
 
 ## 4. Errors
@@ -186,25 +216,30 @@ exception it terminated with, every time it is called, for any number of awaiter
 ✅ ExceptionHandlingTest ("awaited 2 times")
 
 **ERR-2. An awaited failure is handled.** If at least one coroutine awaited the failed
-coroutine, the failure is not additionally reported to the scope. ⚠️
+coroutine before its `run()` ended, the failure is not reported to the frame. ✅ ScopeFrameTest
+"an awaited failure is not rethrown by run()"
 
-**ERR-3. An un-awaited failure reaches a handler or its run (SCO-3).**
+**ERR-3. An un-awaited failure reaches its frame (SCO-3).**
 It is known when the failed coroutine's `Fiber` object is released (anyone holding it may
 still await it), and at the latest when its `run()` ends: a `run()` owns its coroutines, so a
 `Fiber` still referenced then (by the application, or by a debugger such as Xdebug) doesn't keep
-the failure from failing it. Such a coroutine can't be awaited afterwards (`LogicException`).
+the failure from reaching it. Such a coroutine can't be awaited afterwards (`LogicException`).
 ✅ ErrorsTest
 
-**ERR-4. No failure is dropped silently.** If a scope sees more than one failure, `run()`
-throws an `AggregateException` with all of them, the first as its previous exception (D3),
-also those thrown while its dropped coroutines unwind. ✅ ErrorsTest
+**ERR-4. `run()` throws the earliest failure nobody awaited; with a frame exception handler
+every failure reaches it.** Without a handler, `run()` throws one exception: what `$fn` threw,
+else the earliest failure nobody awaited (SCO-4). The later failures are not thrown, and phasync
+does not log them. To see every one, set `Frame::setExceptionHandler()`, which gets them in the
+order they became known. There is no `AggregateException`; it was removed in the 2.x redesign
+(D3). ✅ ErrorsTest
 
 **ERR-5. `finally` always runs**, including on cancellation and on exceptions thrown into
 a suspended coroutine; in a cancelled coroutine, a wait inside it throws again (CAN-4).
 ✅ FinallyTest. `phasync::finally()` callbacks run when the coroutine
-ends, or, when registered inside `phasync::withContext()`, as that call returns, whichever comes
-first: in the calling coroutine, still in the context, and able to suspend, also when it was
-cancelled (CAN-4). ✅ WithContextTest
+ends, or, when registered inside a `run()` nested in a coroutine, as `$fn` returns, before the
+run waits for the coroutines `$fn` started, also when `$fn` threw: in the calling coroutine,
+still in the nested frame, and able to suspend, also when it was cancelled (CAN-4).
+✅ NestedRunTest
 
 **ERR-6. Exceptions are not used for flow control by the runtime**, except
 `CancelledException` and `TimeoutException`, which are part of this contract.
@@ -218,24 +253,28 @@ cancelled (CAN-4). ✅ WithContextTest
 to be thrown from the coroutine's current or next suspension point. ✅ CancelTest
 
 **CAN-2. Cancelling a running coroutine is legal.** A coroutine that cancels itself (or a
-context it is in) gets the exception at once, as a `throw`. Any other coroutine that isn't
+frame it is in) gets the exception at once, as a `throw`. Any other coroutine that isn't
 waiting meets it at its next wait; one that was preempted too, never at the preemption
 itself (SCH-6). ✅ CancellationTest
 
 **CAN-3. Cancelling a finished coroutine is a no-op.** ❌ Currently throws
 `InvalidArgumentException`.
 
-**CAN-4. Cancellation is sticky.** Once a coroutine or a context is cancelled, every wait
-in it throws the cancellation again, until the coroutine ends or leaves the context (a
-`withContext()` returning). A wait in a `catch` or `finally` block is cancelled too.
+**CAN-4. Cancellation is sticky.** Once a coroutine or a frame is cancelled, every wait
+in it throws the cancellation again, until the coroutine ends or leaves the frame (a nested
+`run()` returning). A wait in a `catch` or `finally` block is cancelled too.
 `phasync::finally()` callbacks are shielded: their waits aren't, so cleanup that must do I/O
 completes, bounded by that I/O's own timeouts. Timeouts are not cancellations: a
 `TimeoutException` is thrown once. (D5, revised) ✅ CancellationTest
 
 **CAN-5. `cancel($fiber)` stops that coroutine and nothing else, never its children;
-`cancel($context)` stops the context's.** Given a context, every waiting coroutine of it and
-of the contexts nested in it is cancelled, the deepest in the coroutine tree first, except
-the calling coroutine (D14). ✅ ScopesTest
+`$frame->cancel()` stops the frame's.** `phasync::cancel()` takes a `Fiber` only.
+`Frame::cancel()` cancels every coroutine of the frame and of the frames nested in it, the
+deepest in the coroutine tree first; the calling coroutine, if it is in the frame, gets it
+thrown at once (CAN-2). A cancelled coroutine blocked in a nested `run()` takes that nested
+frame's coroutines with it (SCO-5). (D14) ✅ ScopeFrameTest "$frame->cancel() cancels every
+coroutine of the frame and of the frames nested in it", ScopesTest "SCO-7: Frame::cancel()
+reaches the deepest coroutines first", CancellationTest "CAN-5"
 
 **CAN-6. Cancellation never loses or duplicates data.** A cancelled operation either
 completed before the exception, or did not happen. Examples: a cancelled channel write
@@ -246,12 +285,12 @@ stream, flag or channel keep waiting. ✅ regression fixed in commits c65d5b1 an
 add a dedicated test.
 
 **CAN-8. Cancellation cannot be forced, but can't be ignored while waiting.** A coroutine
-may catch `CancelledException` and finish its work, and the scope waits for it (SCO-2); any
+may catch `CancelledException` and finish its work, and its `run()` waits for it (SCO-2); any
 further wait throws again (CAN-4).
 
 **CAN-9. Ending with the cancellation you were given is not a failure.** A coroutine that
 terminates with the exception it was cancelled with (the default `CancelledException` or one
-passed to `cancel()`) does not fail its scope, and `run()` does not throw it; awaiting it
+passed to `cancel()`) is no failure of its frame, and `run()` does not throw it; awaiting it
 still throws it. *Go, Trio and Kotlin all treat this as normal termination.* (D12)
 ✅ CancellationTest
 
@@ -273,8 +312,12 @@ without waiting. A coroutine that does not suspend still delays every timer (SCH
 is exact.
 ✅ TimeoutsTest
 
-**TMO-4. A scope-level deadline is a timeout that cancels the scope.** 🆕 (e.g.
-`phasync::timeout($seconds, $fn)`.)
+**TMO-4. A frame-level deadline is a timeout that cancels the frame.**
+`phasync::frame()->setTimeout($seconds)`: when the deadline passes, the frame is cancelled with
+a `CancelledException` whose previous exception is a `TimeoutException`, and `run()` throws that
+`TimeoutException` instead of the cancellation. A `$fn` that catches the cancellation and returns
+makes `run()` return normally. Calling it again replaces the deadline. ✅ ScopeFrameTest "a frame
+timeout cancels the frame, and run() throws a TimeoutException"
 
 **TMO-5. The clock is injectable.** The driver takes a clock so that tests can advance
 time without sleeping. 🆕 This is what makes TMO and DLK tests fast and deterministic.
@@ -391,10 +434,10 @@ is pending, yet coroutines are still blocked, nothing can ever wake them. A wait
 since its other end may be in another process: a `stream_socket_pair()` deadlock is not
 detected. Before deciding, the loop collects cycles once, since a freed flag wakes its
 waiters (FLG-1). The outermost `run()` then fails with `DeadlockException`, whose message
-names each blocked coroutine, the call it waits in and where: its coroutines are cancelled
-and unwind as for any failure (SCO-3). If its coroutines stall again while they unwind (a
-shielded wait), the run fails again and the coroutines still waiting are dropped. ✅
-DeadlockTest (#103)
+names each blocked coroutine, the call it waits in and where: its coroutines and the services
+are cancelled and unwind, and then it throws the `DeadlockException`. If its coroutines stall
+again while they unwind (a shielded wait), the run fails again and the coroutines still waiting
+are dropped. ✅ DeadlockTest (#103), ScopeFrameTest
 
 **DLK-4. Partial stalls are not detected.** A subset of coroutines blocked while others
 make progress is the developer's responsibility. This is the accepted limit of P6.
@@ -520,11 +563,15 @@ Leaving `run()` must restore the previous state and never enable what the user d
 **RT-2. No error or exception handlers are installed.**  ⚠️
 
 **RT-3. `run()` may be called at any nesting depth,** inside or outside a coroutine, and
-top-level `run()` is the only thing that drives the loop. ✅ RunTest
+top-level `run()` is what drives the loop. A `Fiber` phasync did not start can drive it in
+place with `phasync::getLoop()->tick()`, which restores the running coroutine and its frame when
+it returns. `run()` runs `$fn` in the caller's scope and leaves it unchanged. ✅ RunTest,
+RuntimeTest "RT-3", ScopeFrameTest "a Fiber phasync did not start drives the loop in place with
+tick()"
 
 **RT-4. Unsupported use fails loudly.** `go()` and `await()` outside `run()`
 throw `LogicException` with a message that names `phasync::run()`. ✅ AwaitTest,
-APIOutsideOfRunTest
+APIOutsideOfRunTest, RuntimeTest "RT-4"
 
 
 ## 13. Testing rules
@@ -638,13 +685,13 @@ fail on purpose and is reported before it is accepted.
 |----|-----------------|------------------|
 | SCH-3 | A coroutine waiting for readability is resumed when the resource only becomes writable | No spurious wake-ups |
 | SCH-5 | `go()` suspends its caller once the preempt interval has elapsed, using the process-wide `$lastPreemptTime`, so it depends on wall-clock time | `go()` returns to the caller without depending on the clock. Done: `preempt()` is removed |
-| SCO-3 | An un-awaited child failure does not cancel siblings or interrupt the parent. `run()` throws at the end and the parent's return value is lost | **Changed (maintainer, 2026-09-29):** a handler takes it, or it fails the run, which drops its coroutines (hard teardown) and throws. Done |
-| SCO-5 | Cancelling a coroutine blocked in a nested `run()` does not cancel the nested children | No cascade (decided). Already matches |
-| SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | Removed with `ContextInterface` (D4). Done |
-| ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | A retained `Fiber`'s failure fails its `run()` when it ends. Done |
-| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | None dropped: `AggregateException`. Done |
+| SCO-3 | An un-awaited child failure does not cancel siblings or interrupt the parent. `run()` throws at the end and the parent's return value is lost | **Settled (2.x redesign):** no fail-fast. It cancels nothing; `run()` throws it once the rest have ended, or the frame's exception handler takes it. (From 2026-09-29 to the redesign it failed the run with a hard teardown.) Done |
+| SCO-5 | Cancelling a coroutine blocked in a nested `run()` does not cancel the nested children | **Changed (2.x redesign):** the nested frame's coroutines are cancelled and waited for. Done |
+| SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | Removed with `ContextInterface` (D4); contexts themselves were replaced by `Scope` and `Frame` in 2.x. Done |
+| ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | A retained `Fiber`'s failure reaches its `run()` when it ends. Done |
+| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | **Settled (2.x redesign):** `run()` throws one, `$fn`'s or else the earliest; a frame exception handler gets every one. The `AggregateException` of the 2.0 alphas is removed. Done |
 | CAN-2, CAN-3 | Cancelling a running coroutine throws `RuntimeException`; a finished one throws `InvalidArgumentException` | Recorded, or no-op |
-| CAN-5 | There is no way to cancel a whole context | `cancel($context)` (D14). Done |
+| CAN-5 | There is no way to cancel a group of coroutines | `Frame::cancel()` (D14). Done |
 | CAN-9 | `run()` throws the `CancelledException` of a child the parent cancelled on purpose | Not a failure (D12) |
 | CAN-10 *new* | Cancelling twice before the child resumes delivers only the second exception; the first escapes from `run()` even when the child caught the second | Every cancel is handled once, none escapes |
 | TMO-6 *new* | `checkTimeouts()` skips about half of the expired waiters per pass: ten simultaneous 0.2 s timeouts fire at 0.5, 1.0, 1.5 and 2.0 s, and equal timeouts wake in the order 0, 2, 1, 3. Plain PHP shows `SplObjectStorage` skipping every other entry when entries are removed during `foreach`, which matches. Verified in a scratch copy: iterating a snapshot of `pending` makes all ten fire in the same pass. The loop is unchanged since the first release, and nothing in the history says the skipping is deliberate | **Fixed:** all expired waiters fire in the same pass, in registration order |
@@ -680,8 +727,8 @@ through the public API.
 |---|----------|---------|-------------------|
 | D1 | `ReadChannelInterface::read()` / `Channel::read()`: `write(null)` is accepted today (the value union includes `null`), so a legitimately-written `null` and "channel closed" are indistinguishable, and `ReadChannel::getIterator()`'s `while (null !== $this->read())` truncates `foreach` at the first written `null` (pinned, `CHN-5`) | keep as is; throw on close; `read(float $timeout = PHP_FLOAT_MAX, ?bool &$eof = null): mixed` | **Decided (maintainer) and done:** the `&$eof` out-parameter (inspired by C#'s `out` pattern; `feof()`-style naming). `getIterator()` uses it, fixing `CHN-5` for free with no second method. `Subscriber`/`Subscribers` got the same fix and two further bugs it surfaced in that class specifically (see CHN-5) |
 | D2 | Which values can a channel carry? Was `\Serializable\|array\|string\|float\|int\|bool\|null` | keep the union; any `mixed` | **Decided (maintainer) and done (2.0.0):** `mixed`. The restriction existed only because cross-process channel support was undecided; resolved by recognizing that as a separate concern -- a future clustering primitive (string broadcast, `docs/roadmap-2.0.md`) owns cross-process transport with its own explicit serialization at that layer, so in-process channels have no reason to be constrained by it. PHP ZTS builds remain a separate, still-open question, orthogonal to this |
-| D3 | Shape of multiple failures in one scope | first only (Go's `errgroup`); `AggregateException` holding all | `AggregateException`, with the first failure as the primary. Done |
-| D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer) and done (2.0.0-alpha18):** `ContextInterface`, `ContextTrait`, `DefaultContext`, `ServiceContext` and the storage are gone. A context is any object, optional on `run()`/`go()`/`withContext()`; use-once is enforced by the loop. Callers keep their own `WeakMap<context, service>`, so `getContext()` is the only lookup needed |
+| D3 | Shape of multiple failures in one frame | first only (Go's `errgroup`); `AggregateException` holding all | **Settled (2.x redesign):** first only. `run()` throws `$fn`'s failure, else the earliest nobody awaited; a frame exception handler sees every one. `AggregateException` is removed |
+| D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer) and done (2.0.0-alpha18):** `ContextInterface`, `ContextTrait`, `DefaultContext`, `ServiceContext` and the storage are gone. **Superseded (2.x redesign):** contexts are gone too. Callers keep their own `WeakMap` keyed by `Scope::getCurrent()` (SCO-7) |
 | D5 | Cancellation delivery | once per request (edge); every suspension while cancelled (level, as in Trio) | **Decided (maintainer):** cancellation is one exception thrown into the coroutine. Cleanup is done by catching it. No shielding |
 | D6 | Default timeout for IO operations | infinite everywhere; keep a finite default for IO | **Decided (maintainer) and done:** infinite everywhere. `setDefaultTimeout()`, `getDefaultTimeout()` and `DEFAULT_TIMEOUT` are removed. A finite default is a hidden timer |
 | D7 | Choice order when several selectables are ready | argument order; random like Go | **Moot (2.0.0):** `select()` was removed, not fixed; see section 8 |
@@ -692,6 +739,6 @@ through the public API.
 | D17 | `readFixed($n, $timeout)` returns `null` on timeout, and also `null` at end-of-stream with too little data. `read()` now throws `TimeoutException` | keep `null`; throw `TimeoutException` like `read()`; distinguish the two cases | **Decided (maintainer) and done:** throws `TimeoutException` on a real timeout, matching `read()`. Matches `read()`'s other rule too: `$timeout` of exactly `0` is a non-blocking poll and never throws, only a real positive timeout that expires does. Only the genuine "buffer ended with too little data" case (`$this->ended`, no timeout involved) still returns `null` |
 | D16 | Should `StringBuffer` get an optional maximum length? | none; opt-in `?int $maxLength = null` that makes `write()` throw when the unread bytes would exceed it | **Deferred to 2.0.0 (maintainer).** Opt-in, throwing, default unbounded remains the shape if it happens |
 | D15 | Should `WaitGroup::add()` take a delta like Go's `Add(delta int)`? | keep `add()` with no argument; `add(int $delta = 1)` | **Decided (maintainer) and done:** `add(int $delta = 1)`. A `go(Closure)` method like Go's `WaitGroup.Go` may come later |
-| D14 | `cancelContext($context)` | implement; defer | **Decided (maintainer, 2026-09-29) and done:** `cancel($fiberOrContext)`; for a context, the deepest coroutines first, skipping the calling coroutine. An unhandled failure uses it to cancel its context (SCO-3) |
-| D12 | Does a cancelled child that ends with `CancelledException` fail its scope? | yes (today); no, treat as normal termination | No. Otherwise every deliberate `cancel()` needs a `try/catch` in the child to keep `run()` from throwing |
+| D14 | Cancelling a group of coroutines | implement; defer | **Decided (maintainer, 2026-09-29) and done; reshaped in 2.x:** `Frame::cancel()`, the deepest coroutines first; the caller, if in the frame, gets it at once. `phasync::cancel()` takes a `Fiber` only. A failure no longer cancels anything (SCO-3) |
+| D12 | Does a cancelled child that ends with `CancelledException` fail its frame? | yes (today); no, treat as normal termination | No. Otherwise every deliberate `cancel()` needs a `try/catch` in the child to keep `run()` from throwing |
 | D11 | How long may an idle loop sleep past the earliest pending timeout? | keep the fixed 0.5 s idle sleep; cap the idle sleep at the earliest pending deadline | **Done (2.0.0-alpha21):** timeouts in 10 ms slots; the idle sleep is capped at the next slot while a timeout waits, computed only when nothing is runnable |

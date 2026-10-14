@@ -4,9 +4,9 @@
 
 These are the two most important functions to use. The `phasync::run()` function creates an event loop which allows coroutines to run concurrently, so that when one coroutine is waiting for IO operation or is just pausing - then other coroutines are automatically resumed to do work.
 
-## `phasync::run(Closure $fn, ?array $args=[], ?object $context=null): mixed`
+## `phasync::run(callable $fn, mixed ...$args): mixed`
 
-The `phasync::run()` creates the first coroutine in your program. Other coroutines created inside this context will be associated with this run context. If a coroutine of the run fails and nobody awaits it (and no context handles it, see [exception handling](exception-handling.md)), the run fails: its coroutines are dropped and this function throws the failure.
+The `phasync::run()` creates the first coroutine in your program. Coroutines created inside it belong to its frame, and `run()` returns once they have all ended. A failure nobody awaits cancels nothing: once the rest have ended, `run()` throws it (see [exception handling](exception-handling.md)). Called inside a coroutine, `run()` runs `$fn` in that coroutine and waits only for the coroutines `$fn` started.
 
 ```php
 phasync::run(function() {
@@ -20,9 +20,9 @@ echo phasync::run(function() {
 
 While the above example is very trivial, it demonstrates how easy it is to begin taking advantage of asynchronous IO in PHP. To elaborate on the example, let's imagine there are a few functions in your application that's' responsible for reading CSV files and returning them as normal arrays:
 
-## `phasync::go(Closure $fn, array $args=[], int $concurrent = 1, ?object $context=null): Fiber`
+## `phasync::go(callable $fn, mixed ...$args): Fiber`
 
-The other function that is essential, is the `phasync::go()` function. It does essentially the same as `phasync::run()`, but it does *not prevent the running of the parent coroutine*. This function can only be used from inside a `phasync::run()` context.
+The other function that is essential, is the `phasync::go()` function. It does essentially the same as `phasync::run()`, but it does *not prevent the running of the parent coroutine*. This function can only be used inside a coroutine, that is inside `phasync::run()`.
 
 Example:
 

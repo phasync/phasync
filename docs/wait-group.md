@@ -44,7 +44,7 @@ $wg->await();
 
 ### Example
 
-Here is a basic example of how to use the `WaitGroup` class within a `phasync` context:
+Here is a basic example of how to use the `WaitGroup` class inside `phasync::run()`:
 
 ```php
 <?php

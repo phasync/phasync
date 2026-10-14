@@ -113,7 +113,7 @@ phasync::run(function() use ($server) {
     while ($client = stream_socket_accept(phasync::readable($server), 3600, $peerName)) {
         // At this point, a connection from a client (browser) that connected to http://localhost:8080/ on your computer has been accepted.
         // Launch a coroutine to handle the connection:
-        phasync::go(handle_connection(...), args: [$client, $peerName]);
+        phasync::go(handle_connection(...), $client, $peerName);
     }
 });
 
@@ -244,7 +244,7 @@ phasync::run(function() use ($server) {
     while ($client = stream_socket_accept(phasync::readable($server), 3600, $peerName)) {
         // At this point, a connection from a client (browser) that connected to http://localhost:8080/ on your computer has been accepted.
         // Launch a coroutine to handle the connection:
-        phasync::go(handle_connection(...), args: [$client, $peerName]);
+        phasync::go(handle_connection(...), $client, $peerName);
     }
 });
 
