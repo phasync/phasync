@@ -82,8 +82,8 @@ final class Frame
      */
     public array $handlerQueue = [];
 
-    /** @internal frames are created by phasync::run() */
-    public function __construct(?Frame $parent)
+    /** Frames are created by phasync::run() only (the event loop calls this through a closure bound to Frame). */
+    private function __construct(?Frame $parent)
     {
         $this->parent = $parent;
     }

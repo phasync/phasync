@@ -100,6 +100,13 @@ final class EventLoop implements \Countable
     private Frame $serviceFrame;
 
     /**
+     * Makes a Frame, whose constructor is private: frames are only made here.
+     *
+     * @var \Closure(?Frame): Frame
+     */
+    private \Closure $newFrame;
+
+    /**
      * Frames with a deadline (Frame::setTimeout()), by spl_object_id().
      *
      * @var array<int, Frame>
@@ -438,7 +445,8 @@ final class EventLoop implements \Countable
         $this->flagGraph                           = new \WeakMap();
         $this->afterNextFlag                       = new \stdClass();
         $this->signalFlag                          = new \stdClass();
-        $this->serviceFrame                        = new Frame(null);
+        $this->newFrame ??= \Closure::bind(static fn (?Frame $parent): Frame => new Frame($parent), null, Frame::class);
+        $this->serviceFrame                        = ($this->newFrame)(null);
         static $shutdown                           = false;
         if (!$shutdown) {
             $shutdown = true;
@@ -1458,7 +1466,7 @@ final class EventLoop implements \Countable
         $fiber                                = $this->currentFiber;
         $id                                   = \spl_object_id($fiber);
         $outer                                = $this->currentFrame;
-        $frame                                = new Frame($outer);
+        $frame                                = ($this->newFrame)($outer);
         $frame->cancellationRequested         = $outer->cancellationRequested;
         $frame->fibers                        = $fiber;
         $frame->live                          = 1;
@@ -2186,7 +2194,7 @@ final class EventLoop implements \Countable
     {
         $this->liveScope = \Scope::getCurrent();
 
-        return $this->rootFrame = new Frame(null);
+        return $this->rootFrame = ($this->newFrame)(null);
     }
 
     /**

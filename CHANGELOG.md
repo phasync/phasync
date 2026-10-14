@@ -85,6 +85,8 @@ Migration:
   itself, or a frame it is in, finishes its current step and meets the `CancelledException` at its
   next wait; it was thrown at once. A cancelled coroutine can now cancel other frames, from a
   `finally` block too, without the call throwing its own cancellation. (#110)
+- `phasync\Frame` has a private constructor: frames are made by `run()` only, and `new Frame()`
+  throws `Error`.
 - `DeadmanException`, which `StringBuffer::read()` and `readFixed()` throw when the writer exited
   without `end()`, is public: `phasync\DeadmanException` (was `phasync\Internal\DeadmanException`). (#97)
 
@@ -123,6 +125,8 @@ Migration:
 - `ProcessRunner::sigstop()` and `sigcont()` send the platform's `SIGSTOP` and `SIGCONT` (pcntl's
   constants, or the OS family's numbers without pcntl); Linux's numbers were hard-coded, so on
   macOS `sigstop()` sent `SIGCONT` and `sigcont()` sent `SIGSTOP`'s number. (#96)
+- `run()` in a `fork()`ed child makes its own event loop. It drove the parent's, whose poller the
+  extension refuses in another process ("This Poller belongs to another process"). (#109)
 - `LockTrait`'s timeout says "Acquiring lock timed out" (was "Aquiring"). (#97)
 
 ## 2.0.0-beta8 (2026-10-13)

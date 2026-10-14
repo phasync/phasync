@@ -525,3 +525,7 @@ test('phasync\'s TimeoutException and CancelledException implement the fiber-int
 test('go() and run() take their arguments variadically', function () {
     expect(phasync::run(fn ($a, $b) => phasync::await(phasync::go(fn ($c, $d) => $a . $b . $c . $d, 'c', 'd')), 'a', 'b'))->toBe('abcd');
 });
+
+test('a Frame cannot be made outside phasync::run()', function () {
+    expect(fn () => new Frame(null))->toThrow(Error::class, 'Call to private phasync\Frame::__construct()');
+});
