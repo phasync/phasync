@@ -326,7 +326,8 @@ if (!\function_exists('iochar_push_past_fd_setsize')) {
     {
         $kept = [];
         for ($i = 0; $i < 1300; ++$i) {
-            $kept[] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+            $kept[] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP)
+                ?: throw new RuntimeException("stream_socket_pair() failed after $i pairs: the open-files limit (ulimit -n) is too low for this test");
         }
 
         return $kept;
