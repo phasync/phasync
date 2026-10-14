@@ -92,6 +92,11 @@ Migration:
 
 ### Fixed
 
+- A wait in a Fiber a coroutine runs itself (run in place, #88) keeps the coroutine's `Scope`:
+  under fiber-interop/scope's polyfill, `Scope::getCurrent()` in that Fiber returned the scope of
+  whichever coroutine the loop ran last, and after a second wait the `onScopeChange()` hooks were
+  not called back for the waiting coroutine's scope, so it ran on with another request's state.
+  phasync now tells the polyfill that such a Fiber runs as its coroutine. (#108)
 - A wait in a switch hook (now `onScopeChange()`), or in a Fiber the hook starts, throws
   `LogicException`. It was registered for the coroutine the loop was switching to, ran the loop in
   place inside the hook, and later woke that coroutine for a wait it never made. (#85)

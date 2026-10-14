@@ -395,13 +395,14 @@ final class EventLoop implements \Countable
         }
         $this->scopePolyfill = \defined('fiber_interop\\scope\\IS_POLYFILL') && \fiber_interop\scope\IS_POLYFILL;
         if ($this->scopePolyfill) {
-            // The polyfill keys the current scope by execution unit: the loop names the coroutine
-            // whose scope it activates (switchScope()); otherwise the running Fiber, or with
-            // phasync-ext the request's root coroutine, which Fiber::getCurrent() does not see
-            $ext = \extension_loaded('phasync') && (new \ReflectionFunction('phasync\ext\current_fiber'))->isInternal();
-            \fiber_interop\scope\set_execution_key_provider($ext
-                ? fn () => $this->scopeProbe ?? \phasync\ext\current_fiber()
-                : fn () => $this->scopeProbe);
+            // The polyfill keys the current scope by execution unit. Ours is the coroutine: the one
+            // whose scope the loop activates (switchScope()), else the running coroutine whenever
+            // the code that runs is not its own Fiber: a Fiber it runs itself, which waits in
+            // place (#88, #108), or with phasync-ext a request's root coroutine, where
+            // Fiber::getCurrent() is null. Else (null) the polyfill uses Fiber::getCurrent().
+            \fiber_interop\scope\set_execution_key_provider(
+                fn () => $this->scopeProbe ?? (null !== ($c = $this->currentFiber) && $c !== \Fiber::getCurrent() ? $c : null)
+            );
         }
         $this->clear();
     }
