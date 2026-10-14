@@ -58,3 +58,25 @@ test('a stream of a read channel returns at most $length bytes, and the rest at 
         expect($stream->eof())->toBeTrue();
     });
 });
+
+test('a Uri normalises its string as its getters do: lowercase scheme and host, no default port (#94)', function () {
+    $warnings = [];
+    \set_error_handler(function (int $code, string $message) use (&$warnings) {
+        $warnings[] = $message;
+
+        return true;
+    });
+    try {
+        $uri = new phasync\Psr\Uri('HTTPS://User:Pass@Example.COM:443/Path?Q=1#F');
+        expect((string) $uri)->toBe('https://User:Pass@example.com/Path?Q=1#F');
+        expect((string) $uri->withPath('/other'))->toBe('https://User:Pass@example.com/other?Q=1#F');
+        expect((string) $uri->withHost('Other.ORG'))->toBe('https://User:Pass@other.org/Path?Q=1#F');
+        expect((string) $uri->withPort(8443))->toBe('https://User:Pass@example.com:8443/Path?Q=1#F');
+        expect((string) $uri->withScheme('ws'))->toBe('ws://User:Pass@example.com/Path?Q=1#F');
+        expect((string) new phasync\Psr\Uri('WS://Example.com:8080/'))->toBe('ws://example.com:8080/');
+        expect((string) new phasync\Psr\Uri('/relative?x=1'))->toBe('/relative?x=1');
+    } finally {
+        \restore_error_handler();
+    }
+    expect($warnings)->toBe([]);
+});

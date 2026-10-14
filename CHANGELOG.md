@@ -32,6 +32,9 @@ Earlier releases are listed on the GitHub releases page.
   they cannot open without emitting PHP's warning first; the exception's message carries it. (#101)
 - A busy loop's next cycle collection waits `GC_MAX_INTERVAL` from the end of the last one, not its
   start: a collection slower than the interval was followed by another at once. (#104)
+- `Psr\Uri`'s string form is normalised as its getters are: lowercase scheme and host, no default
+  port; `with*()` copies keep it. An uppercase or unlisted scheme no longer warns "Undefined array
+  key" when the string is rebuilt. (#94)
 
 ## 2.0.0-beta8 (2026-10-13)
 

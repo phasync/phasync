@@ -55,11 +55,24 @@ class Uri implements UriInterface
     /**
      * Creates a URI from `$uri`.
      *
+     * The string form is normalised as the getters are: the scheme and host in lower case, and no port when it is the scheme's default.
+     *
      * @param string|UriInterface $uri an absolute URL, or a relative reference
      */
     public function __construct(string|UriInterface $uri)
     {
         $this->uri = (string) $uri;
+        $parsed    = \parse_url($this->uri);
+        if (false === $parsed || !isset($parsed['scheme'], $parsed['host'])) {
+            return; // a relative reference, or not parseable: kept as given
+        }
+        $scheme = \strtolower($parsed['scheme']);
+        $host   = \strtolower($parsed['host']);
+        if ($scheme !== $parsed['scheme'] || $host !== $parsed['host'] || (isset($parsed['port']) && (self::SCHEME_PORTS[$scheme] ?? null) === $parsed['port'])) {
+            $parsed['scheme'] = $scheme;
+            $parsed['host']   = $host;
+            $this->uri        = static::buildUriString($parsed);
+        }
     }
 
     /**
@@ -321,7 +334,7 @@ class Uri implements UriInterface
     protected function setHost($value)
     {
         $parsed         = \parse_url($this->uri);
-        $parsed['host'] = $value;
+        $parsed['host'] = \strtolower($value);
         $this->uri      = static::buildUriString($parsed);
 
         return $this;
@@ -559,7 +572,7 @@ class Uri implements UriInterface
         }
 
         if (!empty($parsed['port'])) {
-            if (!empty($parsed['scheme']) && Uri::SCHEME_PORTS[$parsed['scheme']] !== $parsed['port']) {
+            if ((self::SCHEME_PORTS[$parsed['scheme']] ?? null) !== $parsed['port']) {
                 $authority .= ':' . $parsed['port'];
             }
         }
