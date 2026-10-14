@@ -338,9 +338,92 @@ test('$frame->cancel() cancels every coroutine of the frame and of the frames ne
     expect($log)->toBe(['child cancelled', 'job ended cancelled', 'main cancelled', 'nested cancelled']);
 });
 
-test('cancelling the frame you are in throws at once', function () {
-    expect(fn () => phasync::run(fn () => phasync::frame()->cancel('stop')))
-        ->toThrow(CancelledException::class, 'stop');
+test('cancelling the frame you are in throws nothing at once: the next wait throws (#110)', function () {
+    expect(fn () => phasync::run(function () {
+        phasync::frame()->cancel('stop');
+        phasync::sleep(0);
+    }))->toThrow(CancelledException::class, 'stop');
+    expect(phasync::run(function () {
+        phasync::frame()->cancel('stop');
+
+        return 'returned';
+    }))->toBe('returned');
+});
+
+test('requestCancellation() sets the flag of the frame, throws nothing and wakes nothing (#110)', function () {
+    $log = [];
+    phasync::run(function () use (&$log) {
+        $frame = phasync::frame();
+        $child = phasync::go(function () use ($frame, &$log) {
+            phasync::sleep(0.05);
+            $log[] = 'child slept, requested: ' . \var_export($frame->isCancellationRequested(), true);
+        });
+        phasync::sleep(0.01);
+        expect($frame->isCancellationRequested())->toBeFalse();
+        $frame->requestCancellation();
+        $log[] = 'requested';
+        expect($frame->isCancellationRequested())->toBeTrue();
+        phasync::sleep(0);     // no cancellation: waits go on as before
+        phasync::await($child);
+    });
+    expect($log)->toBe(['requested', 'child slept, requested: true']);
+});
+
+test('requestCancellation() reaches the frames nested in the frame, those entered later too (#110)', function () {
+    phasync::run(function () {
+        $outer  = phasync::frame();
+        $nested = null;
+        $gate   = new stdClass();
+        $job    = phasync::go(function () use (&$nested, $gate) {
+            phasync::run(function () use (&$nested, $gate) {
+                $nested = phasync::frame();
+                phasync::awaitFlag($gate);
+
+                return phasync::run(fn () => phasync::frame()->isCancellationRequested());
+            });
+        });
+        phasync::sleep(0.01);
+        expect($nested->isCancellationRequested())->toBeFalse();
+        $outer->requestCancellation();
+        expect($nested->isCancellationRequested())->toBeTrue();
+        phasync::raiseFlag($gate);
+        phasync::await($job);
+        expect(phasync::run(fn () => phasync::frame()->isCancellationRequested()))->toBeTrue();
+    });
+});
+
+test('requestCancellation() on a frame whose run() has returned throws a LogicException (#110)', function () {
+    $frame = phasync::run(fn () => phasync::frame());
+    expect(fn () => $frame->requestCancellation())->toThrow(LogicException::class);
+});
+
+test('cancel() and an expired setTimeout() request cancellation too; nothing else does (#110)', function () {
+    $flags = [];
+    phasync::run(function () use (&$flags) {
+        $flags['plain'] = phasync::frame()->isCancellationRequested();
+        $flags['go']    = phasync::await(phasync::go(fn () => phasync::frame()->isCancellationRequested()));
+        try {
+            phasync::run(function () use (&$flags) {
+                phasync::frame()->cancel();
+                $flags['cancel'] = phasync::frame()->isCancellationRequested();
+            });
+        } catch (CancelledException) {
+        }
+        try {
+            phasync::run(function () use (&$flags) {
+                phasync::frame()->setTimeout(0.01);
+                $flags['before deadline'] = phasync::frame()->isCancellationRequested();
+                try {
+                    phasync::sleep(1);
+                } catch (CancelledException) {
+                    $flags['after deadline'] = phasync::frame()->isCancellationRequested();
+                }
+            });
+        } catch (TimeoutException) {
+        }
+        $flags['after'] = phasync::frame()->isCancellationRequested();
+    });
+    expect($flags)->toBe(['plain' => false, 'go' => false, 'cancel' => true, 'before deadline' => false, 'after deadline' => true, 'after' => false]);
 });
 
 test('a frame timeout cancels the frame, and run() throws a TimeoutException', function () {

@@ -50,6 +50,9 @@ final class Frame
     /** @internal the cancellation every wait of a coroutine in the frame throws, once cancelled */
     public ?\Throwable $cancellation = null;
 
+    /** @internal see isCancellationRequested(); set on the frame and its nested frames, and inherited by frames nested later */
+    public bool $cancellationRequested = false;
+
     /** @internal the deadlock that failed the outermost run() */
     public ?\Throwable $fatal = null;
 
@@ -88,22 +91,23 @@ final class Frame
     /**
      * Cancels every coroutine of the frame, and of the frames nested in it, with a CancelledException.
      *
-     * As {@see phasync::cancel()} does for one coroutine: the cancellation is sticky, so every wait of a coroutine in the frame throws it, until the coroutine ends or the nested `run()` it is in returns. The deepest in the tree of coroutines are cancelled first. A coroutine that is running, and not waiting, meets it at its next wait; the calling coroutine, if it is in the frame, gets it thrown at once. A coroutine that ends with the cancellation is no failure, so `run()` throws it only when `$fn` does.
+     * As {@see phasync::cancel()} does for one coroutine: the cancellation is sticky, so every wait of a coroutine in the frame throws it, until the coroutine ends or the nested `run()` it is in returns. The deepest in the tree of coroutines are cancelled first. It throws nothing in the caller: a coroutine that is running, and not waiting, meets it at its next wait, the caller too when it is in the frame. A coroutine that ends with the cancellation is no failure, so `run()` throws it only when `$fn` does. It also requests cancellation ({@see Frame::requestCancellation()}).
      *
      * ```php
      * phasync::run(function () {
      *     phasync::go(fn () => phasync::sleep(10));
      *     phasync::go(fn () => phasync::sleep(10));
-     *     phasync::frame()->cancel();   // throws here: the main coroutine is in the frame
+     *     phasync::frame()->cancel();   // returns: the main coroutine is in the frame
+     *     phasync::sleep(1);            // throws phasync\CancelledException
      * });
      * ```
      *
      * @param string|\Stringable|CancelledException $message the message of the CancelledException, or the exception itself
      *
-     * @throws CancelledException when the calling coroutine is in the frame
-     * @throws \LogicException    when the frame's run() has returned
+     * @throws \LogicException when the frame's run() has returned
      *
      * @see phasync::cancel
+     * @see Frame::requestCancellation  without an exception
      * @see Frame::setTimeout
      */
     public function cancel(string|\Stringable|CancelledException $message = 'Operation cancelled'): void
@@ -117,7 +121,7 @@ final class Frame
     /**
      * Cancels the frame when `$seconds` have passed, and makes its `run()` throw a TimeoutException instead of the cancellation.
      *
-     * The deadline counts from the call. Calling it again replaces the deadline. The coroutines of the frame see a CancelledException whose previous exception is the TimeoutException, as for {@see Frame::cancel()}. A `run()` whose `$fn` catches the cancellation and returns, returns normally.
+     * The deadline counts from the call. Calling it again replaces the deadline. Once it passes, the frame is cancelled with {@see Frame::cancel()}, which also requests cancellation. The coroutines of the frame see a CancelledException whose previous exception is the TimeoutException, as for {@see Frame::cancel()}. A `run()` whose `$fn` catches the cancellation and returns, returns normally.
      *
      * ```php
      * phasync::run(function () {
@@ -139,6 +143,58 @@ final class Frame
             throw new \LogicException('The run() of this frame has returned');
         }
         \phasync::getLoop()->setDeadline($this, \microtime(true) + $seconds);
+    }
+
+    /**
+     * Asks the coroutines of the frame, and of the frames nested in it, to stop, without an exception: sets the flag {@see Frame::isCancellationRequested()} reads.
+     *
+     * It throws nothing and wakes nothing; code that runs a loop checks the flag and returns. A `run()` entered later in the frame, or in a frame nested in it, starts with the flag set. The flag stays set until the frame's `run()` returns. {@see Frame::cancel()} and a passed {@see Frame::setTimeout()} deadline set it too.
+     *
+     * ```php
+     * phasync::run(function () {
+     *     $frame = phasync::frame();
+     *     phasync::go(function () use ($frame) {
+     *         while (!$frame->isCancellationRequested()) {
+     *             phasync::sleep(0.01);   // one tick
+     *         }
+     *     });
+     *     phasync::sleep(0.1);
+     *     $frame->requestCancellation();   // the loop ends after its current tick
+     * });
+     * ```
+     *
+     * @throws \LogicException when the frame's run() has returned
+     *
+     * @see Frame::isCancellationRequested
+     * @see Frame::cancel  with a CancelledException at every wait
+     *
+     * @example examples/Frame.requestCancellation/1-stop-a-loop.php Stop a loop at the end of its tick
+     */
+    public function requestCancellation(): void
+    {
+        if ($this->ended) {
+            throw new \LogicException('The run() of this frame has returned');
+        }
+        \phasync::getLoop()->requestCancellation($this);
+    }
+
+    /**
+     * Whether the frame, or a frame it is nested in, was asked to stop.
+     *
+     * True after {@see Frame::requestCancellation()}, {@see Frame::cancel()} or a passed {@see Frame::setTimeout()} deadline on this frame or one it is nested in; false otherwise. A property read: cheap enough to check on every pass of a hot loop.
+     *
+     * ```php
+     * while (!phasync::frame()->isCancellationRequested()) {
+     *     $world->step();
+     *     phasync::sleep(1 / 60);
+     * }
+     * ```
+     *
+     * @see Frame::requestCancellation
+     */
+    public function isCancellationRequested(): bool
+    {
+        return $this->cancellationRequested;
     }
 
     /**

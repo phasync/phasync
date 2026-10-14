@@ -418,7 +418,7 @@ final class phasync
     /**
      * Cancels a coroutine with a CancelledException.
      *
-     * The cancellation is sticky: every wait of the coroutine throws the CancelledException from then on, so a coroutine that catches it and waits again is cancelled again. A coroutine that is not waiting meets it at its next wait; one that cancels itself gets it at once. A coroutine that ends with the exception it was cancelled with is no failure of the run, but awaiting it throws it. `finally()` callbacks are not cancelled.
+     * The cancellation is sticky: every wait of the coroutine throws the CancelledException from then on, so a coroutine that catches it and waits again is cancelled again. It throws nothing in the caller: a coroutine that is not waiting meets it at its next wait, and one that cancels itself finishes its current step and meets it at its next wait too. A coroutine that ends with the exception it was cancelled with is no failure of the run, but awaiting it throws it. `finally()` callbacks are not cancelled.
      *
      * It is a teardown, not a signal: to interrupt a wait once with an exception of your own, use {@see phasync::throw()}. It cancels that coroutine only, not the coroutines it started; to cancel a whole tree, cancel its frame ({@see Frame::cancel()}).
      *

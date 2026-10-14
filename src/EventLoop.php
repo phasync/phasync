@@ -536,7 +536,7 @@ final class EventLoop implements \Countable
                 if ($frame->deadline <= $now) {
                     unset($this->deadlines[$id]);
                     $frame->timeout = new TimeoutException('The frame timed out');
-                    $this->cancelFrame($frame, new CancelledException('Cancelled: the frame timed out', 0, $frame->timeout), false);
+                    $this->cancelFrame($frame, new CancelledException('Cancelled: the frame timed out', 0, $frame->timeout));
                 }
             }
         }
@@ -1459,6 +1459,7 @@ final class EventLoop implements \Countable
         $id                                   = \spl_object_id($fiber);
         $outer                                = $this->currentFrame;
         $frame                                = new Frame($outer);
+        $frame->cancellationRequested         = $outer->cancellationRequested;
         $frame->fibers                        = $fiber;
         $frame->live                          = 1;
         $outer->inner[\spl_object_id($frame)] = $frame;
@@ -1518,7 +1519,7 @@ final class EventLoop implements \Countable
                 \phasync::awaitFlag($frame);
             }
         } catch (CancelledException $e) {
-            $this->cancelFrame($frame, new CancelledException('Cancelled: the run() was cancelled with ' . $e->getMessage(), 0, $e), false);
+            $this->cancelFrame($frame, new CancelledException('Cancelled: the run() was cancelled with ' . $e->getMessage(), 0, $e));
             $this->shield($fiber);
             try {
                 while ($frame->live > 1) {
@@ -1603,10 +1604,12 @@ final class EventLoop implements \Countable
     /**
      * Cancel every coroutine of $frame and of the frames nested in it (getFibers()), the
      * deepest in the tree of coroutines first, except the coroutine that cancels. Coroutines
-     * that aren't waiting, because they run or are about to, meet it at their next wait.
+     * that aren't waiting, because they run or are about to, meet it at their next wait; so
+     * does the caller.
      */
-    public function cancelFrame(Frame $frame, \Throwable $exception, bool $throwInCaller = true): void
+    public function cancelFrame(Frame $frame, \Throwable $exception): void
     {
+        $this->requestCancellation($frame);
         $this->issued[$exception] = true;
         if (null === $frame->cancellation) {
             ++$this->cancellations;
@@ -1625,8 +1628,14 @@ final class EventLoop implements \Countable
         foreach ($depths as [, $fiber]) {
             $this->wake($fiber);
         }
-        if ($throwInCaller && null !== ($caller = \phasync\ext\current_fiber()) && isset($this->frames[$caller]) && null !== ($e = $this->cancellationFor($caller))) {
-            throw $e; // the caller is in it: as a throw
+    }
+
+    /** Set the cancellation request flag of $frame and of the frames nested in it, see Frame::requestCancellation(). */
+    public function requestCancellation(Frame $frame): void
+    {
+        $frame->cancellationRequested = true;
+        foreach ($frame->inner as $inner) {
+            $this->requestCancellation($inner);
         }
     }
 
@@ -1793,10 +1802,7 @@ final class EventLoop implements \Countable
             ++$this->cancellations;
         }
         $this->cancelledFibers[$fiber] = $exception;
-        if ($fiber === \phasync\ext\current_fiber()) {
-            throw $exception; // cancelling itself: as a throw
-        }
-        $this->wake($fiber);
+        $this->wake($fiber); // the caller itself waits for nothing: it meets it at its next wait
     }
 
     /**
@@ -2195,7 +2201,7 @@ final class EventLoop implements \Countable
             $this->tick();
         }
         if ($this->serviceFrame->live > 0) {
-            $this->cancelFrame($this->serviceFrame, new CancelledException('Cancelled: the outermost run() returned'), false);
+            $this->cancelFrame($this->serviceFrame, new CancelledException('Cancelled: the outermost run() returned'));
             while ($this->serviceFrame->live > 0 && $this->pending->count() > 0) {
                 $this->tick();
             }
@@ -2277,8 +2283,8 @@ final class EventLoop implements \Countable
         // This may run while the loop is iterating: from the next tick
         $this->defer(function () use ($frame, $exception) {
             $cancellation = new CancelledException('Cancelled: the run failed with ' . \get_class($exception) . ': ' . $exception->getMessage(), 0, $exception);
-            $this->cancelFrame($frame, $cancellation, false);
-            $this->cancelFrame($this->serviceFrame, $cancellation, false);
+            $this->cancelFrame($frame, $cancellation);
+            $this->cancelFrame($this->serviceFrame, $cancellation);
         });
     }
 

@@ -142,10 +142,11 @@ test('CAN-1: cancel() of a Fiber that phasync did not create throws LogicExcepti
 // CAN-2 / CAN-3: what cancel() does to a running or terminated coroutine
 // ---------------------------------------------------------------------------
 
-test('CAN-2: a coroutine cancelling itself gets the cancellation at once, as a throw', function () {
+test('CAN-2: a coroutine cancelling itself finishes the current step and meets the cancellation at its next wait', function () {
     $message = phasync::run(static function () {
+        phasync::cancel(Fiber::getCurrent(), 'self');
         try {
-            phasync::cancel(Fiber::getCurrent(), 'self');
+            phasync::sleep(0);
 
             return 'no exception';
         } catch (Throwable $e) {

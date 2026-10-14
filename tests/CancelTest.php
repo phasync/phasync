@@ -63,3 +63,71 @@ test('phasync::cancel() handled cancellation', function () {
         expect($counter)->toBe(-1);
     });
 });
+
+test('a coroutine that cancels itself finishes the current step and meets the cancellation at its next wait (#110)', function () {
+    $log = [];
+    phasync::run(function () use (&$log) {
+        try {
+            phasync::cancel(Fiber::getCurrent(), 'self');
+            $log[] = 'after cancel';
+            phasync::sleep(0);
+            $log[] = 'after wait';
+        } catch (CancelledException $e) {
+            $log[] = 'cancelled: ' . $e->getMessage();
+        }
+    });
+    expect($log)->toBe(['after cancel', 'cancelled: self']);
+});
+
+test('a coroutine that cancels its own frame finishes the current step and meets the cancellation at its next wait (#110)', function () {
+    $log = [];
+    phasync::run(function () use (&$log) {
+        phasync::go(function () use (&$log) {
+            phasync::run(function () use (&$log) {
+                try {
+                    phasync::sleep(0.01);
+                    phasync::frame()->cancel();            // "remove myself from the stage"
+                    $log[] = 'after cancel';
+                    phasync::sleep(1);
+                    $log[] = 'after wait';
+                } catch (CancelledException) {
+                    $log[] = 'cancelled';
+                }
+            });
+        });
+    });
+    expect($log)->toBe(['after cancel', 'cancelled']);
+});
+
+test('a cancelled coroutine cancels a list of frames in its finally block, to the end (#110)', function () {
+    $log = [];
+    phasync::run(function () use (&$log) {
+        $frames = [];
+        for ($i = 0; $i < 3; ++$i) {
+            phasync::go(function () use (&$frames, &$log, $i) {
+                phasync::run(function () use (&$frames, &$log, $i) {
+                    $frames[] = phasync::frame();
+                    try {
+                        phasync::sleep(10);
+                    } catch (CancelledException) {
+                        $log[] = "job $i cancelled";
+                    }
+                });
+            });
+        }
+        $boss = phasync::go(function () use (&$frames, &$log) {
+            try {
+                phasync::sleep(10);
+            } finally {
+                foreach ($frames as $frame) {
+                    $frame->cancel();
+                }
+                $log[] = 'loop done';
+            }
+        });
+        phasync::sleep(0.01);
+        phasync::cancel($boss);
+    });
+    \sort($log);
+    expect($log)->toBe(['job 0 cancelled', 'job 1 cancelled', 'job 2 cancelled', 'loop done']);
+});
