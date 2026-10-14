@@ -162,8 +162,8 @@ Trio's nurseries and Kotlin's `coroutineScope`, which cancel the siblings on the
 
 **SCO-4. What `run()` throws.** Once every coroutine of its frame has ended, `run()` throws what
 `$fn` threw; else the earliest failure nobody awaited, by the time it happened (not by when it
-became known); else it returns what `$fn` returned. It throws one exception: later failures
-nobody awaited are not thrown (ERR-4). The cancellations its coroutines end with are no failures
+became known); else it returns what `$fn` returned. It throws one exception: every other failure
+nobody awaited is reported as a warning (ERR-4). The cancellations its coroutines end with are no failures
 (CAN-9); anything else they throw is. A nested `run()` throws into the coroutine that called it,
 which can handle it. ✅ ScopesTest, ScopeFrameTest
 
@@ -228,9 +228,11 @@ the failure from reaching it. Such a coroutine can't be awaited afterwards (`Log
 
 **ERR-4. `run()` throws the earliest failure nobody awaited; with a frame exception handler
 every failure reaches it.** Without a handler, `run()` throws one exception: what `$fn` threw,
-else the earliest failure nobody awaited (SCO-4). The later failures are not thrown, and phasync
-does not log them. To see every one, set `Frame::setExceptionHandler()`, which gets them in the
-order they became known. There is no `AggregateException`; it was removed in the 2.x redesign
+else the earliest failure nobody awaited (SCO-4). No failure is silently dropped: every other
+failure nobody awaited (the later ones, and a child's when `$fn` threw) is reported with
+`trigger_error()` (E_USER_WARNING, "phasync: unawaited coroutine failure (not rethrown): Class: message in file:line"), once, as `run()` ends, so it goes through PHP's error handlers and logs. The one
+`run()` throws is not reported again. With `Frame::setExceptionHandler()` the handler gets every
+one instead, in the order they became known, and nothing is reported. There is no `AggregateException`; it was removed in the 2.x redesign
 (D3). ✅ ErrorsTest
 
 **ERR-5. `finally` always runs**, including on cancellation and on exceptions thrown into
@@ -689,7 +691,7 @@ fail on purpose and is reported before it is accepted.
 | SCO-5 | Cancelling a coroutine blocked in a nested `run()` does not cancel the nested children | **Changed (2.x redesign):** the nested frame's coroutines are cancelled and waited for. Done |
 | SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | Removed with `ContextInterface` (D4); contexts themselves were replaced by `Scope` and `Frame` in 2.x. Done |
 | ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | A retained `Fiber`'s failure reaches its `run()` when it ends. Done |
-| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | **Settled (2.x redesign):** `run()` throws one, `$fn`'s or else the earliest; a frame exception handler gets every one. The `AggregateException` of the 2.0 alphas is removed. Done |
+| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | **Settled (2.x redesign):** `run()` throws one, `$fn`'s or else the earliest, and reports each other one with an E_USER_WARNING; a frame exception handler gets every one instead. The `AggregateException` of the 2.0 alphas is removed. Done |
 | CAN-2, CAN-3 | Cancelling a running coroutine throws `RuntimeException`; a finished one throws `InvalidArgumentException` | Recorded, or no-op |
 | CAN-5 | There is no way to cancel a group of coroutines | `Frame::cancel()` (D14). Done |
 | CAN-9 | `run()` throws the `CancelledException` of a child the parent cancelled on purpose | Not a failure (D12) |

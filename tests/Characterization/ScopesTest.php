@@ -18,10 +18,15 @@ uses()->group('characterization');
  */
 function scoRun(Closure $body, array &$log): void
 {
-    try {
-        phasync::run($body);
-    } catch (Throwable $e) {
-        $log[] = 'run threw ' . \get_class($e) . ': ' . $e->getMessage();
+    withWarnings(static function () use ($body, &$log) {
+        try {
+            phasync::run($body);
+        } catch (Throwable $e) {
+            $log[] = 'run threw ' . \get_class($e) . ': ' . $e->getMessage();
+        }
+    }, $warnings);
+    foreach ($warnings as $warning) {
+        $log[] = 'warned ' . \preg_replace('/ in \\S+:\d+$/', '', $warning);
     }
 }
 
@@ -228,7 +233,7 @@ test('SCO-4: run() throws the first of several un-awaited failures', function ()
         });
         phasync::sleep(0.08);
     }, $log);
-    expect($log)->toBe(['run threw RuntimeException: first']);
+    expect($log)->toBe(['run threw RuntimeException: first', 'warned phasync: unawaited coroutine failure (not rethrown): RuntimeException: second']);
 });
 
 test('SCO-4: when the main coroutine fails too, its own failure is thrown', function () {
@@ -239,7 +244,7 @@ test('SCO-4: when the main coroutine fails too, its own failure is thrown', func
         });
         throw new RuntimeException('main');
     }, $log);
-    expect($log)->toBe(['run threw RuntimeException: main']);
+    expect($log)->toBe(['run threw RuntimeException: main', 'warned phasync: unawaited coroutine failure (not rethrown): RuntimeException: child']);
 });
 
 test('SCO-4: the earliest failure is thrown, by when it happened, not by when it became known', function () {
@@ -256,7 +261,7 @@ test('SCO-4: the earliest failure is thrown, by when it happened, not by when it
         phasync::sleep(0.03);
         unset($late, $early); // the late one is released first
     }, $log);
-    expect($log)->toBe(['run threw RuntimeException: early']);
+    expect($log)->toBe(['run threw RuntimeException: early', 'warned phasync: unawaited coroutine failure (not rethrown): RuntimeException: late']);
 });
 
 test('SCO-4: a failure in a grandchild surfaces from run()', function () {

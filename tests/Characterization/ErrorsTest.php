@@ -24,15 +24,17 @@ afterEach(function () {
 /**
  * Runs $body in phasync::run(), returning how it ended: 'ok:<value>' or 'threw ClassName: message'.
  */
-function errOutcome(Closure $body): string
+function errOutcome(Closure $body, ?array &$warnings = null): string
 {
-    try {
-        $value = phasync::run($body);
+    return withWarnings(static function () use ($body) {
+        try {
+            $value = phasync::run($body);
 
-        return 'ok:' . \var_export($value, true);
-    } catch (Throwable $e) {
-        return 'threw ' . \get_class($e) . ': ' . $e->getMessage();
-    }
+            return 'ok:' . \var_export($value, true);
+        } catch (Throwable $e) {
+            return 'threw ' . \get_class($e) . ': ' . $e->getMessage();
+        }
+    }, $warnings);
 }
 
 /**
@@ -284,9 +286,11 @@ test('ERR-4: a later un-awaited failure does not replace the first: run() throws
             throw new RuntimeException('c2');
         });
         phasync::sleep(0.05);
-    });
+    }, $warnings);
     expect($outcome)->toBe('threw RuntimeException: c1');
-    expect(errLogged($this))->not->toContain('RuntimeException: c2'); // the first is what run() throws
+    // Never silently dropped: the second is reported, through PHP's error handling
+    expect($warnings)->toHaveCount(1);
+    expect($warnings[0])->toStartWith('phasync: unawaited coroutine failure (not rethrown): RuntimeException: c2 in ' . __FILE__ . ':');
 });
 
 test('ERR-4: two failures in the same tick: run() throws the first', function () {
@@ -297,8 +301,10 @@ test('ERR-4: two failures in the same tick: run() throws the first', function ()
         phasync::go(function () {
             throw new RuntimeException('cB');
         });
-    });
+    }, $warnings);
     expect($outcome)->toBe('threw RuntimeException: cA');
+    expect($warnings)->toHaveCount(1);
+    expect($warnings[0])->toContain('RuntimeException: cB in ');
 });
 
 test('ERR-4: when the main coroutine fails as well, its own failure is thrown', function () {
@@ -307,8 +313,10 @@ test('ERR-4: when the main coroutine fails as well, its own failure is thrown', 
             throw new RuntimeException('child failure');
         });
         throw new RuntimeException('main failure');
-    });
+    }, $warnings);
     expect($outcome)->toBe('threw RuntimeException: main failure');
+    expect($warnings)->toHaveCount(1);
+    expect($warnings[0])->toContain('RuntimeException: child failure in ');
 });
 
 test('ERR-4: with an exception handler on the frame, every failure reaches it, in order', function () {

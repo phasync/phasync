@@ -1549,25 +1549,29 @@ final class EventLoop implements \Countable
         }
         $frame->ended = true;
         unset($this->deadlines[\spl_object_id($frame)]);
-        if (null !== $frame->fatal) {
-            throw $frame->fatal;
-        }
-        if (null !== $failure) {
-            if (null !== $frame->timeout && self::causedBy($failure, $frame->timeout)) {
-                throw $frame->timeout;
-            }
-
-            throw $failure;
+        $throw = $frame->fatal;
+        if (null === $throw && null !== $failure) {
+            $throw = null !== $frame->timeout && self::causedBy($failure, $frame->timeout) ? $frame->timeout : $failure;
         }
         if ([] !== $frame->failures) {
-            $first = $frame->failures[0];
-            foreach ($frame->failures as $f) {
-                if ($f[0] < $first[0]) {
-                    $first = $f;
+            if (null === $throw) {
+                $first = $frame->failures[0];
+                foreach ($frame->failures as $f) {
+                    if ($f[0] < $first[0]) {
+                        $first = $f;
+                    }
+                }
+                $throw = $first[1];
+            }
+            // Never silently dropped: the failures nobody awaited that run() does not throw
+            foreach ($frame->failures as [, $e]) {
+                if ($e !== $throw) {
+                    \trigger_error('phasync: unawaited coroutine failure (not rethrown): ' . \get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine(), \E_USER_WARNING);
                 }
             }
-
-            throw $first[1];
+        }
+        if (null !== $throw) {
+            throw $throw;
         }
 
         return $result;

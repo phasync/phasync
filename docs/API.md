@@ -17,7 +17,7 @@ The phasync library provides a comprehensive API for building and managing async
 
 Runs `$fn` and returns its result once it and every coroutine started inside it have ended. Outside a coroutine it starts the event loop and blocks until then. Inside a coroutine it runs `$fn` inline in that coroutine, in a new frame nested in the caller's, and waits only for what `$fn` started.
 
-A failure does not cancel the other coroutines. Once they have all ended, `run()` throws what `$fn` threw; else the earliest failure of a coroutine nobody awaited; else it returns what `$fn` returned. Later failures are not thrown; with `Frame::setExceptionHandler()` they all go to the handler instead. When the outermost `run()` has no coroutine left, it cancels the services and returns once they have ended. `run()` does not change the current `Scope`.
+A failure does not cancel the other coroutines. Once they have all ended, `run()` throws what `$fn` threw; else the earliest failure of a coroutine nobody awaited; else it returns what `$fn` returned. Every other failure nobody awaited is reported with `trigger_error()` (E_USER_WARNING); with `Frame::setExceptionHandler()` they all go to the handler instead. When the outermost `run()` has no coroutine left, it cancels the services and returns once they have ended. `run()` does not change the current `Scope`.
 
 Parameters:
 

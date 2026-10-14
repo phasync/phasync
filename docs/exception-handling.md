@@ -20,8 +20,9 @@ A failure nobody awaits cancels nothing. The other coroutines, and the function 
 - else the earliest failure nobody awaited, by the time it happened.
 
 Awaiting the failed coroutine before `run()` ends counts as handling it. A coroutine that ends
-with the cancellation it was given is no failure. Later failures nobody awaited are not thrown;
-to see every one, give the frame a handler (below).
+with the cancellation it was given is no failure. Every other failure nobody awaited is reported
+with `trigger_error()` (E_USER_WARNING, "phasync: unawaited coroutine failure (not rethrown): Class: message in file:line"), so PHP's error handler and log see it; to handle every one yourself, give the
+frame a handler (below).
 
 A nested `run()` throws into the coroutine that called it. A service's failures go to the
 outermost `run()`.

@@ -193,36 +193,50 @@ test('run() waits for every coroutine, and rethrows what nobody awaited after th
     expect($log)->toBe(['sibling finished', 'run rethrew: never awaited']);
 });
 
-test('run() rethrows the exception of $f first, after the coroutines finished', function () {
+test('run() rethrows the exception of $f first, after the coroutines finished; the child failure is reported as a warning', function () {
     $log = [];
-    try {
-        phasync::run(function () use (&$log) {
-            phasync::go(function () { throw new RuntimeException('child'); });
-            phasync::go(function () use (&$log) {
-                phasync::sleep(0.01);
-                $log[] = 'sibling finished';
+    withWarnings(function () use (&$log) {
+        try {
+            phasync::run(function () use (&$log) {
+                phasync::go(function () { throw new RuntimeException('child'); });
+                phasync::go(function () use (&$log) {
+                    phasync::sleep(0.01);
+                    $log[] = 'sibling finished';
+                });
+                throw new LogicException('main');
             });
-            throw new LogicException('main');
-        });
-    } catch (Exception $e) {
-        $log[] = \get_class($e) . ': ' . $e->getMessage();
-    }
+        } catch (Exception $e) {
+            $log[] = \get_class($e) . ': ' . $e->getMessage();
+        }
+    }, $warnings);
     expect($log)->toBe(['sibling finished', 'LogicException: main']);
+    expect($warnings)->toHaveCount(1);
+    expect($warnings[0])->toStartWith('phasync: unawaited coroutine failure (not rethrown): RuntimeException: child in ' . __FILE__ . ':');
 });
 
-test('run() rethrows the earliest failure nobody awaited', function () {
-    expect(fn () => phasync::run(function () {
-        $late  = phasync::go(function () {
-            phasync::sleep(0.02);
-            throw new RuntimeException('late');
-        });
-        $early = phasync::go(function () {
-            phasync::sleep(0.01);
-            throw new RuntimeException('early');
-        });
-        phasync::sleep(0.03);
-        unset($late, $early);
-    }))->toThrow(RuntimeException::class, 'early');
+test('run() rethrows the earliest failure nobody awaited, and reports the others as warnings, never silently', function () {
+    $thrown = null;
+    withWarnings(function () use (&$thrown) {
+        try {
+            phasync::run(function () {
+                $late  = phasync::go(function () {
+                    phasync::sleep(0.02);
+                    throw new RuntimeException('late');
+                });
+                $early = phasync::go(function () {
+                    phasync::sleep(0.01);
+                    throw new RuntimeException('early');
+                });
+                phasync::sleep(0.03);
+                unset($late, $early);
+            });
+        } catch (RuntimeException $e) {
+            $thrown = $e->getMessage();
+        }
+    }, $warnings);
+    expect($thrown)->toBe('early');
+    expect($warnings)->toHaveCount(1);
+    expect($warnings[0])->toContain('RuntimeException: late in ');
 });
 
 test('an awaited failure is not rethrown by run()', function () {
@@ -352,22 +366,25 @@ test('a frame timeout cancels the frame, and run() throws a TimeoutException', f
     expect(\microtime(true) - $started)->toBeLessThan(1.0);
 });
 
-test('a frame exception handler takes the failures nobody awaited instead of run()', function () {
+test('a frame exception handler takes every failure nobody awaited instead of run(), and nothing is reported as a warning', function () {
     $handled = [];
-    $result  = phasync::run(function () use (&$handled) {
-        phasync::frame()->setExceptionHandler(function (Throwable $e) use (&$handled) {
-            $handled[] = $e->getMessage();
-        });
-        phasync::go(function () { throw new RuntimeException('one'); });
-        phasync::go(function () {
-            phasync::sleep(0.01);
-            throw new RuntimeException('two');
-        });
+    $result  = withWarnings(function () use (&$handled) {
+        return phasync::run(function () use (&$handled) {
+            phasync::frame()->setExceptionHandler(function (Throwable $e) use (&$handled) {
+                $handled[] = $e->getMessage();
+            });
+            phasync::go(function () { throw new RuntimeException('one'); });
+            phasync::go(function () {
+                phasync::sleep(0.01);
+                throw new RuntimeException('two');
+            });
 
-        return 'ok';
-    });
+            return 'ok';
+        });
+    }, $warnings);
     expect($result)->toBe('ok');
     expect($handled)->toBe(['one', 'two']);
+    expect($warnings)->toBe([]);
 });
 
 test('a deadlock still fails the outermost run() with a DeadlockException', function () {

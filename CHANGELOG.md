@@ -21,8 +21,11 @@ the lifetime of the coroutines started inside it.
   loop queues run in the scope they were queued from.
 - `run()` no longer fails fast: a coroutine that fails with nobody awaiting it does not cancel the
   others. `run()` returns or throws once every coroutine of its frame has ended, and throws what
-  `$fn` threw, else the earliest failure nobody awaited (by when it happened). Later ones are not
-  thrown; `phasync\AggregateException` is removed. A deadlock still cancels everything and throws
+  `$fn` threw, else the earliest failure nobody awaited (by when it happened). Every other failure
+  nobody awaited (the later ones, and a child's when `$fn` threw) is reported once with
+  `trigger_error()` at `E_USER_WARNING` ("phasync: unawaited coroutine failure (not rethrown):
+  Class: message in file:line"), so it reaches PHP's error handlers and logs; with a frame
+  exception handler, the handler gets every one instead. `phasync\AggregateException` is removed. A deadlock still cancels everything and throws
   `DeadlockException`.
 - A nested `run()` runs `$fn` in the calling coroutine, in a frame of its own, without starting a
   coroutine; what `withContext()` did. Cancelling the coroutine while the nested `run()` waits now
@@ -53,7 +56,7 @@ Migration:
 | `ExceptionHandlerInterface` on a context | `phasync::frame()->setExceptionHandler($fn)` |
 | `phasync::cancel($context)` | `$frame->cancel()` |
 | `phasync::awaitContext($context)` | a nested `run()`, which waits for its coroutines |
-| `AggregateException` | the earliest failure is thrown; a frame exception handler gets every one |
+| `AggregateException` | the earliest failure is thrown, the others are E_USER_WARNINGs; a frame exception handler gets every one |
 
 ### Added
 
