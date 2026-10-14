@@ -201,7 +201,9 @@ coroutine runs, on start and on resume, when its scope differs from the one the 
 current; never between coroutines of one scope. The hooks run in the loop, outside any coroutine,
 and must not wait (a wait throws `LogicException`); an exception from one ends `run()`. They stay
 registered for the life of the loop. Entering or leaving `$scope->run()` inside a coroutine calls
-nothing: the code doing it makes the change itself. Under the polyfill, phasync activates the
+nothing: the code doing it makes the change itself, except a nested `run()` entered in another
+scope (`$scope->run(fn () => phasync::run($fn))`, a server's request), which makes it current, and
+calls the hooks, before `$fn` runs. Under the polyfill, phasync activates the
 polyfill's per-scope superglobals (`$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`) whenever the loop
 switches to a coroutine of another scope. Without the phasync extension a generator runs in the
 scope of the code iterating it (a limit of the polyfill). ✅ ScopeFrameTest, ScopesTest "SCO-7",

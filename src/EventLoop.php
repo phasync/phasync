@@ -1444,11 +1444,17 @@ final class EventLoop implements \Countable
      * coroutine's own. Coroutines $fn starts join the frame. phasync::finally() callbacks
      * registered in $fn run when it returns, still in the frame, shielded; then the call waits
      * for the frame's coroutines, and returns what $fn returned or throws (see finishFrame()).
+     * Entered in another scope than the loop last made current (`$scope->run(fn () =>
+     * phasync::run(...))`), it makes that scope current first: the onScopeChange() hooks run
+     * before $fn does, so state they swap is the scope's own from $fn's first line.
      *
      * @internal phasync::run()
      */
     public function runNested(\Closure $fn, array $args): mixed
     {
+        if (($scope = \Scope::getCurrent()) !== $this->liveScope) {
+            $this->switchScope($scope, $this->currentFiber);
+        }
         $fiber                                = $this->currentFiber;
         $id                                   = \spl_object_id($fiber);
         $outer                                = $this->currentFrame;

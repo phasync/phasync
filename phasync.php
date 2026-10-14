@@ -1063,7 +1063,7 @@ final class phasync
     /**
      * Registers `$fn` to be called when the current `Scope` changes as the event loop switches coroutines.
      *
-     * It is called as `$fn(Scope $new, ?Scope $old)` before a coroutine runs, when the scope that is current in it differs from the one current where the loop last switched: when a coroutine starts or resumes in another scope than the coroutine that ran before. Switches between coroutines of one scope call nothing. It is the place to swap state that PHP keeps globally in and out per operation (a locale, a static of a library that is not scope-aware). `$scope->run()` entered or left inside a coroutine calls nothing: code that does so makes the change itself.
+     * It is called as `$fn(Scope $new, ?Scope $old)` before a coroutine runs, when the scope that is current in it differs from the one current where the loop last switched: when a coroutine starts or resumes in another scope than the coroutine that ran before. A nested `run()` entered in another scope (`$scope->run(fn () => phasync::run($fn))`, as a server enters a request) calls it too, before `$fn` runs. Switches between coroutines of one scope call nothing. It is the place to swap state that PHP keeps globally in and out per operation (a locale, a static of a library that is not scope-aware). Otherwise `$scope->run()` entered or left inside a coroutine calls nothing: code that does so makes the change itself.
      *
      * The hooks run in the event loop, outside any coroutine, in the order registered: they must not wait (a wait there throws LogicException), and an exception from one ends `phasync::run()`. They stay registered for the life of the event loop.
      *

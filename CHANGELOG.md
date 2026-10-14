@@ -67,6 +67,8 @@ Migration:
   of another scope than the one the loop last made current starts or resumes. It must not wait
   (#85 holds for it: a wait there throws `LogicException`); one that throws while `go()` or
   `service()` starts a coroutine throws from that call, and no coroutine is left behind (#106).
+  A nested `run()` entered in another scope (`$scope->run(fn () => phasync::run($fn))`, a server's
+  request) makes that scope current and calls the hooks before `$fn` runs (#107).
 - `phasync\TimeoutException` implements `async\TimeoutException` and `phasync\CancelledException`
   implements `async\CancelledException`, fiber-interop/api's interfaces; phasync declares them
   when the api is not installed.

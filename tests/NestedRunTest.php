@@ -169,3 +169,36 @@ test('onScopeChange() keeps a value of its own per scope across interleaved coro
         'a end a changed', 'b end b changed', 'c end c changed',
     ]);
 });
+
+test('a nested run() entered in another scope makes it current first: onScopeChange() fires before $fn, as a server entering each request\'s scope in its connection\'s coroutine needs', function () {
+    $values  = new WeakMap();
+    $current = null;
+    phasync::onScopeChange(function (Scope $new, ?Scope $old) use ($values, &$current) {
+        if (null !== $old) {
+            $values[$old] = $current;
+        }
+        $current = $values[$new] ?? null;
+    });
+    $out = [];
+    phasync::run(function () use (&$out, &$current) {
+        $current = 'root';
+        foreach (['a', 'b'] as $name) {
+            phasync::go(function () use ($name, &$out, &$current) {   // a connection, in the root scope
+                (new Scope())->run(phasync::run(...), function () use ($name, &$out, &$current) {
+                    $out[]   = "$name start " . ($current ?? 'unset');
+                    $current = "$name changed";
+                    phasync::sleep(0.01);
+                    $out[] = "$name end $current";
+                });
+                phasync::sleep(0.01);
+                $out[] = "$name connection $current";
+            });
+        }
+        phasync::sleep(0.05);
+    });
+    expect($out)->toBe([
+        'a start unset', 'b start unset',
+        'a end a changed', 'b end b changed',
+        'a connection root', 'b connection root',
+    ]);
+});
