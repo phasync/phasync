@@ -333,12 +333,9 @@ final class ProcessRunner implements ProcessInterface
         if ($this->isRunning()) {
             $this->sigterm();
             $t = \microtime(true);
+            // phasync::sleep() lets other coroutines run, and outside a coroutine it is usleep()
             while ($this->isRunning() && \microtime(true) - $t < 1) {
-                if (\phasync::isRunning()) {
-                    \phasync::sleep(0.05);
-                } else {
-                    \usleep(50000);
-                }
+                \phasync::sleep(0.05);
             }
             if ($this->isRunning()) {
                 $this->sigkill();

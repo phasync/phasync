@@ -55,8 +55,8 @@ test('a waiter that times out leaves the line, and the lock goes to the next', f
                 $o->lock(function () use (&$log) {
                     $log[] = 'late';
                 }, 0.05);
-            } catch (TimeoutException) {
-                $log[] = 'timed out';
+            } catch (TimeoutException $e) {
+                $log[] = $e->getMessage();
             }
         });
         $next = phasync::go(function () use ($o, &$log) {
@@ -73,5 +73,5 @@ test('a waiter that times out leaves the line, and the lock goes to the next', f
 
         return $log;
     });
-    expect($log)->toBe(['timed out', 'next', 'free']);
+    expect($log)->toBe(['Acquiring lock timed out', 'next', 'free']);
 });

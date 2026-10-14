@@ -2,7 +2,7 @@
 
 namespace phasync\Util;
 
-use phasync\Internal\DeadmanException;
+use phasync\DeadmanException;
 use phasync\Internal\DeadmanSwitchTrait;
 use phasync\SelectableInterface;
 use phasync\TimeoutException;

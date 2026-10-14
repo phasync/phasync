@@ -4,6 +4,11 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Changed
+
+- `DeadmanException`, which `StringBuffer::read()` and `readFixed()` throw when the writer exited
+  without `end()`, is public: `phasync\DeadmanException` (was `phasync\Internal\DeadmanException`). (#97)
+
 ### Fixed
 
 - A wait in a `SwitchAwareInterface` hook, or in a Fiber the hook starts, throws `LogicException`.
@@ -41,6 +46,7 @@ Earlier releases are listed on the GitHub releases page.
 - `ProcessRunner::sigstop()` and `sigcont()` send the platform's `SIGSTOP` and `SIGCONT` (pcntl's
   constants, or the OS family's numbers without pcntl); Linux's numbers were hard-coded, so on
   macOS `sigstop()` sent `SIGCONT` and `sigcont()` sent `SIGSTOP`'s number. (#96)
+- `LockTrait`'s timeout says "Acquiring lock timed out" (was "Aquiring"). (#97)
 
 ## 2.0.0-beta8 (2026-10-13)
 

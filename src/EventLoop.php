@@ -7,7 +7,6 @@ use phasync\Context\ContextFactoryInterface;
 use phasync\Context\ExceptionHandlerInterface;
 use phasync\Context\SwitchAwareInterface;
 use phasync\Internal\ContextState;
-use phasync\Internal\DeadmanException;
 use phasync\Internal\Debug;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;

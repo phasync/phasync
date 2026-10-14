@@ -978,7 +978,7 @@ test('deadman switch triggers on garbage collection', function () {
 
         // But trying to read more (which would block) throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\Internal\DeadmanException::class);
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
@@ -1016,7 +1016,7 @@ test('read() can get existing data after deadman triggered', function () {
 
         // But blocking read for more throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\Internal\DeadmanException::class);
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
@@ -1033,7 +1033,7 @@ test('readFixed() throws when would block after deadman triggered', function () 
 
         // Asking for more than available, would need to block
         expect(fn () => $sb->readFixed(10))
-            ->toThrow(phasync\Internal\DeadmanException::class);
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
@@ -1056,7 +1056,7 @@ test('deadman switch allows reading buffered data before throwing', function () 
 
         // Blocking read throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\Internal\DeadmanException::class);
+            ->toThrow(phasync\DeadmanException::class);
     });
 });
 
@@ -1101,7 +1101,7 @@ test('DeadmanSwitch can be manually triggered', function () {
 
         // Blocking read throws
         expect(fn () => $sb->read(10))
-            ->toThrow(phasync\Internal\DeadmanException::class);
+            ->toThrow(phasync\DeadmanException::class);
         expect($deadman->isTriggered())->toBeTrue();
     });
 });

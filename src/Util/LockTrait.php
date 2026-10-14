@@ -76,7 +76,7 @@ trait LockTrait
                 }
                 $given = true;
             } catch (TimeoutException $e) {
-                throw ExceptionTool::popTrace(new TimeoutException('Aquiring lock timed out'));
+                throw ExceptionTool::popTrace(new TimeoutException('Acquiring lock timed out'));
             } finally {
                 if (!$given) {
                     // Gone from the line: if the lock was handed to it meanwhile, it goes on
