@@ -28,6 +28,10 @@ namespace phasync\Util;
  */
 final class ProcessRunner implements ProcessInterface
 {
+    /** SIGSTOP and SIGCONT without pcntl: Linux's numbers there, macOS's and the BSDs' elsewhere */
+    private const SIGSTOP = 'Linux' === \PHP_OS_FAMILY ? 19 : 17;
+    private const SIGCONT = 'Linux' === \PHP_OS_FAMILY ? 18 : 19;
+
     /**
      * The command and arguments, as given to the constructor (before command resolution).
      *
@@ -448,7 +452,7 @@ final class ProcessRunner implements ProcessInterface
      */
     public function sigstop(): bool
     {
-        return $this->sendSignal(19);
+        return $this->sendSignal(\defined('SIGSTOP') ? \SIGSTOP : self::SIGSTOP);
     }
 
     /**
@@ -460,7 +464,7 @@ final class ProcessRunner implements ProcessInterface
      */
     public function sigcont(): bool
     {
-        return $this->sendSignal(18);
+        return $this->sendSignal(\defined('SIGCONT') ? \SIGCONT : self::SIGCONT);
     }
 
     /**

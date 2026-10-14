@@ -239,6 +239,22 @@ test('PRC-5: sendSignal() delivers a signal to a running process and reports whe
     });
 });
 
+test('PRC-5: sigstop() pauses the process and sigcont() resumes it, with the platform\'s signal numbers (#96)', function () {
+    // SIGSTOP and SIGCONT differ between Linux (19, 18) and macOS/BSD (17, 19): with Linux's
+    // numbers hard-coded, sigstop() sent SIGCONT on macOS and sigcont() SIGSTOP.
+    phasync::run(function () {
+        $process = Process::run('sleep', ['5']);
+        expect($process->sigstop())->toBeTrue();
+        phasync::sleep(0.2);
+        expect($process->isStopped())->toBeTrue();
+        expect($process->sigcont())->toBeTrue();
+        phasync::sleep(0.2);
+        expect($process->isStopped())->toBeFalse();
+        expect($process->isRunning())->toBeTrue();
+        $process->stop();
+    });
+});
+
 /* ------------------------------------------------------------------ PRC-6 */
 
 test('PRC-6: once the exit has been observed the pipes are closed, so unread output is lost and read() throws IOException', function () {

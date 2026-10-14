@@ -38,6 +38,9 @@ Earlier releases are listed on the GitHub releases page.
 - `Psr\UploadedFile::moveTo()` with a stream source replaces an existing target, as a path source
   (`rename()`) does, and a target it cannot write throws `RuntimeException` without a PHP warning;
   it warned and threw `InvalidArgumentException`. (#95)
+- `ProcessRunner::sigstop()` and `sigcont()` send the platform's `SIGSTOP` and `SIGCONT` (pcntl's
+  constants, or the OS family's numbers without pcntl); Linux's numbers were hard-coded, so on
+  macOS `sigstop()` sent `SIGCONT` and `sigcont()` sent `SIGSTOP`'s number. (#96)
 
 ## 2.0.0-beta8 (2026-10-13)
 
