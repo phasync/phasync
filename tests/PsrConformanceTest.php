@@ -270,6 +270,35 @@ test('UploadedFile::moveTo() writes the stream contents to the target path and c
     \unlink($target);
 });
 
+test('UploadedFile::moveTo() with a stream replaces an existing target, as with a path, and fails with RuntimeException without a warning (#95)', function () {
+    $dir      = \sys_get_temp_dir();
+    $target   = \tempnam($dir, 'phasync-upload-');
+    $source   = \tempnam($dir, 'phasync-upload-');
+    $warnings = [];
+    \set_error_handler(function (int $code, string $message) use (&$warnings) {
+        $warnings[] = $message;
+
+        return true;
+    });
+    try {
+        \file_put_contents($target, 'old');
+        (new phasync\Psr\UploadedFile(StreamFactory::create('from a stream'), 'a.txt', 'text/plain', 13, \UPLOAD_ERR_OK))->moveTo($target);
+        expect(\file_get_contents($target))->toBe('from a stream');
+
+        \file_put_contents($source, 'from a path');
+        (new phasync\Psr\UploadedFile($source, 'b.txt', 'text/plain', 11, \UPLOAD_ERR_OK))->moveTo($target);
+        expect(\file_get_contents($target))->toBe('from a path');
+
+        $file = new phasync\Psr\UploadedFile(StreamFactory::create('x'), 'c.txt', 'text/plain', 1, \UPLOAD_ERR_OK);
+        expect(fn () => $file->moveTo($dir . '/no-such-dir/c.txt'))->toThrow(RuntimeException::class, 'No such file or directory');
+    } finally {
+        \restore_error_handler();
+        \file_exists($target) && \unlink($target);
+        \file_exists($source) && \unlink($source); // moved to $target
+    }
+    expect($warnings)->toBe([]);
+});
+
 test('a ServerRequest resolves a Closure body, parsed body and uploaded files each time, until a with...() replaces them', function () {
     $f      = new PsrFactory();
     $state  = ['body' => $f->createStream('raw'), 'fields' => ['a' => '1']];

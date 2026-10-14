@@ -35,6 +35,9 @@ Earlier releases are listed on the GitHub releases page.
 - `Psr\Uri`'s string form is normalised as its getters are: lowercase scheme and host, no default
   port; `with*()` copies keep it. An uppercase or unlisted scheme no longer warns "Undefined array
   key" when the string is rebuilt. (#94)
+- `Psr\UploadedFile::moveTo()` with a stream source replaces an existing target, as a path source
+  (`rename()`) does, and a target it cannot write throws `RuntimeException` without a PHP warning;
+  it warned and threw `InvalidArgumentException`. (#95)
 
 ## 2.0.0-beta8 (2026-10-13)
 

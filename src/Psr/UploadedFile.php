@@ -111,10 +111,9 @@ class UploadedFile implements UploadedFileInterface
      * Moves the file to `$targetPath`, once.
      *
      * A file path is moved with `move_uploaded_file()`, or with `rename()` in the CLI or with `$isUploadedFile`. A stream is
-     * copied to a new file at `$targetPath`.
+     * copied to `$targetPath`. Either way an existing file at `$targetPath` is replaced.
      *
-     * @throws \RuntimeException         for a second call, or an upload that failed (`getError()`)
-     * @throws \InvalidArgumentException when a stream cannot be copied because `$targetPath` exists or cannot be created
+     * @throws \RuntimeException for a second call, an upload that failed (`getError()`), or a target that cannot be written
      *
      * @example examples/UploadedFile.moveTo/1-once-only.php A file moves once; a failed upload not at all
      */
@@ -143,9 +142,19 @@ class UploadedFile implements UploadedFileInterface
      */
     private function moveStreamTo(string $targetPath): void
     {
-        $fp = \fopen($targetPath, 'xb');
+        $warning = null;
+        \set_error_handler(static function (int $code, string $message) use (&$warning): bool {
+            $warning = $message;
+
+            return true;
+        });
+        try {
+            $fp = \fopen($targetPath, 'wb'); // an existing target is replaced, as rename() does for a path
+        } finally {
+            \restore_error_handler();
+        }
         if (!$fp) {
-            throw new \InvalidArgumentException("Unable to create file: '$targetPath'");
+            throw new \RuntimeException("Unable to create file '$targetPath': " . ($warning ?? 'no error was reported'));
         }
 
         try {
