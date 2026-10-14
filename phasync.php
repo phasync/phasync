@@ -56,6 +56,11 @@ final class phasync
     private static ?EventLoop $driver = null;
 
     /**
+     * The process that made the driver: a fork()ed child makes its own.
+     */
+    private static ?int $driverPid = null;
+
+    /**
      * Runs `$fn` and returns its result once it and every coroutine started inside it have ended.
      *
      * Outside a coroutine, `run()` starts the event loop, runs `$fn` as a coroutine and blocks the process until then. This is how a script, a test or a controller under PHP-FPM enters phasync. Inside a coroutine it runs `$fn` in that coroutine, in a new frame: the calling coroutine waits for what `$fn` started, and the others go on. A nested `run()` costs no coroutine, so a server can give each request one.
@@ -101,7 +106,10 @@ final class phasync
      */
     public static function run(callable $fn, mixed ...$args): mixed
     {
-        $fn     = $fn instanceof Closure ? $fn : Closure::fromCallable($fn);
+        $fn = $fn instanceof Closure ? $fn : Closure::fromCallable($fn);
+        if (null !== self::$driver && self::$driverPid !== \getmypid() && !self::$driver->isRunning()) {
+            self::$driver = null; // a fork()ed child: the loop and its poller are the parent's
+        }
         $driver = self::getDriver();
         if ($driver->isRunning()) {
             if (null === $driver->getCurrentFiber()) {
@@ -1207,7 +1215,8 @@ final class phasync
     private static function getDriver(): EventLoop
     {
         if (null === self::$driver) {
-            self::$driver = new EventLoop();
+            self::$driver    = new EventLoop();
+            self::$driverPid = \getmypid();
         }
 
         return self::$driver;

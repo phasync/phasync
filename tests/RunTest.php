@@ -183,3 +183,31 @@ test('a failure does not stop the other coroutines: run() throws it once they ha
     expect($slept)->toBeTrue();
     expect(\microtime(true) - $start)->toBeGreaterThan(0.04);
 });
+
+test('phasync::run() in a fork()ed child makes its own event loop (#109)', function () {
+    if (!\function_exists('pcntl_fork')) {
+        $this->markTestSkipped('Needs pcntl');
+    }
+    phasync::run(fn () => phasync::sleep(0.001)); // the parent's loop and poller exist
+    [$parent, $child] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, 0);
+    $pid              = \pcntl_fork();
+    if (0 === $pid) {
+        try {
+            $reply = phasync::run(function () use ($child) {
+                phasync::readable($child, 5);
+
+                return 'read ' . \fread($child, 10);
+            });
+        } catch (Throwable $e) {
+            $reply = \get_class($e) . ': ' . $e->getMessage();
+        }
+        \fwrite($child, $reply);
+        \posix_kill(\posix_getpid(), \SIGKILL); // not exit(): the test runner's shutdown must not run in a child
+    }
+    \fwrite($parent, 'hi');
+    \stream_set_timeout($parent, 5);
+    $reply = \fread($parent, 200);
+    \pcntl_waitpid($pid, $status);
+
+    expect($reply)->toBe('read hi');
+});
