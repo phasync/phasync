@@ -25,6 +25,7 @@ function makeGcCycle(): void
 
 function resetEventLoopGcState(): void
 {
+    \gc_collect_cycles(); // garbage an earlier test left would make the first collection find some
     $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
     (new ReflectionProperty($driver, 'lastIdleCollect'))->setValue($driver, 0.0);
@@ -169,4 +170,38 @@ test('a busy-loop collection that finds garbage keeps GC_MAX_INTERVAL', function
 
     expect($first)->toBe(1);
     expect($second)->toBe(1);
+});
+
+test('GC_MAX_INTERVAL counts from the end of a busy-loop collection, so a slow one is not followed by another at once (#104)', function () {
+    $driver   = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
+    $interval = new ReflectionProperty($driver, 'gcMaxInterval');
+    $was      = $interval->getValue($driver);
+    $interval->setValue($driver, 0.02);
+    try {
+        $seen = phasync::run(function () {
+            for ($i = 0; $i < 300000; ++$i) {
+                makeGcCycle(); // the first collection frees these: it takes longer than 0.02 s
+            }
+            $runs = \gc_status()['runs'];
+            $seen = [];
+            $busy = phasync::go(function () use (&$runs, &$seen) {
+                $until = \microtime(true) + 1.0;
+                while (\count($seen) < 2 && \microtime(true) < $until) {
+                    makeGcCycle(); // always something to collect
+                    phasync::sleep(0);
+                    if (\gc_status()['runs'] !== $runs) {
+                        $runs   = \gc_status()['runs'];
+                        $seen[] = \microtime(true); // right after the tick that collected
+                    }
+                }
+            });
+            phasync::await($busy);
+
+            return $seen;
+        });
+    } finally {
+        $interval->setValue($driver, $was);
+    }
+    expect($seen)->toHaveCount(2);
+    expect($seen[1] - $seen[0])->toBeGreaterThanOrEqual(0.02);
 });

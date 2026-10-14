@@ -730,12 +730,13 @@ final class EventLoop implements \Countable
             // A busy loop (always some coroutine ready, never idle, see tick()'s poll() above)
             // never gets the idle-time collection above: this is its safety net, checked between
             // fibers as always: it collects once GC_MAX_INTERVAL has passed since the last
-            // collection (of any kind) while there's anything to collect. Until then garbage
+            // collection (of any kind) ended while there's anything to collect. Until then garbage
             // stays in memory: a loop this busy has no time to spare for collecting it.
             $this->lastGarbageCheck = $now;
             if ($now - $this->lastGarbageCollect > $this->gcMaxInterval * $this->gcScale && \gc_status()['roots'] > 0) {
                 $this->collectCycles();
-                $this->lastGarbageCollect = $now;
+                // From its end: a collection slower than the interval is not followed by another at once (#104)
+                $this->lastGarbageCollect = \microtime(true);
             }
         }
 

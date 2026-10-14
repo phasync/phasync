@@ -30,6 +30,8 @@ Earlier releases are listed on the GitHub releases page.
   its end, as the native function does; it threw `TypeError` after truncating the file. (#76)
 - `phasync\file_get_contents()` and `phasync\file_put_contents()` in a coroutine throw for a file
   they cannot open without emitting PHP's warning first; the exception's message carries it. (#101)
+- A busy loop's next cycle collection waits `GC_MAX_INTERVAL` from the end of the last one, not its
+  start: a collection slower than the interval was followed by another at once. (#104)
 
 ## 2.0.0-beta8 (2026-10-13)
 
