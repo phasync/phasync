@@ -8,6 +8,7 @@
  * cancels and carries a deadline.
  */
 
+use phasync\AggregateException;
 use phasync\CancelledException;
 use phasync\Frame;
 use phasync\TimeoutException;
@@ -193,50 +194,48 @@ test('run() waits for every coroutine, and rethrows what nobody awaited after th
     expect($log)->toBe(['sibling finished', 'run rethrew: never awaited']);
 });
 
-test('run() rethrows the exception of $f first, after the coroutines finished; the child failure is reported as a warning', function () {
+test('run() throws an AggregateException when $f threw and a child failed: $f\'s first, after the coroutines finished', function () {
     $log = [];
-    withWarnings(function () use (&$log) {
-        try {
-            phasync::run(function () use (&$log) {
-                phasync::go(function () { throw new RuntimeException('child'); });
-                phasync::go(function () use (&$log) {
-                    phasync::sleep(0.01);
-                    $log[] = 'sibling finished';
-                });
-                throw new LogicException('main');
+    try {
+        phasync::run(function () use (&$log) {
+            phasync::go(function () { throw new RuntimeException('child'); });
+            phasync::go(function () use (&$log) {
+                phasync::sleep(0.01);
+                $log[] = 'sibling finished';
             });
-        } catch (Exception $e) {
-            $log[] = \get_class($e) . ': ' . $e->getMessage();
-        }
-    }, $warnings);
-    expect($log)->toBe(['sibling finished', 'LogicException: main']);
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])->toStartWith('phasync: unawaited coroutine failure (not rethrown): RuntimeException: child in ' . __FILE__ . ':');
+            throw new LogicException('main');
+        });
+    } catch (AggregateException $e) {
+        $log[] = \array_map(static fn (Throwable $x) => \get_class($x) . ': ' . $x->getMessage(), $e->getExceptions());
+    }
+    expect($log)->toBe(['sibling finished', ['LogicException: main', 'RuntimeException: child']]);
 });
 
-test('run() rethrows the earliest failure nobody awaited, and reports the others as warnings, never silently', function () {
-    $thrown = null;
-    withWarnings(function () use (&$thrown) {
-        try {
-            phasync::run(function () {
-                $late  = phasync::go(function () {
-                    phasync::sleep(0.02);
-                    throw new RuntimeException('late');
-                });
-                $early = phasync::go(function () {
-                    phasync::sleep(0.01);
-                    throw new RuntimeException('early');
-                });
-                phasync::sleep(0.03);
-                unset($late, $early);
+test('run() throws an AggregateException of every failure nobody awaited, in the order they happened', function () {
+    try {
+        phasync::run(function () {
+            $late  = phasync::go(function () {
+                phasync::sleep(0.02);
+                throw new LogicException('late');
             });
-        } catch (RuntimeException $e) {
-            $thrown = $e->getMessage();
-        }
-    }, $warnings);
-    expect($thrown)->toBe('early');
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])->toContain('RuntimeException: late in ');
+            $early = phasync::go(function () {
+                phasync::sleep(0.01);
+                throw new RuntimeException('early');
+            });
+            phasync::sleep(0.03);
+            unset($late, $early); // the late one is released first
+        });
+    } catch (AggregateException $e) {
+    }
+    expect(\array_map(static fn (Throwable $x) => $x->getMessage(), $e->getExceptions()))->toBe(['early', 'late']);
+    expect($e->getPrevious()->getMessage())->toBe('early');
+    expect($e->getMessage())->toStartWith("2 failures:\n  RuntimeException: early in " . __FILE__ . ':');
+    expect($e->getMessage())->toContain("\n  LogicException: late in " . __FILE__ . ':');
+    expect($e->contains(LogicException::class))->toBeTrue();
+    expect($e->contains(Exception::class))->toBeTrue();
+    expect($e->contains(TypeError::class))->toBeFalse();
+    expect(\array_map(static fn (Throwable $x) => $x->getMessage(), $e->getExceptions(LogicException::class)))->toBe(['late']);
+    expect($e->getExceptions(Exception::class))->toHaveCount(2);
 });
 
 test('an awaited failure is not rethrown by run()', function () {
@@ -366,25 +365,40 @@ test('a frame timeout cancels the frame, and run() throws a TimeoutException', f
     expect(\microtime(true) - $started)->toBeLessThan(1.0);
 });
 
-test('a frame exception handler takes every failure nobody awaited instead of run(), and nothing is reported as a warning', function () {
+test('a frame exception handler takes the failures nobody awaited instead of run()', function () {
     $handled = [];
-    $result  = withWarnings(function () use (&$handled) {
-        return phasync::run(function () use (&$handled) {
+    $result  = phasync::run(function () use (&$handled) {
+        phasync::frame()->setExceptionHandler(function (Throwable $e) use (&$handled) {
+            $handled[] = $e->getMessage();
+        });
+        phasync::go(function () { throw new RuntimeException('one'); });
+        phasync::go(function () {
+            phasync::sleep(0.01);
+            throw new RuntimeException('two');
+        });
+
+        return 'ok';
+    });
+    expect($result)->toBe('ok');
+    expect($handled)->toBe(['one', 'two']);
+});
+
+test('with a frame exception handler, the children\'s failures go to it one by one, and $f\'s is thrown unchanged', function () {
+    $handled = [];
+    $thrown  = null;
+    try {
+        phasync::run(function () use (&$handled) {
             phasync::frame()->setExceptionHandler(function (Throwable $e) use (&$handled) {
                 $handled[] = $e->getMessage();
             });
-            phasync::go(function () { throw new RuntimeException('one'); });
-            phasync::go(function () {
-                phasync::sleep(0.01);
-                throw new RuntimeException('two');
-            });
-
-            return 'ok';
+            phasync::go(function () { throw new RuntimeException('child'); });
+            throw new LogicException('main');
         });
-    }, $warnings);
-    expect($result)->toBe('ok');
-    expect($handled)->toBe(['one', 'two']);
-    expect($warnings)->toBe([]);
+    } catch (Throwable $e) {
+        $thrown = \get_class($e) . ': ' . $e->getMessage();
+    }
+    expect($thrown)->toBe('LogicException: main');
+    expect($handled)->toBe(['child']);
 });
 
 test('a deadlock still fails the outermost run() with a DeadlockException', function () {

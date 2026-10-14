@@ -5,7 +5,7 @@ namespace phasync;
 /**
  * The lifetime of a `phasync::run()` call: the coroutines started inside it, which it waits for, cancels and rethrows.
  *
- * Every `run()` creates a frame, and `go()` starts its coroutine in the frame of the caller. `run()` returns once every coroutine of its frame has ended, those of the frames nested in it included. It then throws what `$fn` threw, else the earliest failure of a coroutine nobody awaited, and reports each other one as an `E_USER_WARNING`; the coroutines are never cancelled because one failed. A frame is not the identity of the work: that is the ambient `Scope` (fiber-interop/scope), which a frame neither creates nor changes. One scope may span several frames, and one frame hold coroutines of several scopes.
+ * Every `run()` creates a frame, and `go()` starts its coroutine in the frame of the caller. `run()` returns once every coroutine of its frame has ended, those of the frames nested in it included. It then throws every failure, what `$fn` threw and the failures of coroutines nobody awaited: one as it is, several in an AggregateException. The coroutines are never cancelled because one failed. A frame is not the identity of the work: that is the ambient `Scope` (fiber-interop/scope), which a frame neither creates nor changes. One scope may span several frames, and one frame hold coroutines of several scopes.
  *
  * `phasync::frame()` returns the frame of the running coroutine. A service (`phasync::service()`) has none.
  *
@@ -142,7 +142,7 @@ final class Frame
     }
 
     /**
-     * Sends the failures of the frame's coroutines that nobody awaited to `$handler`, instead of having `run()` throw one and report the others as warnings.
+     * Sends the failures of the frame's coroutines that nobody awaited to `$handler`, one by one, instead of having `run()` throw them.
      *
      * A failure is known once the failed coroutine's `Fiber` is released, and at the latest when the `run()` ends. The handler runs in the event loop, outside any coroutine, so it must not wait. What it throws, `run()` throws, as a failure of the frame. What `$fn` throws is not passed to it: `run()` throws that. `null` removes the handler.
      *

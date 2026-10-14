@@ -1,5 +1,6 @@
 <?php
 
+use phasync\AggregateException;
 use phasync\CancelledException;
 use phasync\DeadlockException;
 use phasync\EventLoop;
@@ -59,7 +60,7 @@ final class phasync
      *
      * Outside a coroutine, `run()` starts the event loop, runs `$fn` as a coroutine and blocks the process until then. This is how a script, a test or a controller under PHP-FPM enters phasync. Inside a coroutine it runs `$fn` in that coroutine, in a new frame: the calling coroutine waits for what `$fn` started, and the others go on. A nested `run()` costs no coroutine, so a server can give each request one.
      *
-     * Every `run()` creates a {@see Frame}: the coroutines started inside it belong to it, also those started by its coroutines, and it waits for them. A failure does not cancel the others. Once they have all ended, `run()` throws what `$fn` threw; else the earliest failure of a coroutine nobody awaited (a later await counts, until `run()` ends); else it returns what `$fn` returned. No failure is dropped silently: each other failure nobody awaited is reported with `trigger_error()` at `E_USER_WARNING`, naming its class, message, file and line, so PHP's error handler and log see it. A coroutine that ends with a cancellation phasync issued is no failure. With an exception handler on the frame ({@see Frame::setExceptionHandler()}), the failures nobody awaited go to it instead. When coroutines wait and nothing can ever wake them, the outermost `run()` cancels its coroutines and throws a DeadlockException.
+     * Every `run()` creates a {@see Frame}: the coroutines started inside it belong to it, also those started by its coroutines, and it waits for them. A failure does not cancel the others. Once they have all ended, `run()` throws every failure: what `$fn` threw and each failure of a coroutine nobody awaited (a later await counts, until `run()` ends). One is thrown as it is; several in an {@see AggregateException}, `$fn`'s first, then by the time they happened. Without failures it returns what `$fn` returned. A coroutine that ends with a cancellation phasync issued is no failure. With an exception handler on the frame ({@see Frame::setExceptionHandler()}), the failures nobody awaited go to it instead. When coroutines wait and nothing can ever wake them, the outermost `run()` cancels its coroutines and throws a DeadlockException.
      *
      * When the outermost `run()` has no coroutine left, it cancels the services ({@see phasync::service()}) and returns once they have ended. `run()` does not change the current `Scope`: `$fn` runs in the caller's.
      *
@@ -79,7 +80,8 @@ final class phasync
      * @param callable $fn      what to run
      * @param mixed    ...$args passed to `$fn`
      *
-     * @throws Throwable         what `$fn` threw, or the earliest failure of a coroutine nobody awaited
+     * @throws Throwable           what `$fn` threw, or the failure of a coroutine nobody awaited, when there is one
+     * @throws AggregateException  when there are several
      * @throws TimeoutException  when the frame's deadline passed ({@see Frame::setTimeout()})
      * @throws DeadlockException from the outermost `run()`, when coroutines wait and nothing can wake them
      * @throws LogicException    inside the event loop but outside a coroutine (an onScopeChange() hook)

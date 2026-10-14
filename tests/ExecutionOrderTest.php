@@ -10,23 +10,20 @@ test('execute run coroutine immediately', function () {
 });
 
 test('execute go coroutine immediately before resuming', function () {
-    // The child ran (and failed) before go() returned; run() throws the main coroutine's own
-    // failure, which comes first, and reports the child's as a warning
+    // The child ran (and failed) before go() returned; run() throws both, the main coroutine's
+    // own failure first
     $log = [];
-    withWarnings(function () use (&$log) {
-        try {
-            phasync::run(function () use (&$log) {
-                phasync::go(function () use (&$log) {
-                    $log[] = 'child';
-                    throw new Exception('No');
-                });
-                $log[] = 'main';
-                throw new Exception('Yes');
+    try {
+        phasync::run(function () use (&$log) {
+            phasync::go(function () use (&$log) {
+                $log[] = 'child';
+                throw new Exception('No');
             });
-        } catch (Exception $e) {
-            $log[] = $e->getMessage();
-        }
-    }, $warnings);
-    expect($log)->toBe(['child', 'main', 'Yes']);
-    expect($warnings)->toHaveCount(1);
+            $log[] = 'main';
+            throw new Exception('Yes');
+        });
+    } catch (phasync\AggregateException $e) {
+        $log[] = \array_map(static fn ($x) => $x->getMessage(), $e->getExceptions());
+    }
+    expect($log)->toBe(['child', 'main', ['Yes', 'No']]);
 });

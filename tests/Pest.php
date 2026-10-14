@@ -76,26 +76,3 @@ uses()->beforeEach(function () {
 })->afterEach(function () {
     phasyncResetProcessState();
 })->in('Characterization');
-
-if (!\function_exists('withWarnings')) {
-    /**
-     * Runs $fn, collecting the E_USER_WARNING messages it triggers (phasync reports the failures
-     * nobody awaited that run() does not throw that way) instead of letting them through.
-     *
-     * @param list<string> $warnings receives the messages
-     */
-    function withWarnings(Closure $fn, ?array &$warnings): mixed
-    {
-        $warnings = [];
-        \set_error_handler(static function (int $no, string $message) use (&$warnings) {
-            $warnings[] = $message;
-
-            return true;
-        }, \E_USER_WARNING);
-        try {
-            return $fn();
-        } finally {
-            \restore_error_handler();
-        }
-    }
-}

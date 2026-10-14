@@ -21,12 +21,13 @@ the lifetime of the coroutines started inside it.
   loop queues run in the scope they were queued from.
 - `run()` no longer fails fast: a coroutine that fails with nobody awaiting it does not cancel the
   others. `run()` returns or throws once every coroutine of its frame has ended, and throws what
-  `$fn` threw, else the earliest failure nobody awaited (by when it happened). Every other failure
-  nobody awaited (the later ones, and a child's when `$fn` threw) is reported once with
-  `trigger_error()` at `E_USER_WARNING` ("phasync: unawaited coroutine failure (not rethrown):
-  Class: message in file:line"), so it reaches PHP's error handlers and logs; with a frame
-  exception handler, the handler gets every one instead. `phasync\AggregateException` is removed. A deadlock still cancels everything and throws
-  `DeadlockException`.
+  `$fn` threw and every failure nobody awaited: one as it is, several in a
+  `phasync\AggregateException`, `$fn`'s first, then by when they happened. A deadlock still cancels
+  everything and throws `DeadlockException`.
+- `phasync\AggregateException` has a new shape: its message lists every failure with class,
+  message, file and line, `getExceptions(?string $class = null)` filters by class (subclasses
+  included), and `contains(string $class)` says whether one is there. `getPrevious()` is the
+  first. A frame exception handler gets the coroutines' failures one by one instead.
 - A nested `run()` runs `$fn` in the calling coroutine, in a frame of its own, without starting a
   coroutine; what `withContext()` did. Cancelling the coroutine while the nested `run()` waits now
   cancels the frame's coroutines too, and waits for them.
@@ -39,7 +40,7 @@ the lifetime of the coroutines started inside it.
   `enableContextState()`, `adoptContextState()`, `phasync::$contextState`,
   `phasync::$contextStateDefaults`, `phasync\Context\SwitchAwareInterface`,
   `phasync\Context\ExceptionHandlerInterface`, `phasync\Context\ContextFactoryInterface`,
-  `phasync\ContextUsedException`, `phasync\AggregateException`, and `EventLoop::getContext()`,
+  `phasync\ContextUsedException`, and `EventLoop::getContext()`,
   `getCurrentContext()`, `getRootContext()`, `withContext()`, `cancelContext()`, `awaitContext()`.
 - With phasync-ext, preemption freezes the preempted coroutine's scope (a request), where it froze
   its root context.
@@ -56,7 +57,7 @@ Migration:
 | `ExceptionHandlerInterface` on a context | `phasync::frame()->setExceptionHandler($fn)` |
 | `phasync::cancel($context)` | `$frame->cancel()` |
 | `phasync::awaitContext($context)` | a nested `run()`, which waits for its coroutines |
-| `AggregateException` | the earliest failure is thrown, the others are E_USER_WARNINGs; a frame exception handler gets every one |
+| several failures thrown as `AggregateException` only when they came at once | always every failure: one as it is, several in an `AggregateException`; catch it and use `contains()` / `getExceptions($class)` |
 
 ### Added
 

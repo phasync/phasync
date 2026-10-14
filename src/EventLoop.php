@@ -382,7 +382,7 @@ final class EventLoop implements \Countable
     public function __construct()
     {
         // What a failure needs, loaded now: without file descriptors left, it can't be autoloaded
-        foreach ([CancelledException::class, ChannelException::class, DeadlockException::class, DeadmanException::class,
+        foreach ([AggregateException::class, CancelledException::class, ChannelException::class, DeadlockException::class, DeadmanException::class,
             IOException::class, TimeoutException::class, Frame::class, Debug::class, ExceptionTool::class, FiberExceptionHolder::class] as $class) {
             \class_exists($class);
         }
@@ -1527,10 +1527,10 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * The run() of $frame ends: the failures of its coroutines nobody awaited are settled, and
-     * it throws its deadlock, else what $fn threw ($failure; a TimeoutException when the
-     * frame's deadline cancelled it), else the earliest failure nobody awaited, else returns
-     * $result.
+     * The run() of $frame ends: the failures of its coroutines nobody awaited are settled. With
+     * one failure to report (its deadlock, what $fn threw - a TimeoutException when the frame's
+     * deadline cancelled it -, or one nobody awaited) it throws that; with several, an
+     * AggregateException of all of them; else it returns $result.
      */
     private function finishFrame(Frame $frame, ?\Fiber $main, ?\Throwable $failure, mixed $result): mixed
     {
@@ -1549,29 +1549,23 @@ final class EventLoop implements \Countable
         }
         $frame->ended = true;
         unset($this->deadlines[\spl_object_id($frame)]);
-        $throw = $frame->fatal;
-        if (null === $throw && null !== $failure) {
-            $throw = null !== $frame->timeout && self::causedBy($failure, $frame->timeout) ? $frame->timeout : $failure;
+        // Every failure is reported: a deadlock, then $fn's, then the ones nobody awaited as they happened
+        $report = [];
+        if (null !== $frame->fatal) {
+            $report[] = $frame->fatal;
+        }
+        if (null !== $failure) {
+            $report[] = null !== $frame->timeout && self::causedBy($failure, $frame->timeout) ? $frame->timeout : $failure;
         }
         if ([] !== $frame->failures) {
-            if (null === $throw) {
-                $first = $frame->failures[0];
-                foreach ($frame->failures as $f) {
-                    if ($f[0] < $first[0]) {
-                        $first = $f;
-                    }
-                }
-                $throw = $first[1];
-            }
-            // Never silently dropped: the failures nobody awaited that run() does not throw
-            foreach ($frame->failures as [, $e]) {
-                if ($e !== $throw) {
-                    \trigger_error('phasync: unawaited coroutine failure (not rethrown): ' . \get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine(), \E_USER_WARNING);
-                }
+            $failures = $frame->failures;
+            \usort($failures, static fn (array $x, array $y) => $x[0] <=> $y[0]);
+            foreach ($failures as [, $e]) {
+                $report[] = $e;
             }
         }
-        if (null !== $throw) {
-            throw $throw;
+        if ([] !== $report) {
+            throw 1 === \count($report) ? $report[0] : new AggregateException($report);
         }
 
         return $result;

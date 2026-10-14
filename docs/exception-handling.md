@@ -14,15 +14,28 @@ try {
 ## A failure nobody awaits
 
 A failure nobody awaits cancels nothing. The other coroutines, and the function given to
-`phasync::run()`, go on. Once every coroutine of the run has ended, `run()` throws:
+`phasync::run()`, go on. Once every coroutine of the run has ended, `run()` throws every failure:
+what its own function threw, and each failure nobody awaited. One is thrown as it is. Several are
+thrown together in a `phasync\AggregateException`, the function's own first, then the others by
+the time they happened:
 
-- what its own function threw, if it threw;
-- else the earliest failure nobody awaited, by the time it happened.
+```php
+try {
+    phasync::run($work);
+} catch (phasync\AggregateException $e) {
+    if ($e->contains(PDOException::class)) {
+        // the database failed, whatever else did
+    }
+    foreach ($e->getExceptions() as $failure) {
+        $logger->error($failure->getMessage());
+    }
+}
+```
 
-Awaiting the failed coroutine before `run()` ends counts as handling it. A coroutine that ends
-with the cancellation it was given is no failure. Every other failure nobody awaited is reported
-with `trigger_error()` (E_USER_WARNING, "phasync: unawaited coroutine failure (not rethrown): Class: message in file:line"), so PHP's error handler and log see it; to handle every one yourself, give the
-frame a handler (below).
+Its message lists every failure with class, message, file and line, so an uncaught one shows them
+all. Awaiting the failed coroutine before `run()` ends counts as handling it. A coroutine that ends
+with the cancellation it was given is no failure. To handle each failure yourself as it happens,
+give the frame a handler (below).
 
 A nested `run()` throws into the coroutine that called it. A service's failures go to the
 outermost `run()`.

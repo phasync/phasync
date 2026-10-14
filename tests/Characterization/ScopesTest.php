@@ -18,15 +18,12 @@ uses()->group('characterization');
  */
 function scoRun(Closure $body, array &$log): void
 {
-    withWarnings(static function () use ($body, &$log) {
-        try {
-            phasync::run($body);
-        } catch (Throwable $e) {
-            $log[] = 'run threw ' . \get_class($e) . ': ' . $e->getMessage();
-        }
-    }, $warnings);
-    foreach ($warnings as $warning) {
-        $log[] = 'warned ' . \preg_replace('/ in \\S+:\d+$/', '', $warning);
+    try {
+        phasync::run($body);
+    } catch (phasync\AggregateException $e) {
+        $log[] = 'run threw ' . \get_class($e) . ': ' . \implode(', ', \array_map(static fn (Throwable $x) => \get_class($x) . ' ' . $x->getMessage(), $e->getExceptions()));
+    } catch (Throwable $e) {
+        $log[] = 'run threw ' . \get_class($e) . ': ' . $e->getMessage();
     }
 }
 
@@ -220,7 +217,7 @@ test('SCO-3: what the exception handler throws, run() throws', function () {
 // SCO-4  run() throws the scope's failure
 // ---------------------------------------------------------------------------
 
-test('SCO-4: run() throws the first of several un-awaited failures', function () {
+test('SCO-4: several un-awaited failures are thrown together, in the order they happened', function () {
     $log = [];
     scoRun(function () {
         phasync::go(function () {
@@ -233,10 +230,10 @@ test('SCO-4: run() throws the first of several un-awaited failures', function ()
         });
         phasync::sleep(0.08);
     }, $log);
-    expect($log)->toBe(['run threw RuntimeException: first', 'warned phasync: unawaited coroutine failure (not rethrown): RuntimeException: second']);
+    expect($log)->toBe(['run threw phasync\\AggregateException: RuntimeException first, RuntimeException second']);
 });
 
-test('SCO-4: when the main coroutine fails too, its own failure is thrown', function () {
+test('SCO-4: when the main coroutine fails too, its failure comes first, then the child\'s', function () {
     $log = [];
     scoRun(function () {
         phasync::go(function () {
@@ -244,10 +241,10 @@ test('SCO-4: when the main coroutine fails too, its own failure is thrown', func
         });
         throw new RuntimeException('main');
     }, $log);
-    expect($log)->toBe(['run threw RuntimeException: main', 'warned phasync: unawaited coroutine failure (not rethrown): RuntimeException: child']);
+    expect($log)->toBe(['run threw phasync\\AggregateException: RuntimeException main, RuntimeException child']);
 });
 
-test('SCO-4: the earliest failure is thrown, by when it happened, not by when it became known', function () {
+test('SCO-4: the failures are in the order they happened, not the order they became known', function () {
     $log = [];
     scoRun(function () {
         $late  = phasync::go(function () {
@@ -261,7 +258,7 @@ test('SCO-4: the earliest failure is thrown, by when it happened, not by when it
         phasync::sleep(0.03);
         unset($late, $early); // the late one is released first
     }, $log);
-    expect($log)->toBe(['run threw RuntimeException: early', 'warned phasync: unawaited coroutine failure (not rethrown): RuntimeException: late']);
+    expect($log)->toBe(['run threw phasync\\AggregateException: RuntimeException early, RuntimeException late']);
 });
 
 test('SCO-4: a failure in a grandchild surfaces from run()', function () {

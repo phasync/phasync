@@ -7,8 +7,8 @@ established answer, it is the reference, and every deliberate difference is mark
 In 2.x, contexts were replaced by two separate things: the ambient `\Scope`
 (fiber-interop/scope) is the identity of an operation, and `phasync\Frame` is the lifetime of
 a `run()` (section 3). In older issues, a "root context" is now a scope, `withContext()` is a
-nested `run()`, `cancel($context)` is `$frame->cancel()`, and `AggregateException` is gone
-(ERR-4).
+nested `run()`, and `cancel($context)` is `$frame->cancel()`. `AggregateException` is kept, with
+a new shape (ERR-4).
 
 **Status legend**
 
@@ -160,10 +160,10 @@ the frame itself (`phasync::frame()->cancel()`, CAN-5). phasync logs nothing. *D
 Trio's nurseries and Kotlin's `coroutineScope`, which cancel the siblings on the first failure.*
 ✅ ScopesTest, ScopeFrameTest
 
-**SCO-4. What `run()` throws.** Once every coroutine of its frame has ended, `run()` throws what
-`$fn` threw; else the earliest failure nobody awaited, by the time it happened (not by when it
-became known); else it returns what `$fn` returned. It throws one exception: every other failure
-nobody awaited is reported as a warning (ERR-4). The cancellations its coroutines end with are no failures
+**SCO-4. What `run()` throws.** Once every coroutine of its frame has ended, `run()` throws
+every failure: what `$fn` threw and each failure nobody awaited. One is thrown as it is; several
+in an `AggregateException`, `$fn`'s first, then the others by the time they happened (not by when
+they became known) (ERR-4). Without failures it returns what `$fn` returned. The cancellations its coroutines end with are no failures
 (CAN-9); anything else they throw is. A nested `run()` throws into the coroutine that called it,
 which can handle it. ✅ ScopesTest, ScopeFrameTest
 
@@ -226,14 +226,17 @@ still await it), and at the latest when its `run()` ends: a `run()` owns its cor
 the failure from reaching it. Such a coroutine can't be awaited afterwards (`LogicException`).
 ✅ ErrorsTest
 
-**ERR-4. `run()` throws the earliest failure nobody awaited; with a frame exception handler
-every failure reaches it.** Without a handler, `run()` throws one exception: what `$fn` threw,
-else the earliest failure nobody awaited (SCO-4). No failure is silently dropped: every other
-failure nobody awaited (the later ones, and a child's when `$fn` threw) is reported with
-`trigger_error()` (E_USER_WARNING, "phasync: unawaited coroutine failure (not rethrown): Class: message in file:line"), once, as `run()` ends, so it goes through PHP's error handlers and logs. The one
-`run()` throws is not reported again. With `Frame::setExceptionHandler()` the handler gets every
-one instead, in the order they became known, and nothing is reported. There is no `AggregateException`; it was removed in the 2.x redesign
-(D3). ✅ ErrorsTest
+**ERR-4. No failure is dropped: one is thrown as it is, several in an `AggregateException`.**
+Without a frame exception handler, `run()` counts what `$fn` threw and every failure nobody
+awaited. With one, it throws that exception unchanged. With more, it throws
+`phasync\AggregateException`: `getExceptions()` has all of them, `$fn`'s first, then the others by
+the time they happened; its message lists each with class, message, file and line, so an
+uncaught one shows them all; `getExceptions($class)` and `contains($class)` find failures of a
+class. None is picked over the others: with several siblings failing, which failed first is a
+matter of timing, and picking one could hide the one that matters (a database failure behind a
+cache timeout). With `Frame::setExceptionHandler()`, the handler gets each coroutine's failure
+on its own, as it becomes known, and `run()` throws only what `$fn` threw (D3).
+✅ ErrorsTest, ScopeFrameTest
 
 **ERR-5. `finally` always runs**, including on cancellation and on exceptions thrown into
 a suspended coroutine; in a cancelled coroutine, a wait inside it throws again (CAN-4).
@@ -691,7 +694,7 @@ fail on purpose and is reported before it is accepted.
 | SCO-5 | Cancelling a coroutine blocked in a nested `run()` does not cancel the nested children | **Changed (2.x redesign):** the nested frame's coroutines are cancelled and waited for. Done |
 | SCO-7 | Context storage: a missing key gives a "returned by reference" notice, object keys throw `Error`, `isset` with a null key throws `TypeError` | Removed with `ContextInterface` (D4); contexts themselves were replaced by `Scope` and `Frame` in 2.x. Done |
 | ERR-3 | Un-awaited failures surface only when `run()` ends, and are lost if the failing `Fiber` is still referenced then | A retained `Fiber`'s failure reaches its `run()` when it ends. Done |
-| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | **Settled (2.x redesign):** `run()` throws one, `$fn`'s or else the earliest, and reports each other one with an E_USER_WARNING; a frame exception handler gets every one instead. The `AggregateException` of the 2.0 alphas is removed. Done |
+| ERR-4 | Later failures are only logged, and a child failure is dropped when the main coroutine also fails | **Settled (2.x redesign):** `run()` throws one failure as it is, several in an `AggregateException` (`$fn`'s first, then by time of failure); a frame exception handler gets every child failure instead. Done |
 | CAN-2, CAN-3 | Cancelling a running coroutine throws `RuntimeException`; a finished one throws `InvalidArgumentException` | Recorded, or no-op |
 | CAN-5 | There is no way to cancel a group of coroutines | `Frame::cancel()` (D14). Done |
 | CAN-9 | `run()` throws the `CancelledException` of a child the parent cancelled on purpose | Not a failure (D12) |
@@ -729,7 +732,7 @@ through the public API.
 |---|----------|---------|-------------------|
 | D1 | `ReadChannelInterface::read()` / `Channel::read()`: `write(null)` is accepted today (the value union includes `null`), so a legitimately-written `null` and "channel closed" are indistinguishable, and `ReadChannel::getIterator()`'s `while (null !== $this->read())` truncates `foreach` at the first written `null` (pinned, `CHN-5`) | keep as is; throw on close; `read(float $timeout = PHP_FLOAT_MAX, ?bool &$eof = null): mixed` | **Decided (maintainer) and done:** the `&$eof` out-parameter (inspired by C#'s `out` pattern; `feof()`-style naming). `getIterator()` uses it, fixing `CHN-5` for free with no second method. `Subscriber`/`Subscribers` got the same fix and two further bugs it surfaced in that class specifically (see CHN-5) |
 | D2 | Which values can a channel carry? Was `\Serializable\|array\|string\|float\|int\|bool\|null` | keep the union; any `mixed` | **Decided (maintainer) and done (2.0.0):** `mixed`. The restriction existed only because cross-process channel support was undecided; resolved by recognizing that as a separate concern -- a future clustering primitive (string broadcast, `docs/roadmap-2.0.md`) owns cross-process transport with its own explicit serialization at that layer, so in-process channels have no reason to be constrained by it. PHP ZTS builds remain a separate, still-open question, orthogonal to this |
-| D3 | Shape of multiple failures in one frame | first only (Go's `errgroup`); `AggregateException` holding all | **Settled (2.x redesign):** first only. `run()` throws `$fn`'s failure, else the earliest nobody awaited; a frame exception handler sees every one. `AggregateException` is removed |
+| D3 | Shape of multiple failures in one frame | first only (Go's `errgroup`); `AggregateException` holding all | **Settled (2.x redesign, owner):** `AggregateException` holding all when there are several, `$fn`'s first, then by time of failure; one failure is thrown as it is. "First only" was rejected: among sibling failures the first is arbitrary and can hide the important one |
 | D4 | Keep `ArrayAccess` context storage? | keep; remove; replace with a small explicit coroutine-local API | **Decided (maintainer) and done (2.0.0-alpha18):** `ContextInterface`, `ContextTrait`, `DefaultContext`, `ServiceContext` and the storage are gone. **Superseded (2.x redesign):** contexts are gone too. Callers keep their own `WeakMap` keyed by `Scope::getCurrent()` (SCO-7) |
 | D5 | Cancellation delivery | once per request (edge); every suspension while cancelled (level, as in Trio) | **Decided (maintainer):** cancellation is one exception thrown into the coroutine. Cleanup is done by catching it. No shielding |
 | D6 | Default timeout for IO operations | infinite everywhere; keep a finite default for IO | **Decided (maintainer) and done:** infinite everywhere. `setDefaultTimeout()`, `getDefaultTimeout()` and `DEFAULT_TIMEOUT` are removed. A finite default is a hidden timer |

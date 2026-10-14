@@ -24,17 +24,15 @@ afterEach(function () {
 /**
  * Runs $body in phasync::run(), returning how it ended: 'ok:<value>' or 'threw ClassName: message'.
  */
-function errOutcome(Closure $body, ?array &$warnings = null): string
+function errOutcome(Closure $body): string
 {
-    return withWarnings(static function () use ($body) {
-        try {
-            $value = phasync::run($body);
+    try {
+        $value = phasync::run($body);
 
-            return 'ok:' . \var_export($value, true);
-        } catch (Throwable $e) {
-            return 'threw ' . \get_class($e) . ': ' . $e->getMessage();
-        }
-    }, $warnings);
+        return 'ok:' . \var_export($value, true);
+    } catch (Throwable $e) {
+        return 'threw ' . \get_class($e) . ': ' . $e->getMessage();
+    }
 }
 
 /**
@@ -272,10 +270,10 @@ test('ERR-3: a failure inside a nested run() surfaces from that nested run(), in
 });
 
 // ---------------------------------------------------------------------------
-// ERR-4  run() throws the earliest failure nobody awaited; a frame handler gets every one
+// ERR-4  No failure is dropped: one is thrown as it is, several in an AggregateException
 // ---------------------------------------------------------------------------
 
-test('ERR-4: a later un-awaited failure does not replace the first: run() throws the first', function () {
+test('ERR-4: two un-awaited failures: run() throws an AggregateException of both, in the order they happened', function () {
     $outcome = errOutcome(function () {
         phasync::go(function () {
             phasync::sleep(0.01);
@@ -286,14 +284,13 @@ test('ERR-4: a later un-awaited failure does not replace the first: run() throws
             throw new RuntimeException('c2');
         });
         phasync::sleep(0.05);
-    }, $warnings);
-    expect($outcome)->toBe('threw RuntimeException: c1');
-    // Never silently dropped: the second is reported, through PHP's error handling
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])->toStartWith('phasync: unawaited coroutine failure (not rethrown): RuntimeException: c2 in ' . __FILE__ . ':');
+    });
+    expect($outcome)->toStartWith("threw phasync\\AggregateException: 2 failures:\n  RuntimeException: c1 in ");
+    expect($outcome)->toContain("\n  RuntimeException: c2 in ");
+    expect(errLogged($this))->toBe(''); // thrown, not logged
 });
 
-test('ERR-4: two failures in the same tick: run() throws the first', function () {
+test('ERR-4: two failures in the same tick: both in the AggregateException, the first first', function () {
     $outcome = errOutcome(function () {
         phasync::go(function () {
             throw new RuntimeException('cA');
@@ -301,22 +298,20 @@ test('ERR-4: two failures in the same tick: run() throws the first', function ()
         phasync::go(function () {
             throw new RuntimeException('cB');
         });
-    }, $warnings);
-    expect($outcome)->toBe('threw RuntimeException: cA');
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])->toContain('RuntimeException: cB in ');
+    });
+    expect($outcome)->toStartWith("threw phasync\\AggregateException: 2 failures:\n  RuntimeException: cA in ");
+    expect($outcome)->toContain("\n  RuntimeException: cB in ");
 });
 
-test('ERR-4: when the main coroutine fails as well, its own failure is thrown', function () {
+test('ERR-4: when the main coroutine fails as well, both are in the AggregateException, the main coroutine\'s first', function () {
     $outcome = errOutcome(function () {
         phasync::go(function () {
             throw new RuntimeException('child failure');
         });
         throw new RuntimeException('main failure');
-    }, $warnings);
-    expect($outcome)->toBe('threw RuntimeException: main failure');
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])->toContain('RuntimeException: child failure in ');
+    });
+    expect($outcome)->toStartWith("threw phasync\\AggregateException: 2 failures:\n  RuntimeException: main failure in ");
+    expect($outcome)->toContain("\n  RuntimeException: child failure in ");
 });
 
 test('ERR-4: with an exception handler on the frame, every failure reaches it, in order', function () {
