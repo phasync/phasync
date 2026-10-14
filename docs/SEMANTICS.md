@@ -259,10 +259,11 @@ still in the nested frame, and able to suspend, also when it was cancelled (CAN-
 **CAN-1. Delivered at a suspension point.** `cancel($fiber)` causes `CancelledException`
 to be thrown from the coroutine's current or next suspension point. ✅ CancelTest
 
-**CAN-2. Cancelling a running coroutine is legal.** A coroutine that cancels itself (or a
-frame it is in) gets the exception at once, as a `throw`. Any other coroutine that isn't
-waiting meets it at its next wait; one that was preempted too, never at the preemption
-itself (SCH-6). ✅ CancellationTest
+**CAN-2. Cancelling a running coroutine is legal; `cancel()` never throws in the caller.** A
+coroutine that cancels itself (or a frame it is in) finishes its current step and meets the
+exception at its next wait. Any other coroutine that isn't waiting meets it at its next wait;
+one that was preempted too, never at the preemption itself (SCH-6). (#110) ✅ CancellationTest,
+CancelTest
 
 **CAN-3. Cancelling a finished coroutine is a no-op.** ❌ Currently throws
 `InvalidArgumentException`.
@@ -277,11 +278,17 @@ completes, bounded by that I/O's own timeouts. Timeouts are not cancellations: a
 **CAN-5. `cancel($fiber)` stops that coroutine and nothing else, never its children;
 `$frame->cancel()` stops the frame's.** `phasync::cancel()` takes a `Fiber` only.
 `Frame::cancel()` cancels every coroutine of the frame and of the frames nested in it, the
-deepest in the coroutine tree first; the calling coroutine, if it is in the frame, gets it
-thrown at once (CAN-2). A cancelled coroutine blocked in a nested `run()` takes that nested
+deepest in the coroutine tree first; the calling coroutine, if it is in the frame, meets it
+at its next wait (CAN-2). A cancelled coroutine blocked in a nested `run()` takes that nested
 frame's coroutines with it (SCO-5). (D14) ✅ ScopeFrameTest "$frame->cancel() cancels every
 coroutine of the frame and of the frames nested in it", ScopesTest "SCO-7: Frame::cancel()
 reaches the deepest coroutines first", CancellationTest "CAN-5"
+
+**CAN-5a. Cancellation can be requested without an exception.**
+`Frame::requestCancellation()` sets a flag on the frame and every frame nested in it, those
+entered later included, which `Frame::isCancellationRequested()` reads; it throws nothing and
+wakes nothing. `Frame::cancel()` and a passed `setTimeout()` deadline set it too. (#110) ✅
+ScopeFrameTest
 
 **CAN-6. Cancellation never loses or duplicates data.** A cancelled operation either
 completed before the exception, or did not happen. Examples: a cancelled channel write

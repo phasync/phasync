@@ -50,6 +50,8 @@ phasync::run(function () {
 });
 ```
 
+`$frame->cancel()` throws nothing in the caller: a coroutine in the frame meets the `CancelledException` at its next wait, the caller too. `$frame->requestCancellation()` only sets a flag, on the frame and the frames nested in it, that `$frame->isCancellationRequested()` reads: a loop checks it and returns, with no exception. `cancel()` and a passed deadline set it too.
+
 
 ### `phasync::await(Fiber|promise-like $awaitable, ?float $timeout = null): mixed`
 
@@ -73,7 +75,7 @@ Parameters:
 
 ### `phasync::cancel(Fiber $fiber, string|Stringable|CancelledException $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void`
 
-Cancels a coroutine, and not the coroutines it started; to cancel a frame, use `$frame->cancel()`. Sticky: the coroutine's waits throw a `CancelledException` until it ends, so a coroutine that catches it and waits again is cancelled again. `$previous` is what caused the cancellation.
+Cancels a coroutine, and not the coroutines it started; to cancel a frame, use `$frame->cancel()`. It throws nothing in the caller: a coroutine that cancels itself meets the `CancelledException` at its next wait. Sticky: the coroutine's waits throw a `CancelledException` until it ends, so a coroutine that catches it and waits again is cancelled again. `$previous` is what caused the cancellation.
 
 
 ### `phasync::onScopeChange(callable $fn): void`

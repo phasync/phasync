@@ -125,6 +125,7 @@ $pages = phasync::run(function () {
 Every `run()` creates a frame (`phasync\Frame`): the coroutines started inside it, which it
 waits for. A failure cancels nothing; once the rest have ended, `run()` throws the failure, or a
 `phasync\AggregateException` of all of them when there are several. The frame can be cancelled,
+asked to stop without an exception (`requestCancellation()`, read by `isCancellationRequested()`),
 given a deadline, or given a handler for the failures nobody awaited:
 
 ```php

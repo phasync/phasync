@@ -69,6 +69,10 @@ Migration:
   `service()` starts a coroutine throws from that call, and no coroutine is left behind (#106).
   A nested `run()` entered in another scope (`$scope->run(fn () => phasync::run($fn))`, a server's
   request) makes that scope current and calls the hooks before `$fn` runs (#107).
+- `Frame::requestCancellation()` and `Frame::isCancellationRequested()`: cooperative cancellation
+  without an exception. The flag is set on the frame and its nested frames, those entered later
+  included; it throws nothing and wakes nothing. `Frame::cancel()` and a passed `setTimeout()`
+  deadline set it too. (#110)
 - `phasync\TimeoutException` implements `async\TimeoutException` and `phasync\CancelledException`
   implements `async\CancelledException`, fiber-interop/api's interfaces; phasync declares them
   when the api is not installed.
@@ -77,6 +81,10 @@ Migration:
 
 ### Changed
 
+- `phasync::cancel()` and `Frame::cancel()` never throw in the caller. A coroutine that cancels
+  itself, or a frame it is in, finishes its current step and meets the `CancelledException` at its
+  next wait; it was thrown at once. A cancelled coroutine can now cancel other frames, from a
+  `finally` block too, without the call throwing its own cancellation. (#110)
 - `DeadmanException`, which `StringBuffer::read()` and `readFixed()` throw when the writer exited
   without `end()`, is public: `phasync\DeadmanException` (was `phasync\Internal\DeadmanException`). (#97)
 
