@@ -5,7 +5,7 @@ namespace phasync;
 /**
  * Coroutines wait, and nothing can ever wake them: the outermost `run()` throws this.
  *
- * The loop finds this exactly, never by time: when no coroutine can run, no callback is queued, and no timer, timeout, `idle()` waiter, watched stream or signal handler (also one installed with `pcntl_signal()`) is left, every coroutine still waiting waits forever. The run then fails as for any other failure, see {@see phasync::run()}: its coroutines are cancelled with a CancelledException whose previous exception is this one, their `finally` blocks run, and the outermost `run()` throws it. The message lists every waiting coroutine with the call it waits in and where that call is.
+ * The loop finds this exactly, never by time: when no coroutine can run, no callback is queued, and no timer, timeout, `idle()` waiter, watched stream or signal handler (also one installed with `pcntl_signal()`) is left, every coroutine still waiting waits forever. The outermost `run()` then cancels its coroutines and the services with a CancelledException whose previous exception is this one, their `finally` blocks run, and it throws this, before anything else its coroutines threw. The message lists every waiting coroutine with the call it waits in and where that call is.
  *
  * A coroutine waiting for a stream, a pipe or a socket is never part of a stall, since what it waits for can come from another process; so two coroutines each reading their end of a `stream_socket_pair()` wait forever. Nor is a stall of some coroutines while others make progress.
  *

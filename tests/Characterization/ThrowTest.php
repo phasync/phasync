@@ -233,16 +233,17 @@ test('CAN-10: an exception as the message of cancel() is refused, pointing to th
     });
 });
 
-test('CAN-10: cancelling a context passes the message, code and cause to every coroutine of it', function () {
+test('CAN-10: cancelling a frame passes the message, code and cause to every coroutine of it', function () {
     $seen = [];
     phasync::run(static function () use (&$seen) {
-        $context = new stdClass();
-        phasync::go(static function () use ($context) {
+        $frame = null;
+        phasync::go(static function () use (&$frame) {
             phasync::sleep(0.01);
-            phasync::cancel($context, 'teardown', 9, new RuntimeException('cause'));
+            $frame->cancel(new CancelledException('teardown', 9, new RuntimeException('cause')));
         });
         try {
-            phasync::withContext(static function () use (&$seen) {
+            phasync::run(static function () use (&$seen, &$frame) {
+                $frame = phasync::frame();
                 phasync::go(static function () use (&$seen) {
                     try {
                         phasync::sleep(5);
@@ -250,7 +251,7 @@ test('CAN-10: cancelling a context passes the message, code and cause to every c
                         $seen[] = [$e->getMessage(), $e->getCode(), $e->getPrevious()?->getMessage()];
                     }
                 });
-            }, $context);
+            });
         } catch (CancelledException) {
         }
     });

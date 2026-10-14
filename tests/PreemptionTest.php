@@ -2,7 +2,8 @@
 
 /*
  * Preemption with phasync-ext (set_preempt_function()): a coroutine that runs a whole interval in a
- * PHP loop yields to other root contexts (requests); its own root stays frozen until it resumes.
+ * PHP loop yields to the coroutines of other scopes (requests); its own scope stays frozen until it
+ * resumes.
  * Without the extension these tests are skipped: scheduling is cooperative only.
  */
 
@@ -11,6 +12,12 @@ beforeEach(function () {
         $this->markTestSkipped('needs phasync-ext with set_preempt_function()');
     }
 });
+
+/** A coroutine that runs $fn in a scope of its own, as a server's connection coroutine runs a request. */
+function preemptGo(Closure $fn): Fiber
+{
+    return phasync::go(static fn () => (new Scope())->run($fn));
+}
 
 /** Busy for $seconds in a PHP loop, without suspending. */
 function preemptBusy(float $seconds): int
@@ -27,17 +34,17 @@ function preemptBusy(float $seconds): int
 test('a CPU-bound request no longer starves another: the other runs while it loops', function () {
     $log = phasync::run(function () {
         $log = [];
-        $a   = phasync::go(function () use (&$log) {
+        $a   = preemptGo(function () use (&$log) {
             $log[] = 'A starts';
             preemptBusy(0.5);
             $log[] = 'A done';
-        }, context: new stdClass());
-        $b = phasync::go(function () use (&$log) {
+        });
+        $b = preemptGo(function () use (&$log) {
             for ($i = 0; $i < 3; ++$i) {
                 phasync::sleep(0.01);
                 $log[] = "B $i";
             }
-        }, context: new stdClass());
+        });
         phasync::await($a);
         phasync::await($b);
 
@@ -49,12 +56,11 @@ test('a CPU-bound request no longer starves another: the other runs while it loo
 test('a preempted request is frozen: its other coroutines run only after its loop is done', function () {
     $log = phasync::run(function () {
         $log     = [];
-        phasync::go(function () use (&$log) { // another request, which does run meanwhile
+        preemptGo(function () use (&$log) { // another request, which does run meanwhile
             phasync::sleep(0.02);
             $log[] = 'B';
-        }, context: new stdClass());
-        $request = new stdClass();
-        phasync::withContext(function () use (&$log) {
+        });
+        (new Scope())->run(function () use (&$log) {
             phasync::go(function () use (&$log) {
                 $log[] = 'A1 starts';
                 preemptBusy(0.1);
@@ -67,7 +73,7 @@ test('a preempted request is frozen: its other coroutines run only after its loo
                 phasync::sleep(0.01);
                 $log[] = 'A3'; // ready meanwhile: held until A1 resumes
             });
-        }, $request);
+        });
         phasync::sleep(0.2);
 
         return $log;
@@ -79,12 +85,12 @@ test('a coroutine held for a frozen request can be cancelled: it throws once the
     $log = phasync::run(function () {
         $log     = [];
         $waiting = null;
-        phasync::go(function () use (&$log, &$waiting) { // another request
+        preemptGo(function () use (&$log, &$waiting) { // another request
             phasync::sleep(0.03);
             phasync::cancel($waiting);
             $log[] = 'cancel';
-        }, context: new stdClass());
-        phasync::withContext(function () use (&$log, &$waiting) {
+        });
+        (new Scope())->run(function () use (&$log, &$waiting) {
             $waiting = phasync::go(function () use (&$log) {
                 try {
                     phasync::sleep(0.01);
@@ -97,7 +103,7 @@ test('a coroutine held for a frozen request can be cancelled: it throws once the
                 preemptBusy(0.1);
                 $log[] = 'loop done';
             });
-        }, new stdClass());
+        });
         phasync::sleep(0.2);
 
         return $log;
@@ -108,16 +114,16 @@ test('a coroutine held for a frozen request can be cancelled: it throws once the
 test('#[\phasync\Uninterruptible] code is not preempted', function () {
     $log = phasync::run(function () {
         $log = [];
-        phasync::go(function () use (&$log) {
+        preemptGo(function () use (&$log) {
             (#[phasync\Uninterruptible] static function () {
                 preemptBusy(0.1);
             })();
             $log[] = 'A done';
-        }, context: new stdClass());
-        phasync::go(function () use (&$log) {
+        });
+        preemptGo(function () use (&$log) {
             phasync::sleep(0.01);
             $log[] = 'B';
-        }, context: new stdClass());
+        });
         phasync::sleep(0.2);
 
         return $log;
@@ -128,11 +134,11 @@ test('#[\phasync\Uninterruptible] code is not preempted', function () {
 test('a Fiber that a coroutine runs itself is not preempted', function () {
     $log = phasync::run(function () {
         $log = [];
-        phasync::go(function () use (&$log) {
+        preemptGo(function () use (&$log) {
             $inner = new Fiber(static fn () => preemptBusy(0.05));
             $inner->start();
             $log[] = $inner->isTerminated() ? 'inner done' : 'inner suspended';
-        }, context: new stdClass());
+        });
         phasync::sleep(0.1);
 
         return $log;
@@ -156,8 +162,8 @@ test('PHASYNC_PREEMPT_INTERVAL, defined before the loop starts, replaces PREEMPT
         if ("" !== $argv[1]) { define("PHASYNC_PREEMPT_INTERVAL", (float) $argv[1]); }
         echo implode(",", phasync::run(function () {
             $log = [];
-            $a = phasync::go(function () use (&$log) { $end = microtime(true) + 0.05; while (microtime(true) < $end) {} $log[] = "A"; }, context: new stdClass());
-            $b = phasync::go(function () use (&$log) { phasync::sleep(0.002); $log[] = "B"; }, context: new stdClass());
+            $a = phasync::go(function () use (&$log) { (new Scope())->run(function () use (&$log) { $end = microtime(true) + 0.05; while (microtime(true) < $end) {} $log[] = "A"; }); });
+            $b = phasync::go(function () use (&$log) { (new Scope())->run(function () use (&$log) { phasync::sleep(0.002); $log[] = "B"; }); });
             phasync::await($a);
             phasync::await($b);
 

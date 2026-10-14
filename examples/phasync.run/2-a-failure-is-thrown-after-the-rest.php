@@ -1,14 +1,11 @@
 <?php
 
+// A failure nobody awaits does not stop the other coroutines: run() throws it once they have ended.
 try {
     phasync::run(function () {
         phasync::go(function () {
-            try {
-                phasync::sleep(1);
-                echo "never printed\n";
-            } finally {
-                echo "slow job cleans up\n";
-            }
+            phasync::sleep(0.05);
+            echo "slow job finished\n";
         });
         phasync::go(function () {
             phasync::sleep(0.01);

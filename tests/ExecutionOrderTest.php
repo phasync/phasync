@@ -10,16 +10,20 @@ test('execute run coroutine immediately', function () {
 });
 
 test('execute go coroutine immediately before resuming', function () {
-    // The main coroutine's own failure first, then the child's, which was thrown first but
-    // nobody awaited
+    // The child ran (and failed) before go() returned; run() throws the main coroutine's own
+    // failure, which comes first
+    $log = [];
     try {
-        phasync::run(function () {
-            phasync::go(function () {
+        phasync::run(function () use (&$log) {
+            phasync::go(function () use (&$log) {
+                $log[] = 'child';
                 throw new Exception('No');
             });
+            $log[] = 'main';
             throw new Exception('Yes');
         });
-    } catch (phasync\AggregateException $e) {
+    } catch (Exception $e) {
+        $log[] = $e->getMessage();
     }
-    expect(\array_map(fn ($x) => $x->getMessage(), $e->getExceptions()))->toBe(['Yes', 'No']);
+    expect($log)->toBe(['child', 'main', 'Yes']);
 });

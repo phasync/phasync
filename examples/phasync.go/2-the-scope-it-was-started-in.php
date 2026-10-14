@@ -1,25 +1,18 @@
 <?php
 
-phasync::run(function () {
-    $job = new stdClass();
+// A request's coroutines run in the request's Scope, also after they waited, while other
+// requests run in theirs: per-request state hangs on Scope::getCurrent().
+$users = new WeakMap();   // Scope => user
 
-    phasync::go(function () {
-        phasync::go(function () {           // inherits the context of its parent
-            try {
-                phasync::sleep(1);
-            } finally {
-                echo "grandchild cancelled\n";
-            }
+phasync::run(function () use ($users) {
+    foreach (['ann', 'bob'] as $user) {
+        $request         = new Scope();
+        $users[$request] = $user;
+        $request->run(function () use ($users) {
+            phasync::go(function () use ($users) {
+                phasync::sleep(0.01);
+                echo 'serving ', $users[Scope::getCurrent()], "\n";
+            });
         });
-        try {
-            phasync::sleep(1);
-        } finally {
-            echo "child cancelled\n";
-        }
-    }, [], $job);
-
-    phasync::sleep(0.01);
-    phasync::cancel($job);                  // cancels every coroutine of the context
-    phasync::awaitContext($job);
-    echo "the job's coroutines have ended\n";
+    }
 });

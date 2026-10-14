@@ -2,12 +2,12 @@
 
 use phasync\Util\Synchronized;
 
-test('coroutines of one context take turns; they are not re-entrant calls', function () {
+test('coroutines of one scope take turns; they are not re-entrant calls', function () {
     $log = phasync::run(function () {
         $log = [];
         $fs  = [];
         foreach (['a', 'b'] as $name) {
-            // Same context: coroutines started by one request share it
+            // Same scope: coroutines started by one request share it
             $fs[] = phasync::go(function () use ($name, &$log) {
                 Synchronized::run('token', function () use ($name, &$log) {
                     $log[] = "$name in";
@@ -25,18 +25,20 @@ test('coroutines of one context take turns; they are not re-entrant calls', func
     expect($log)->toBe(['a in', 'a out', 'b in', 'b out']);
 });
 
-test('coroutines of different contexts take turns too', function () {
+test('coroutines of different scopes take turns too', function () {
     $log = phasync::run(function () {
         $log = [];
         $fs  = [];
         foreach (['a', 'b'] as $name) {
-            $fs[] = phasync::go(function () use ($name, &$log) {
-                Synchronized::run('token', function () use ($name, &$log) {
-                    $log[] = "$name in";
-                    phasync::sleep(0.01);
-                    $log[] = "$name out";
+            $fs[] = (new Scope())->run(function () use ($name, &$log) {
+                return phasync::go(function () use ($name, &$log) {
+                    Synchronized::run('token', function () use ($name, &$log) {
+                        $log[] = "$name in";
+                        phasync::sleep(0.01);
+                        $log[] = "$name out";
+                    });
                 });
-            }, context: new stdClass());
+            });
         }
         foreach ($fs as $f) {
             phasync::await($f);

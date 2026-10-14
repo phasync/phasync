@@ -164,7 +164,7 @@ test('SCH-2: a child that suspends is not terminated when go() returns', functio
 
 test('SCH-2: a child started by go() receives its arguments', function () {
     $result = phasync::run(function () {
-        return phasync::await(phasync::go(fn (int $a, int $b) => $a + $b, [2, 3]));
+        return phasync::await(phasync::go(fn (int $a, int $b) => $a + $b, 2, 3));
     });
     expect($result)->toBe(5);
 });
@@ -470,9 +470,9 @@ test('PARITY: isRunning() is false outside and true inside a coroutine', functio
     expect(phasync::run(fn () => phasync::isRunning()))->toBeTrue();
 });
 
-test('PARITY: getFiber() and getContext() outside a coroutine throw LogicException', function () {
+test('PARITY: getFiber() and frame() outside a coroutine throw LogicException', function () {
     expect(fn () => phasync::getFiber())->toThrow(LogicException::class);
-    expect(fn () => phasync::getContext())->toThrow(LogicException::class);
+    expect(fn () => phasync::frame())->toThrow(LogicException::class);
 });
 
 test('PARITY: go() outside a coroutine throws LogicException', function () {

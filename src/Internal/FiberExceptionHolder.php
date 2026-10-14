@@ -22,7 +22,7 @@ final class FiberExceptionHolder
      */
     private static array $pool = [];
 
-    public static function create(\Throwable $exception, \Fiber $fiber, ?\Closure $handler, ?object $context = null): FiberExceptionHolder
+    public static function create(\Throwable $exception, \Fiber $fiber, ?\Closure $handler, ?phasync\Frame $frame = null): FiberExceptionHolder
     {
         if ([] !== self::$pool) {
             $eh            = \array_pop(self::$pool);
@@ -30,20 +30,20 @@ final class FiberExceptionHolder
             $eh->ended     = false;
             $eh->exception = $exception;
             $eh->handler   = $handler;
-            $eh->context   = $context;
+            $eh->frame     = $frame;
             $eh->fiberRef  = \WeakReference::create($fiber);
 
             return $eh;
         }
 
         $eh          = new FiberExceptionHolder($exception, $fiber, $handler);
-        $eh->context = $context;
+        $eh->frame   = $frame;
 
         return $eh;
     }
 
-    /** The context of the coroutine that failed. */
-    public ?object $context = null;
+    /** The frame of the coroutine that failed. */
+    public ?phasync\Frame $frame = null;
 
     /** Settled by the end of its run(): the coroutine can't be awaited any more. */
     public bool $ended = false;
@@ -104,7 +104,7 @@ final class FiberExceptionHolder
         }
         $this->exception = null;
         $this->handler   = null;
-        $this->context   = null;
+        $this->frame     = null;
         self::$pool[]    = $this;
     }
 

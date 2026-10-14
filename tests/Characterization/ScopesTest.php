@@ -3,9 +3,13 @@
 /*
  * Characterization tests for docs/SEMANTICS.md section 3 (SCO-1..7). These pin how
  * phasync behaves TODAY. See tests/Characterization/README.md before changing any of them.
+ *
+ * Rewritten for phasync 2.x's Scope + Frame redesign (owner's decision, 2026-10-13): the
+ * context argument and getContext() are gone; run() creates a Frame (lifetime), the ambient
+ * Scope (fiber-interop/scope) is the identity, and a failure no longer cancels the frame.
  */
 
-use phasync\ContextUsedException;
+use phasync\Frame;
 
 uses()->group('characterization');
 
@@ -22,47 +26,40 @@ function scoRun(Closure $body, array &$log): void
 }
 
 // ---------------------------------------------------------------------------
-// SCO-1  Every coroutine belongs to exactly one scope
+// SCO-1  Every coroutine belongs to exactly one frame
 // ---------------------------------------------------------------------------
 
-test('SCO-1: a child and a grandchild share the creator\'s context object', function () {
+test('SCO-1: a child and a grandchild share the creator\'s frame', function () {
     $r = phasync::run(function () {
-        $ctx = phasync::getContext();
+        $frame = phasync::frame();
 
         return [
-            'child'      => phasync::await(phasync::go(fn () => phasync::getContext() === $ctx)),
-            'grandchild' => phasync::await(phasync::go(function () use ($ctx) {
-                return phasync::await(phasync::go(fn () => phasync::getContext() === $ctx));
+            'child'      => phasync::await(phasync::go(fn () => phasync::frame() === $frame)),
+            'grandchild' => phasync::await(phasync::go(function () use ($frame) {
+                return phasync::await(phasync::go(fn () => phasync::frame() === $frame));
             })),
         ];
     });
     expect($r)->toBe(['child' => true, 'grandchild' => true]);
 });
 
-test('SCO-1: run() creates a context (an object), and a nested run() gets a new one', function () {
+test('SCO-1: run() creates a frame, and a nested run() gets a new one, until it returns', function () {
     $r = phasync::run(function () {
-        $outer = phasync::getContext();
+        $outer = phasync::frame();
 
         return [
             'class'         => \get_class($outer),
-            'nested is new' => phasync::run(fn () => phasync::getContext() !== $outer),
+            'nested is new' => phasync::run(fn () => phasync::frame() !== $outer),
+            'outer again'   => phasync::frame() === $outer,
         ];
     });
-    expect($r['class'])->toBe(stdClass::class);
-    expect($r['nested is new'])->toBeTrue();
+    expect($r)->toBe(['class' => Frame::class, 'nested is new' => true, 'outer again' => true]);
 });
 
-test('SCO-1: run() uses a context passed in, and refuses to reuse it', function () {
-    $ctx  = new stdClass();
-    $same = phasync::run(fn () => phasync::getContext() === $ctx, context: $ctx);
-    expect($same)->toBeTrue();
-    expect(fn () => phasync::run(fn () => 1, context: $ctx))->toThrow(ContextUsedException::class);
-});
-
-test('SCO-1: the context tracks the fibers that are alive in it', function () {
+test('SCO-1: the frame tracks the fibers that are alive in it', function () {
     $counts = phasync::run(function () {
-        $ctx    = phasync::getContext();
-        $count  = fn () => \count(phasync::getLoop()->getFibers($ctx));
+        $frame  = phasync::frame();
+        $count  = fn () => \count(phasync::getLoop()->getFibers($frame));
         $before = $count();
         $child  = phasync::go(fn () => phasync::sleep(0.01));
         $during = $count();
@@ -74,17 +71,11 @@ test('SCO-1: the context tracks the fibers that are alive in it', function () {
     expect($counts)->toBe([1, 2, 1]);
 });
 
-test('SCO-1: go(context:) puts the child in a different context, so a coroutine can leave its creator\'s scope [SURPRISE]', function () {
-    // The contract says a coroutine created by go() joins the creator's scope.
-    $r = phasync::run(function () {
-        $mine  = phasync::getContext();
-        $other = new stdClass();
-        $child = phasync::go(fn () => phasync::getContext() === $other, context: $other);
-
-        return [phasync::await($child), $other !== $mine];
-    });
-    expect($r)->toBe([true, true]);
-})->group('surprise');
+test('SCO-1: go() can\'t put a coroutine in another frame: only run() and service() leave the creator\'s', function () {
+    $params = (new ReflectionMethod('phasync', 'go'))->getParameters();
+    expect(\array_map(fn ($p) => $p->getName(), $params))->toBe(['fn', 'args']);
+    expect($params[1]->isVariadic())->toBeTrue();
+});
 
 // ---------------------------------------------------------------------------
 // SCO-2  A scope does not exit until all its coroutines have finished
@@ -146,10 +137,10 @@ test('SCO-2: the main coroutine\'s return value is only delivered after the scop
 });
 
 // ---------------------------------------------------------------------------
-// SCO-3  First unhandled failure cancels the scope
+// SCO-3  A failure nobody awaits does not cancel the frame; run() throws it at the end
 // ---------------------------------------------------------------------------
 
-test('SCO-3: an un-awaited failing child with no handler fails the run: siblings and parent are cancelled, run() throws at once', function () {
+test('SCO-3: an un-awaited failing child does not cancel its siblings or the parent; run() throws it once they have ended', function () {
     $log = [];
     $t   = \microtime(true);
     scoRun(function () use (&$log) {
@@ -169,12 +160,11 @@ test('SCO-3: an un-awaited failing child with no handler fails the run: siblings
         phasync::sleep(0.1);
         $log[] = 'parent finished';
     }, $log);
-    expect($log)->toBe(['sibling got phasync\CancelledException', 'run threw RuntimeException: boom']);
-    // run() threw as soon as the failure had cancelled the scope, not after the parent's 0.1 s
-    expect(\microtime(true) - $t)->toBeLessThan(0.09);
+    expect($log)->toBe(['sibling finished', 'parent finished', 'run threw RuntimeException: boom']);
+    expect(\microtime(true) - $t)->toBeGreaterThanOrEqual(0.099);
 });
 
-test('SCO-3: the parent\'s return value is lost when a child failed without being awaited [DIVERGENCE]', function () {
+test('SCO-3: the parent\'s return value is lost when a child failed without being awaited', function () {
     $log = [];
     $ret = null;
     try {
@@ -190,7 +180,36 @@ test('SCO-3: the parent\'s return value is lost when a child failed without bein
     }
     expect($ret)->toBeNull();
     expect($log)->toBe(['RuntimeException: boom']);
-})->group('divergence');
+});
+
+test('SCO-3: with an exception handler on the frame, the failures go to it, and run() returns', function () {
+    $handled = [];
+    $ret     = phasync::run(function () use (&$handled) {
+        phasync::frame()->setExceptionHandler(function (Throwable $e) use (&$handled) {
+            $handled[] = $e->getMessage();
+        });
+        phasync::go(function () {
+            throw new RuntimeException('boom');
+        });
+
+        return 'parent value';
+    });
+    expect($ret)->toBe('parent value');
+    expect($handled)->toBe(['boom']);
+});
+
+test('SCO-3: what the exception handler throws, run() throws', function () {
+    $log = [];
+    scoRun(function () {
+        phasync::frame()->setExceptionHandler(function (Throwable $e) {
+            throw new LogicException('rethrown: ' . $e->getMessage());
+        });
+        phasync::go(function () {
+            throw new RuntimeException('boom');
+        });
+    }, $log);
+    expect($log)->toBe(['run threw LogicException: rethrown: boom']);
+});
 
 // ---------------------------------------------------------------------------
 // SCO-4  run() throws the scope's failure
@@ -212,7 +231,7 @@ test('SCO-4: run() throws the first of several un-awaited failures', function ()
     expect($log)->toBe(['run threw RuntimeException: first']);
 });
 
-test('SCO-4: when the main coroutine fails too, both are thrown, its own first', function () {
+test('SCO-4: when the main coroutine fails too, its own failure is thrown', function () {
     $log = [];
     scoRun(function () {
         phasync::go(function () {
@@ -220,7 +239,24 @@ test('SCO-4: when the main coroutine fails too, both are thrown, its own first',
         });
         throw new RuntimeException('main');
     }, $log);
-    expect($log)->toBe(['run threw phasync\\AggregateException: 2 failures, the first: main']);
+    expect($log)->toBe(['run threw RuntimeException: main']);
+});
+
+test('SCO-4: the earliest failure is thrown, by when it happened, not by when it became known', function () {
+    $log = [];
+    scoRun(function () {
+        $late  = phasync::go(function () {
+            phasync::sleep(0.02);
+            throw new RuntimeException('late');
+        });
+        $early = phasync::go(function () {
+            phasync::sleep(0.01);
+            throw new RuntimeException('early');
+        });
+        phasync::sleep(0.03);
+        unset($late, $early); // the late one is released first
+    }, $log);
+    expect($log)->toBe(['run threw RuntimeException: early']);
 });
 
 test('SCO-4: a failure in a grandchild surfaces from run()', function () {
@@ -254,12 +290,10 @@ test('SCO-4: a nested run() throws its scope\'s failure into the calling corouti
 });
 
 // ---------------------------------------------------------------------------
-// SCO-5  Nested run() is a child scope
+// SCO-5  Nested run() is a child frame
 // ---------------------------------------------------------------------------
 
-test('SCO-5: cancelling a coroutine blocked in a nested run() cancels the nested main coroutine, but not the nested scope\'s other children [DIVERGENCE]', function () {
-    // Contract (SCO-5): cancelling the outer scope cancels the inner one. Today the inner
-    // child keeps running after its parent was cancelled, and the outer run() waits for it.
+test('SCO-5: cancelling a coroutine blocked in a nested run() cancels the nested frame\'s children too, and waits for them', function () {
     $log = [];
     scoRun(function () use (&$log) {
         $x = phasync::go(function () use (&$log) {
@@ -298,11 +332,11 @@ test('SCO-5: cancelling a coroutine blocked in a nested run() cancels the nested
     }, $log);
     expect($log)->toBe([
         'inner main got phasync\CancelledException',
+        'inner child got phasync\CancelledException',
         'x got phasync\CancelledException',
         'outer end',
-        'inner child finished',
     ]);
-})->group('divergence');
+});
 
 // ---------------------------------------------------------------------------
 // SCO-6  service(): detached work
@@ -312,52 +346,62 @@ test('SCO-6: service() outside a coroutine throws LogicException', function () {
     expect(fn () => phasync::service(fn () => 1))->toThrow(LogicException::class);
 });
 
-test('SCO-6: a service coroutine runs in the service context, not in the creator\'s scope', function () {
+test('SCO-6: a service coroutine runs in the root scope and has no frame', function () {
     $r = phasync::run(function () {
-        $mine    = phasync::getContext();
         $service = null;
-        phasync::service(function () use (&$service) {
-            $service = phasync::getContext();
+        (new Scope())->run(function () use (&$service) {
+            phasync::service(function () use (&$service) {
+                try {
+                    phasync::frame();
+                } catch (LogicException) {
+                    $service = Scope::getCurrent() === Scope::getRootScope() ? 'root, no frame' : 'other';
+                }
+            });
         });
         phasync::sleep(0.01);
 
-        return [\is_object($service), $service !== $mine];
+        return $service;
     });
-    expect($r)->toBe([true, true]);
+    expect($r)->toBe('root, no frame');
 });
 
-test('SCO-6: a service started after earlier services ended can enter contexts (#78)', function () {
+test('SCO-6: a service started after earlier services ended can start coroutines and nested runs (#78)', function () {
     $log = [];
     phasync::run(function () use (&$log) {
         phasync::service(function () { phasync::sleep(0.01); });
         phasync::sleep(0.05); // the service has ended
         phasync::service(function () use (&$log) {
             phasync::await(phasync::go(function () use (&$log) {
-                phasync::withContext(function () use (&$log) { $log[] = 'inner ok'; }, new stdClass());
+                phasync::run(function () use (&$log) { $log[] = 'inner ok'; });
             }));
         });
+        phasync::sleep(0.01);
     });
     expect($log)->toBe(['inner ok']);
 });
 
-test('SCO-6: the top-level run() keeps running until its services have finished, though the main coroutine returned', function () {
+test('SCO-6: the top-level run() cancels its services once its frame has no coroutine left, and returns when they have ended', function () {
     $log = [];
     $t   = \microtime(true);
     $ret = phasync::run(function () use (&$log) {
         phasync::service(function () use (&$log) {
-            phasync::sleep(0.05);
-            $log[] = 'service done';
+            try {
+                phasync::sleep(5);
+                $log[] = 'service done';
+            } catch (phasync\CancelledException) {
+                $log[] = 'service cancelled';
+            }
         });
         $log[] = 'main end';
 
         return 'ret';
     });
     expect($ret)->toBe('ret');
-    expect($log)->toBe(['main end', 'service done']);
-    expect(\microtime(true) - $t)->toBeGreaterThanOrEqual(0.049);
+    expect($log)->toBe(['main end', 'service cancelled']);
+    expect(\microtime(true) - $t)->toBeLessThan(1.0);
 });
 
-test('SCO-6: a nested run() does not wait for services; only the top-level run() does', function () {
+test('SCO-6: a nested run() does not wait for services', function () {
     $log = [];
     phasync::run(function () use (&$log) {
         phasync::run(function () use (&$log) {
@@ -368,6 +412,7 @@ test('SCO-6: a nested run() does not wait for services; only the top-level run()
             $log[] = 'nested end';
         });
         $log[] = 'after nested';
+        phasync::sleep(0.1);
     });
     expect($log)->toBe(['nested end', 'after nested', 'service']);
 });
@@ -387,56 +432,51 @@ test('SCO-6: an unhandled exception in a service fails the outermost run(), whic
 });
 
 // ---------------------------------------------------------------------------
-// SCO-7  A context is any object; phasync keeps no storage on it
+// SCO-7  The Scope is the identity; the frame is the lifetime
 // ---------------------------------------------------------------------------
 
-test('SCO-7: a context is any object: run(), go() and withContext() take it, getContext() returns it', function () {
-    $r = phasync::run(function () {
-        $mine  = phasync::getContext();
-        $other = new ArrayObject();
-
-        return [
-            phasync::await(phasync::go(fn () => phasync::getContext() === $other, context: $other)),
-            phasync::withContext(fn () => phasync::getContext(), $inner = new SplQueue()) === $inner,
-            phasync::getContext() === $mine,
-        ];
-    }, context: new DateTime());
-    expect($r)->toBe([true, true, true]);
+test('SCO-7: go() inherits Scope::getCurrent(), run() leaves it as it is, service() runs in the root scope', function () {
+    $scope = new Scope();
+    $r     = phasync::run(function () use ($scope) {
+        return $scope->run(function () use ($scope) {
+            return [
+                'go'      => phasync::await(phasync::go(fn () => Scope::getCurrent() === $scope)),
+                'run'     => phasync::run(fn () => Scope::getCurrent() === $scope),
+                'service' => phasync::await(phasync::service(fn () => Scope::getCurrent() === Scope::getRootScope())),
+            ];
+        });
+    });
+    expect($r)->toBe(['go' => true, 'run' => true, 'service' => true]);
 });
 
-test('SCO-7: cancel() of a context cancels the waiting coroutines of it and of the contexts nested in it, the deepest first, but not the caller', function () {
-    $log = phasync::run(function () {
-        $log     = [];
-        $context = new stdClass();
-        $wait    = static function (string $name) use (&$log) {
-            try {
-                phasync::sleep(5);
-            } catch (phasync\CancelledException) {
-                $log[] = "$name cancelled";
-            }
-        };
-        phasync::go(function () use ($wait) {
-            phasync::go(fn () => $wait('grandchild'));
-            $wait('child');
-        }, context: $context);
-        phasync::go(fn () => phasync::withContext(fn () => $wait('nested'), new stdClass()), context: new stdClass()); // not nested in $context
-        phasync::go(function () use ($context, $wait) {
-            phasync::withContext(function () use ($context, $wait) {
-                phasync::go(fn () => $wait('nested in context'));
-                phasync::sleep(0.01);
-                phasync::cancel($context); // the caller is in $context too, and is not cancelled
-                $wait('caller');
-            }, new stdClass());
-        }, context: new class($context) {
-            public function __construct(public object $outer)
-            {
-            }
+test('SCO-7: Frame::cancel() reaches the deepest coroutines first, and spares the other frames until they are cancelled', function () {
+    $log  = [];
+    $wait = static function (string $name) use (&$log) {
+        try {
+            phasync::sleep(5);
+        } catch (phasync\CancelledException) {
+            $log[] = "$name cancelled";
+        }
+    };
+    phasync::run(function () use ($wait, &$log) {
+        $frame = null;
+        phasync::go(function () use ($wait, &$frame) {
+            phasync::run(function () use ($wait, &$frame) {
+                $frame = phasync::frame();
+                phasync::go(function () use ($wait) {
+                    phasync::go(fn () => $wait('grandchild'));
+                    $wait('child');
+                });
+                phasync::go(fn () => phasync::run(fn () => $wait('nested')));
+                $wait('main');
+            });
         });
-        phasync::sleep(0.05);
-
-        return $log;
+        $other = phasync::go(fn () => phasync::run(fn () => $wait('other frame')));
+        phasync::sleep(0.01);
+        $frame->cancel();
+        phasync::sleep(0.01);
+        $log[] = 'other frame still waits: ' . ($other->isTerminated() ? 'no' : 'yes');
+        phasync::cancel($other);
     });
-    // Only $context's own coroutines and those nested in it; the caller's own context is not
-    // nested in $context, so the caller isn't either
-    expect($log)->toBe(['grandchild cancelled', 'child cancelled']);
+    expect($log)->toBe(['grandchild cancelled', 'child cancelled', 'nested cancelled', 'main cancelled', 'other frame still waits: yes', 'other frame cancelled']);
 });

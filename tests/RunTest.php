@@ -166,27 +166,20 @@ test('complex nested phasync::run() calls concurrently', function () {
     });
 });
 
-test('a failed run() stops its sleeping coroutines at once, without waiting for the loop to go idle first', function () {
+test('a failure does not stop the other coroutines: run() throws it once they have ended', function () {
     $start = \microtime(true);
-    expect(fn () => phasync::run(function () {
-        phasync::go(fn () => phasync::sleep(2));
-        phasync::go(function () {
-            throw new RuntimeException('failed');
+    $slept = false;
+    expect(function () use (&$slept) {
+        phasync::run(function () use (&$slept) {
+            phasync::go(function () use (&$slept) {
+                phasync::sleep(0.05);
+                $slept = true;
+            });
+            phasync::go(function () {
+                throw new RuntimeException('failed');
+            });
         });
-    }))->toThrow(RuntimeException::class, 'failed');
-    expect(\microtime(true) - $start)->toBeLessThan(0.1);
-});
-
-test('a run that fails to start leaves nothing of itself in the loop', function () {
-    $context = new stdClass();
-    phasync::run(fn () => 1, [], $context);
-    try {
-        phasync::run(fn () => 1, [], $context);
-    } catch (phasync\ContextUsedException) {
-    }
-    $ref = WeakReference::create($context);
-    unset($context);
-    expect($ref->get())->toBeNull();
-    expect(phasync::isRunning())->toBeFalse();
-    expect(phasync::run(fn () => 2))->toBe(2);
+    })->toThrow(RuntimeException::class, 'failed');
+    expect($slept)->toBeTrue();
+    expect(\microtime(true) - $start)->toBeGreaterThan(0.04);
 });

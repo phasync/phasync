@@ -4,6 +4,71 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Changed (breaking): Scope for identity, Frame for lifetime
+
+Contexts are gone. What they did is split in two: the ambient `Scope` (the class from
+`fiber-interop/scope`, now a dependency: the native extension when loaded, else its polyfill) is the
+identity of the operation code belongs to, and a `phasync\Frame`, which every `run()` creates, is
+the lifetime of the coroutines started inside it.
+
+- `phasync::go(callable $fn, mixed ...$args): Fiber` and `phasync::run(callable $fn, mixed ...$args)`
+  take their arguments variadically, as `async\go()` and `async\run()` do; the `$args` array and
+  the `$context` parameter are gone. `phasync::go($fn, [$a, $b])` becomes `phasync::go($fn, $a, $b)`:
+  an array passed the old way now reaches `$fn` as its first argument.
+- A coroutine runs in the `Scope` current where `go()` is called, also after it waits; under the
+  polyfill phasync makes it current (and swaps in the polyfill's per-scope `$_GET`, `$_POST`,
+  `$_COOKIE`, `$_FILES`) whenever the loop switches to a coroutine of another scope. Callbacks the
+  loop queues run in the scope they were queued from.
+- `run()` no longer fails fast: a coroutine that fails with nobody awaiting it does not cancel the
+  others. `run()` returns or throws once every coroutine of its frame has ended, and throws what
+  `$fn` threw, else the earliest failure nobody awaited (by when it happened). Later ones are not
+  thrown; `phasync\AggregateException` is removed. A deadlock still cancels everything and throws
+  `DeadlockException`.
+- A nested `run()` runs `$fn` in the calling coroutine, in a frame of its own, without starting a
+  coroutine; what `withContext()` did. Cancelling the coroutine while the nested `run()` waits now
+  cancels the frame's coroutines too, and waits for them.
+- `phasync::service(callable $fn, mixed ...$args): Fiber` returns the service's coroutine. A service
+  runs in the root scope and has no frame. The outermost `run()` no longer waits for services: once
+  its frame has no coroutine left, it cancels them, and returns when they have ended. A publisher's
+  forwarding service is cancelled the same way.
+- `phasync::cancel()` takes a `Fiber` only; cancel a frame with `$frame->cancel()`.
+- Removed: `phasync::withContext()`, `getContext()`, `getRootContext()`, `awaitContext()`,
+  `enableContextState()`, `adoptContextState()`, `phasync::$contextState`,
+  `phasync::$contextStateDefaults`, `phasync\Context\SwitchAwareInterface`,
+  `phasync\Context\ExceptionHandlerInterface`, `phasync\Context\ContextFactoryInterface`,
+  `phasync\ContextUsedException`, `phasync\AggregateException`, and `EventLoop::getContext()`,
+  `getCurrentContext()`, `getRootContext()`, `withContext()`, `cancelContext()`, `awaitContext()`.
+- With phasync-ext, preemption freezes the preempted coroutine's scope (a request), where it froze
+  its root context.
+
+Migration:
+
+| Before | After |
+| --- | --- |
+| `phasync::go($fn, [], $context)`, a context per request | `(new Scope())->run(fn () => phasync::go($fn))`; per-request state in a `WeakMap` keyed by `Scope::getCurrent()` |
+| `phasync::withContext($fn, $context)` | `$scope->run(fn () => phasync::run($fn))`: the scope for identity, the nested `run()` for waiting and cancelling |
+| `phasync::getContext()` as a request key | `Scope::getCurrent()`; outside any request it is `Scope::getRootScope()` |
+| `SwitchAwareInterface` (`resume()`/`suspend()`) | `phasync::onScopeChange(fn (Scope $new, ?Scope $old) => ...)` with state keyed by the scope |
+| `phasync::$contextState`, `adoptContextState()` | a `WeakMap` keyed by the scope, swapped in by an `onScopeChange()` hook |
+| `ExceptionHandlerInterface` on a context | `phasync::frame()->setExceptionHandler($fn)` |
+| `phasync::cancel($context)` | `$frame->cancel()` |
+| `phasync::awaitContext($context)` | a nested `run()`, which waits for its coroutines |
+| `AggregateException` | the earliest failure is thrown; a frame exception handler gets every one |
+
+### Added
+
+- `phasync\Frame`, returned by `phasync::frame()`: `cancel()`, `setTimeout()` (a deadline: the
+  frame is cancelled and `run()` throws a `TimeoutException`), `setExceptionHandler()`.
+- `phasync::onScopeChange(callable $fn)`: called as `$fn(Scope $new, ?Scope $old)` before a coroutine
+  of another scope than the one the loop last made current starts or resumes. It must not wait
+  (#85 holds for it: a wait there throws `LogicException`); one that throws while `go()` or
+  `service()` starts a coroutine throws from that call, and no coroutine is left behind (#106).
+- `phasync\TimeoutException` implements `async\TimeoutException` and `phasync\CancelledException`
+  implements `async\CancelledException`, fiber-interop/api's interfaces; phasync declares them
+  when the api is not installed.
+- `EventLoop::tick()` puts the running coroutine and its frame back when it returns, so a Fiber
+  phasync did not start can drive the loop in place with `phasync::getLoop()->tick()`.
+
 ### Changed
 
 - `DeadmanException`, which `StringBuffer::read()` and `readFixed()` throw when the writer exited
@@ -11,11 +76,9 @@ Earlier releases are listed on the GitHub releases page.
 
 ### Fixed
 
-- A wait in a `SwitchAwareInterface` hook, or in a Fiber the hook starts, throws `LogicException`.
-  It was registered for the coroutine the loop was switching to, ran the loop in place inside the
-  hook, and later woke that coroutine for a wait it never made. (#85)
-- A lazily created context (`withContext()` given a factory) whose `resume()` starts a coroutine
-  is entered once; the coroutine's start entered it again, without end. (#86)
+- A wait in a switch hook (now `onScopeChange()`), or in a Fiber the hook starts, throws
+  `LogicException`. It was registered for the coroutine the loop was switching to, ran the loop in
+  place inside the hook, and later woke that coroutine for a wait it never made. (#85)
 - `BufferedStream` moves content past `$bufferSize` to its temporary file; `append()` held the
   stream's lock and the move took it again, so it waited on itself until the deadlock timeout. (#91)
 - `BufferedStream` can be read, seeked and read again after `end()`; `read()`, `seek()` and

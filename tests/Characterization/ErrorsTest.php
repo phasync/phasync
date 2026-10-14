@@ -188,7 +188,7 @@ test('ERR-2: a failure that is awaited and rethrown surfaces from run() once, an
 // ERR-3  An un-awaited failure reaches the scope deterministically
 // ---------------------------------------------------------------------------
 
-test('ERR-3: an un-awaited failure with no handler fails the run: its coroutines, the parent too, are cancelled, and run() throws the failure', function () {
+test('ERR-3: an un-awaited failure with no handler cancels nothing: run() throws it once its coroutines have ended', function () {
     $log     = [];
     $outcome = errOutcome(function () use (&$log) {
         phasync::go(function () {
@@ -205,12 +205,11 @@ test('ERR-3: an un-awaited failure with no handler fails the run: its coroutines
 
         return 'parent value';
     });
-    // Cancelled with the failure as the reason; it caught that, so it finished
-    expect($log)->toBe(['parent interrupted by Cancelled: the run failed with RuntimeException: unawaited', 'parent end']);
+    expect($log)->toBe(['parent slept fully', 'parent end']);
     expect($outcome)->toBe('threw RuntimeException: unawaited');
 });
 
-test('ERR-3: awaiting some other coroutine is interrupted by an un-awaited failure too', function () {
+test('ERR-3: awaiting some other coroutine is not interrupted by an un-awaited failure', function () {
     $log     = [];
     $outcome = errOutcome(function () use (&$log) {
         phasync::go(function () {
@@ -225,7 +224,7 @@ test('ERR-3: awaiting some other coroutine is interrupted by an un-awaited failu
 
         return 'ret';
     });
-    expect($log)->toBe([]);
+    expect($log)->toBe(['await got v']);
     expect($outcome)->toBe('threw RuntimeException: u2');
 });
 
@@ -271,10 +270,10 @@ test('ERR-3: a failure inside a nested run() surfaces from that nested run(), in
 });
 
 // ---------------------------------------------------------------------------
-// ERR-4  No failure is dropped silently (two are, today)
+// ERR-4  run() throws the earliest failure nobody awaited; a frame handler gets every one
 // ---------------------------------------------------------------------------
 
-test('ERR-4: the first un-awaited failure cancels the scope before a later one happens; run() throws the first', function () {
+test('ERR-4: a later un-awaited failure does not replace the first: run() throws the first', function () {
     $outcome = errOutcome(function () {
         phasync::go(function () {
             phasync::sleep(0.01);
@@ -287,10 +286,10 @@ test('ERR-4: the first un-awaited failure cancels the scope before a later one h
         phasync::sleep(0.05);
     });
     expect($outcome)->toBe('threw RuntimeException: c1');
-    expect(errLogged($this))->not->toContain('RuntimeException: c2'); // cancelled before it failed
+    expect(errLogged($this))->not->toContain('RuntimeException: c2'); // the first is what run() throws
 });
 
-test('ERR-4: two failures in the same tick: both in the AggregateException, the first first', function () {
+test('ERR-4: two failures in the same tick: run() throws the first', function () {
     $outcome = errOutcome(function () {
         phasync::go(function () {
             throw new RuntimeException('cA');
@@ -299,34 +298,33 @@ test('ERR-4: two failures in the same tick: both in the AggregateException, the 
             throw new RuntimeException('cB');
         });
     });
-    expect($outcome)->toBe('threw phasync\\AggregateException: 2 failures, the first: cA');
+    expect($outcome)->toBe('threw RuntimeException: cA');
 });
 
-test('ERR-4: when the main coroutine fails as well, both are thrown: the main coroutine\'s first', function () {
+test('ERR-4: when the main coroutine fails as well, its own failure is thrown', function () {
     $outcome = errOutcome(function () {
         phasync::go(function () {
             throw new RuntimeException('child failure');
         });
         throw new RuntimeException('main failure');
     });
-    expect($outcome)->toBe('threw phasync\\AggregateException: 2 failures, the first: main failure');
+    expect($outcome)->toBe('threw RuntimeException: main failure');
 });
 
-test('ERR-4: every failure is in the AggregateException, the first as its previous exception', function () {
-    $e = null;
-    try {
-        phasync::run(function () {
-            phasync::go(function () {
-                throw new RuntimeException('log-a');
-            });
-            phasync::go(function () {
-                throw new RuntimeException('log-b');
-            });
+test('ERR-4: with an exception handler on the frame, every failure reaches it, in order', function () {
+    $handled = [];
+    phasync::run(function () use (&$handled) {
+        phasync::frame()->setExceptionHandler(function (Throwable $e) use (&$handled) {
+            $handled[] = $e->getMessage();
         });
-    } catch (phasync\AggregateException $e) {
-    }
-    expect(\array_map(fn ($x) => $x->getMessage(), $e->getExceptions()))->toBe(['log-a', 'log-b']);
-    expect($e->getPrevious()->getMessage())->toBe('log-a');
+        phasync::go(function () {
+            throw new RuntimeException('log-a');
+        });
+        phasync::go(function () {
+            throw new RuntimeException('log-b');
+        });
+    });
+    expect($handled)->toBe(['log-a', 'log-b']);
 });
 
 // ---------------------------------------------------------------------------

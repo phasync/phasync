@@ -284,10 +284,9 @@ test('CAN-4: cancelled twice before it resumes, a coroutine gets the first excep
 // CAN-5: scopes
 // ---------------------------------------------------------------------------
 
-test('CAN-5: cancelling the coroutine running a nested run() leaves the nested scope\'s other coroutines running [DIVERGENCE]', function () {
-    // The contract (CAN-5) says cancelling a scope cancels every coroutine in it, and
-    // (SCO-2) that run() does not exit before they finish. Today the nested run() exits
-    // through its CancelledException while its child keeps running to completion.
+test('CAN-5: cancelling the coroutine running a nested run() cancels the nested frame\'s other coroutines, and the run() waits for them', function () {
+    // Rewritten for the Scope + Frame redesign: the nested run() runs inline in the cancelled
+    // coroutine, and a run() cancelled while it waits cancels its frame (SCO-5).
     $log = phasync::run(static function () {
         $log   = [];
         $outer = phasync::go(static function () use (&$log) {
@@ -322,10 +321,10 @@ test('CAN-5: cancelling the coroutine running a nested run() leaves the nested s
 
     expect($log)->toBe([
         'inner main got ' . CancelledException::class,
+        'inner child got ' . CancelledException::class,
         'outer await threw ' . CancelledException::class,
-        'inner child finished',
     ]);
-})->group('divergence');
+});
 
 test('CAN-5: a coroutine created by a cancelled coroutine is not cancelled, but the cancelled one can not wait for it', function () {
     $log = phasync::run(static function () {

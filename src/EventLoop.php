@@ -3,15 +3,11 @@
 namespace phasync;
 
 use Fiber;
-use phasync\Context\ContextFactoryInterface;
-use phasync\Context\ExceptionHandlerInterface;
-use phasync\Context\SwitchAwareInterface;
-use phasync\Internal\ContextState;
+use phasync\Internal\DeadmanException;
 use phasync\Internal\Debug;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\FiberExceptionHolder;
 use phasync\Internal\Flag;
-use phasync\Internal\LazyContext;
 use phasync\Internal\Scheduler;
 use WeakMap;
 
@@ -19,7 +15,7 @@ use WeakMap;
  * phasync's event loop: runs coroutines, and waits for timers, flags and (through its poller)
  * streams.
  *
- * @internal not part of the public API, except getSlot(), park() and unpark() as documented for phasync::getLoop(); may change in any release
+ * @internal not part of the public API, except getSlot(), park(), unpark() and tick() as documented for phasync::getLoop(); may change in any release
  */
 final class EventLoop implements \Countable
 {
@@ -32,59 +28,51 @@ final class EventLoop implements \Countable
     private \SplQueue $queue;
 
     /**
-     * The context of every fiber created by this driver: any object. Service fibers have the
-     * service context.
+     * The frame of every coroutine created by this driver: that of the run() it was started in,
+     * or of the nested run() it runs inline. Service coroutines have the service frame.
      *
-     * @var \WeakMap<\Fiber, object>
+     * @var \WeakMap<\Fiber, Frame>
      */
-    private \WeakMap $contexts;
+    private \WeakMap $frames;
 
     /**
-     * The fibers of each context: the fiber itself while it is the only one (a request's context),
-     * a set once another joins.
+     * The scope of every coroutine as it last suspended (at first, the one it was started in):
+     * the scope that becomes current when the loop resumes it.
      *
-     * @var \WeakMap<object, \Fiber|\WeakMap<\Fiber, true>>
+     * @var \WeakMap<\Fiber, \Scope>
      */
-    private \WeakMap $contextFibers;
+    private \WeakMap $fiberScopes;
 
     /**
-     * The context each context was entered from (by withContext(), or go() with a context of its
-     * own): cancelling a context cancels those nested in it.
-     *
-     * @var \WeakMap<object, object>
+     * The scope the loop last made current (and reported to the onScopeChange() hooks): they
+     * fire when the scope of the coroutine the loop runs next differs. A scope entered or left
+     * with Scope::run() inside a coroutine is not seen until then.
      */
-    private \WeakMap $outerContexts;
+    private ?\Scope $liveScope = null;
+
+    /** @var list<\Closure(\Scope, ?\Scope):void> phasync::onScopeChange() hooks */
+    private array $scopeHooks = [];
 
     /**
-     * The contexts another was entered from: the others have no coroutine but their own, and
-     * need no search for nested ones.
-     *
-     * @var \WeakMap<object, true>
+     * While the loop makes a coroutine's scope current from outside it, that coroutine: the
+     * polyfill's execution key (see the constructor). Null otherwise: one null check.
      */
-    private \WeakMap $hasInner;
+    private ?\Fiber $scopeProbe = null;
+
+    /** Whether \Scope is fiber-interop/scope's polyfill, whose superglobals the loop activates. */
+    private bool $scopePolyfill = false;
 
     /**
-     * The contexts of the phasync::run() calls in progress, with the failures that reached each:
-     * a failure no handler took fails the nearest run() it is nested in.
-     *
-     * @var \WeakMap<object, list<\Throwable>>
-     */
-    private \WeakMap $runContexts;
-
-    /**
-     * Cancelled coroutines and contexts, with the exception each cancellation throws: sticky, so
-     * every wait of a cancelled coroutine, or of one in a cancelled context (or a context nested
-     * in it), throws it until the coroutine ends or leaves the context.
+     * Cancelled coroutines, with the exception each cancellation throws: sticky, so every wait
+     * of a cancelled coroutine, or of one in a cancelled frame (or a frame nested in it), throws
+     * it until the coroutine ends or leaves the frame.
      *
      * @var \WeakMap<\Fiber, \Throwable>
      */
     private \WeakMap $cancelledFibers;
 
-    /** @var \WeakMap<object, \Throwable> */
-    private \WeakMap $cancelledContexts;
-
     /**
-     * How many coroutines and contexts are cancelled: 0 keeps the check off every wait.
+     * How many coroutines and frames are cancelled: 0 keeps the check off every wait.
      *
      * @internal
      */
@@ -98,48 +86,43 @@ final class EventLoop implements \Countable
     private \WeakMap $shielded;
 
     /**
-     * The cancellation each failed run() sent through its scope, with its failure as the previous
-     * exception: the coroutines unwinding from it are no further failures.
-     *
-     * @var \WeakMap<object, CancelledException>
-     */
-    private \WeakMap $runCancellations;
-
-    /**
-     * The cancellations cancel() and a failed run() issued: a coroutine that ends with one of
-     * them was cancelled, it did not fail.
+     * The cancellations cancel(), Frame::cancel() and a deadlock issued: a coroutine that ends
+     * with one of them was cancelled, it did not fail.
      *
      * @var \WeakMap<\Throwable, true>
      */
     private \WeakMap $issued;
 
-    /** The context of the outermost phasync::run(): where services' failures go. */
-    private ?object $rootRunContext = null;
+    /** The frame of the outermost phasync::run(). */
+    private ?Frame $rootFrame = null;
+
+    /** The frame of the services: no run() of its own, cancelled when the outermost run() returns. */
+    private Frame $serviceFrame;
 
     /**
-     * The root context of each context with coroutines: a run()'s context is its own root, and so
-     * is a context entered from it (a request); a context entered from any other shares the root
-     * of that one. A root maps to itself, until its last coroutine leaves it (PHP 8.2's cycle
-     * collector never frees a WeakMap entry whose value is its key).
+     * Frames with a deadline (Frame::setTimeout()), by spl_object_id().
      *
-     * @var \WeakMap<object, object>
+     * @var array<int, Frame>
      */
-    private \WeakMap $rootContexts;
+    private array $deadlines = [];
+
+    /** Counts failures, so that run() throws the earliest one nobody awaited. */
+    private int $failureSeq = 0;
 
     /**
-     * Preemption (with phasync-ext's set_preempt_function()): the root contexts frozen because
-     * one of their coroutines was preempted, each with that coroutine; none of a frozen root's
-     * other coroutines runs before it resumes.
+     * Preemption (with phasync-ext's set_preempt_function()): the scopes frozen because one of
+     * their coroutines was preempted, each with that coroutine; none of a frozen scope's other
+     * coroutines runs before it resumes.
      *
-     * @var \WeakMap<object, \Fiber>
+     * @var \WeakMap<\Scope, \Fiber>
      */
     private \WeakMap $frozen;
 
     /**
-     * The coroutines of each frozen root that became ready meanwhile, in order: they run right
+     * The coroutines of each frozen scope that became ready meanwhile, in order: they run right
      * after the preempted one resumes.
      *
-     * @var \WeakMap<object, list<\Fiber>>
+     * @var \WeakMap<\Scope, list<\Fiber>>
      */
     private \WeakMap $held;
 
@@ -150,7 +133,7 @@ final class EventLoop implements \Countable
      */
     public static bool $extFiber = false;
 
-    /** How many roots are frozen: 0 keeps every check off the loop's path. */
+    /** How many scopes are frozen: 0 keeps every check off the loop's path. */
     private int $preempted = 0;
 
     /**
@@ -169,35 +152,20 @@ final class EventLoop implements \Countable
     private int $preemptTick      = -1;
 
     /**
-     * Contexts used already: a context is used once.
-     *
-     * @var \WeakMap<object, true>
-     */
-    private \WeakMap $usedContexts;
-
-    /**
-     * phasync::finally() callbacks of the withContext() call each fiber is in, if any, by
-     * spl_object_id() of the fiber; run as that call returns.
+     * phasync::finally() callbacks of the nested run() each fiber runs inline, if any, by
+     * spl_object_id() of the fiber; run as that run() returns.
      *
      * @var array<int, list<\Closure>>
      */
-    private array $withContextFinally = [];
+    private array $frameFinally = [];
 
     /**
-     * phasync::finally() callbacks of the coroutines that registered them outside any
-     * withContext() call; run when the coroutine ends.
+     * phasync::finally() callbacks of the coroutines that registered them outside any nested
+     * run(); run when the coroutine ends.
      *
      * @var \WeakMap<\Fiber, list<\Closure>>
      */
     private \WeakMap $fiberFinally;
-
-    /**
-     * The withContext() calls given a factory whose context does not exist yet, by spl_object_id()
-     * of the fiber: the fiber's context is still the one it entered the call with.
-     *
-     * @var array<int, LazyContext>
-     */
-    private array $lazyContexts = [];
 
     /**
      * Holds a reference to all fibers that will be resumed by this event
@@ -346,8 +314,6 @@ final class EventLoop implements \Countable
     /** The shortest gap between two idle-time collections (tick(), right before the poller waits). */
     private const GC_MIN_INTERVAL = 0.5;
 
-    private \stdClass $serviceContext;
-
     /** PHP is shutting down: coroutines cancelled by it did not fail. */
     private static bool $exiting = false;
 
@@ -386,36 +352,17 @@ final class EventLoop implements \Countable
      *
      * @internal
      */
-    public ?\Fiber $currentFiber              = null;
-    private ?object $currentContext           = null;
-
-    /** The switch-aware context whose coroutine ran last: see SwitchAwareInterface. */
-    private ?SwitchAwareInterface $liveContext = null;
+    public ?\Fiber $currentFiber = null;
+    private ?Frame $currentFrame = null;
 
     /**
-     * While SwitchAwareInterface hooks run, the coroutine they run for: currentFiber, which is not
+     * While onScopeChange() hooks run, the coroutine they run for: currentFiber, which is not
      * what runs them, so a wait there must not be registered for it (#85). Public for
-     * phasync::suspend(); only makeLive() writes it.
+     * phasync::suspend(); only switchScope() writes it.
      *
      * @internal
      */
     public ?\Fiber $hookFiber = null;
-
-    /** Whether a switch-aware context was ever used: until then, switches check nothing. */
-    private bool $switchAware = false;
-
-    /** Whether context-local state is on (see phasync::enableContextState()): until then, switches check this only. */
-    private bool $stateOn = false;
-
-    /** The context whose state phasync::$contextState is, while the state is on. */
-    private ?object $stateContext = null;
-
-    /**
-     * The context-local state of each context seen since it was turned on.
-     *
-     * @var \WeakMap<object, ContextState>
-     */
-    private \WeakMap $states;
 
     /**
      * phasync-ext's poller when the extension is loaded (epoll, and its worker threads' waiters),
@@ -435,10 +382,19 @@ final class EventLoop implements \Countable
     public function __construct()
     {
         // What a failure needs, loaded now: without file descriptors left, it can't be autoloaded
-        foreach ([AggregateException::class, CancelledException::class, ChannelException::class, ContextUsedException::class,
-            DeadlockException::class, DeadmanException::class, IOException::class, TimeoutException::class, Debug::class,
-            ExceptionTool::class, FiberExceptionHolder::class] as $class) {
+        foreach ([CancelledException::class, ChannelException::class, DeadlockException::class, DeadmanException::class,
+            IOException::class, TimeoutException::class, Frame::class, Debug::class, ExceptionTool::class, FiberExceptionHolder::class] as $class) {
             \class_exists($class);
+        }
+        $this->scopePolyfill = \defined('fiber_interop\\scope\\IS_POLYFILL') && \fiber_interop\scope\IS_POLYFILL;
+        if ($this->scopePolyfill) {
+            // The polyfill keys the current scope by execution unit: the loop names the coroutine
+            // whose scope it activates (switchScope()); otherwise the running Fiber, or with
+            // phasync-ext the request's root coroutine, which Fiber::getCurrent() does not see
+            $ext = \extension_loaded('phasync') && (new \ReflectionFunction('phasync\ext\current_fiber'))->isInternal();
+            \fiber_interop\scope\set_execution_key_provider($ext
+                ? fn () => $this->scopeProbe ?? \phasync\ext\current_fiber()
+                : fn () => $this->scopeProbe);
         }
         $this->clear();
     }
@@ -448,38 +404,30 @@ final class EventLoop implements \Countable
      */
     public function clear(): void
     {
-        $this->states            = new \WeakMap();
-        $this->contexts          = new \WeakMap();
-        $this->contextFibers     = new \WeakMap();
-        $this->outerContexts     = new \WeakMap();
-        $this->hasInner          = new \WeakMap();
-        $this->usedContexts      = new \WeakMap();
-        $this->rootContexts      = new \WeakMap();
+        $this->frames            = new \WeakMap();
+        $this->fiberScopes       = new \WeakMap();
         $this->frozen            = new \WeakMap();
         $this->held              = new \WeakMap();
         $this->preempted         = 0;
-        $this->runContexts       = new \WeakMap();
         $this->cancelledFibers   = new \WeakMap();
-        $this->cancelledContexts = new \WeakMap();
         $this->cancellations     = 0;
         $this->shielded          = new \WeakMap();
-        $this->runCancellations  = new \WeakMap();
         $this->issued            = new \WeakMap();
+        $this->deadlines         = [];
         self::$extFiber          = \extension_loaded('phasync') && (new \ReflectionFunction('phasync\ext\current_fiber'))->isInternal();
         if ($fiber = $this->getCurrentFiber()) {
-            // The current fiber stays, alone in its context
-            $context                               = $this->currentContext;
-            $this->contexts[$fiber]                = $context;
-            $this->contextFibers[$context]         = $fiber;
-            $this->usedContexts[$context]          = true;
-            $this->rootContexts[$context]          = $context;
+            // The current fiber stays, alone in its frame
+            $frame                     = $this->currentFrame;
+            $this->frames[$fiber]      = $frame;
+            $this->fiberScopes[$fiber] = \Scope::getCurrent();
+            $frame->fibers             = $fiber;
+            $frame->live               = 1;
         }
         $this->queue                               = new \SplQueue();
         $this->pending                             = new \SplObjectStorage();
         $this->parentFibers                        = new \WeakMap();
-        $this->withContextFinally                  = [];
+        $this->frameFinally                        = [];
         $this->fiberFinally                        = new \WeakMap();
-        $this->lazyContexts                        = [];
         $this->fiberExceptionHolders               = new \WeakMap();
         $this->fiberExceptions                     = new \WeakMap();
         $this->scheduler                           = new Scheduler();
@@ -490,9 +438,7 @@ final class EventLoop implements \Countable
         $this->flagGraph                           = new \WeakMap();
         $this->afterNextFlag                       = new \stdClass();
         $this->signalFlag                          = new \stdClass();
-        $this->serviceContext                      = new \stdClass();
-        $this->usedContexts[$this->serviceContext] = true;
-        $this->rootContexts[$this->serviceContext] = $this->serviceContext;
+        $this->serviceFrame                        = new Frame(null);
         static $shutdown                           = false;
         if (!$shutdown) {
             $shutdown = true;
@@ -523,7 +469,7 @@ final class EventLoop implements \Countable
     {
         $result = [
             'queue'                 => $this->queue->count(),
-            'contexts'              => $this->contexts->count(),
+            'frames'                => $this->frames->count(),
             'pending'               => $this->pending->count(),
             'parentFibers'          => $this->parentFibers->count(),
             'fiberExceptionHolders' => $this->fiberExceptionHolders->count(),
@@ -556,7 +502,11 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Run the fibers that are ready to resume work.
+     * Run the coroutines that are ready, once, and the callbacks queued meanwhile.
+     *
+     * Public for code that drives the loop in place from a Fiber phasync did not start (an
+     * adapter's wait in a foreign Fiber): the running coroutine and its frame are put back when it
+     * returns, so phasync::getFiber() and phasync::frame() are what they were before.
      */
     public function tick(): void
     {
@@ -578,6 +528,17 @@ final class EventLoop implements \Countable
         // Deliver the timeouts of the 10 ms slots that have passed: usually none this tick
         if (($slot = (int) ($now * 100)) > $this->lastTimeoutSlot) {
             $this->checkTimeouts($slot);
+        }
+
+        // Frame::setTimeout(): cancel the frames whose deadline has passed
+        if ([] !== $this->deadlines) {
+            foreach ($this->deadlines as $id => $frame) {
+                if ($frame->deadline <= $now) {
+                    unset($this->deadlines[$id]);
+                    $frame->timeout = new TimeoutException('The frame timed out');
+                    $this->cancelFrame($frame, new CancelledException('Cancelled: the frame timed out', 0, $frame->timeout), false);
+                }
+            }
         }
 
         /*
@@ -604,6 +565,9 @@ final class EventLoop implements \Countable
             // Wake at the next timeout slot, where timeouts are waiting
             if ([] !== $this->timeoutBuckets) {
                 $maxSleepTime = \min($maxSleepTime, \max(0.0, ($this->lastTimeoutSlot + 1) / 100 - $now));
+            }
+            foreach ($this->deadlines as $frame) {
+                $maxSleepTime = \min($maxSleepTime, \max(0.0, $frame->deadline - $now));
             }
 
             // If work was added, cancel the sleep
@@ -665,12 +629,17 @@ final class EventLoop implements \Countable
          */
         ++$this->ticks;
         $fiberCount            = $queue->count();
+        // Run in place (from a Fiber phasync did not start, see wait()): the running coroutine
+        // and its frame are put back when the tick is over
+        $outerFiber            = $this->currentFiber;
+        $outerFrame            = $this->currentFrame;
         if (0 !== $this->preempted) {
             $this->runFrozen($fiberCount);
             $fiberCount = 0;
         }
         $fiberExceptionHolders = $this->fiberExceptionHolders;
-        $contexts              = $this->contexts;
+        $frames                = $this->frames;
+        $fiberScopes           = $this->fiberScopes;
         for ($i = 0; $i < $fiberCount && !$queue->isEmpty(); ++$i) {
             $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
@@ -681,12 +650,9 @@ final class EventLoop implements \Countable
 
             try {
                 $this->currentFiber    = $fiber;
-                $this->currentContext  = $contexts[$fiber];
-                if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
-                    $this->makeLive($this->currentContext);
-                }
-                if ($this->stateOn && $this->currentContext !== $this->stateContext) {
-                    $this->liveState($this->currentContext);
+                $this->currentFrame    = $frames[$fiber];
+                if ($fiberScopes[$fiber] !== $this->liveScope) {
+                    $this->switchScope($fiberScopes[$fiber], $fiber);
                 }
 
                 if (isset($fiberExceptionHolders[$fiber])) {
@@ -695,12 +661,14 @@ final class EventLoop implements \Countable
                     unset($fiberExceptionHolders[$fiber]);
                     $exception = $eh->get();
                     $eh->returnToPool();
-                    // FiberState::for($fiber)->log('throwing ' . \get_class($exception));
                     $fiber->throw($exception);
                 } else {
                     $fiber->resume();
                 }
             } catch (\Throwable $e) {
+                if (!$fiber->isTerminated()) {
+                    throw $e; // an onScopeChange() hook threw: the coroutine stays as it was, waiting
+                }
                 /*
                  * In case this exception is not caught, we must store it in an
                  * exception holder which will surface the exception if the fiber
@@ -708,6 +676,9 @@ final class EventLoop implements \Countable
                  * garbage collected.
                  */
                 $fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+            } finally {
+                $this->currentFiber = $outerFiber;
+                $this->currentFrame = $outerFrame;
             }
             /*
              * Whenever a fiber is terminated, we'll actively check it
@@ -717,13 +688,11 @@ final class EventLoop implements \Countable
                 $this->handleTerminatedFiber($fiber);
             }
             if (0 !== $this->preempted) {
-                // A coroutine was preempted: the rest of this tick respects its frozen root
+                // A coroutine was preempted: the rest of this tick respects its frozen scope
                 $this->runFrozen($fiberCount - $i - 1);
                 break;
             }
         }
-        $this->currentFiber    = null;
-        $this->currentContext  = null;
 
         if ($now - $this->lastGarbageCheck > self::GC_CHECK_INTERVAL) {
             // A busy loop (always some coroutine ready, never idle, see tick()'s poll() above)
@@ -740,14 +709,14 @@ final class EventLoop implements \Countable
         }
 
         while (!$this->callbackQueue->isEmpty()) {
-            $callback = $this->callbackQueue->dequeue();
-            $callback();
+            [$scope, $callback] = $this->callbackQueue->dequeue();
+            $scope->run($callback);
         }
     }
 
     /**
-     * The queue loop of tick() while roots are frozen: up to $count coroutines, those of a frozen
-     * root held back until its preempted coroutine resumes, then run right after it.
+     * The queue loop of tick() while scopes are frozen: up to $count coroutines, those of a frozen
+     * scope held back until its preempted coroutine resumes, then run right after it.
      */
     private function runFrozen(int $count): void
     {
@@ -755,21 +724,21 @@ final class EventLoop implements \Countable
         for ($i = 0; $i < $count && !$queue->isEmpty(); ++$i) {
             $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
-            $root  = $this->rootContexts[$this->contexts[$fiber]];
-            $p     = $this->frozen[$root] ?? null;
+            $scope = $this->fiberScopes[$fiber];
+            $p     = $this->frozen[$scope] ?? null;
             if (null === $p) {
                 $this->resume($fiber);
             } elseif ($p !== $fiber) {
                 $this->pending[$fiber] = \PHP_FLOAT_MAX; // still ready, held
-                $this->held[$root][]   = $fiber;
+                $this->held[$scope][]  = $fiber;
             } else {
-                $held = $this->thaw($root);
+                $held = $this->thaw($scope);
                 $this->resume($fiber);
-                if (($this->frozen[$root] ?? null) === $fiber) {
+                if (($this->frozen[$scope] ?? null) === $fiber) {
                     // Preempted again in its turn: the others wait on (as they would for a loop
                     // that never yields without preemption)
-                    \array_push($held, ...$this->held[$root]);
-                    $this->held[$root] = $held;
+                    \array_push($held, ...$this->held[$scope]);
+                    $this->held[$scope] = $held;
                 } else {
                     foreach ($held as $f) {
                         unset($this->pending[$f]);
@@ -780,11 +749,11 @@ final class EventLoop implements \Countable
         }
     }
 
-    /** $root's preempted coroutine resumes (or is gone): the coroutines held for it. */
-    private function thaw(object $root): array
+    /** $scope's preempted coroutine resumes (or is gone): the coroutines held for it. */
+    private function thaw(\Scope $scope): array
     {
-        $held = $this->held[$root];
-        unset($this->frozen[$root], $this->held[$root]);
+        $held = $this->held[$scope];
+        unset($this->frozen[$scope], $this->held[$scope]);
         --$this->preempted;
 
         return $held;
@@ -798,14 +767,13 @@ final class EventLoop implements \Countable
 
             return;
         }
+        $outerFiber = $this->currentFiber;
+        $outerFrame = $this->currentFrame;
         try {
-            $this->currentFiber    = $fiber;
-            $this->currentContext  = $this->contexts[$fiber];
-            if ($this->switchAware && $this->currentContext instanceof SwitchAwareInterface && $this->currentContext !== $this->liveContext) {
-                $this->makeLive($this->currentContext);
-            }
-            if ($this->stateOn && $this->currentContext !== $this->stateContext) {
-                $this->liveState($this->currentContext);
+            $this->currentFiber = $fiber;
+            $this->currentFrame = $this->frames[$fiber];
+            if ($this->fiberScopes[$fiber] !== $this->liveScope) {
+                $this->switchScope($this->fiberScopes[$fiber], $fiber);
             }
             if (isset($this->fiberExceptionHolders[$fiber])) {
                 $eh = $this->fiberExceptionHolders[$fiber];
@@ -817,13 +785,67 @@ final class EventLoop implements \Countable
                 $fiber->resume();
             }
         } catch (\Throwable $e) {
+            if (!$fiber->isTerminated()) {
+                throw $e; // an onScopeChange() hook threw
+            }
             $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+        } finally {
+            $this->currentFiber = $outerFiber;
+            $this->currentFrame = $outerFrame;
         }
         if ($fiber->isTerminated()) {
             $this->handleTerminatedFiber($fiber);
         }
-        $this->currentFiber    = null;
-        $this->currentContext  = null;
+    }
+
+    /**
+     * $scope becomes current for $fiber, which the loop is about to run (null: the code that runs
+     * on after this call): with the polyfill, its superglobals are swapped in; then the
+     * onScopeChange() hooks run, refusing waits (#85).
+     */
+    private function switchScope(\Scope $scope, ?\Fiber $fiber): void
+    {
+        $old             = $this->liveScope;
+        $this->liveScope = $scope;
+        if ($this->scopePolyfill) {
+            $this->scopeProbe = $fiber;
+            try {
+                \fiber_interop\scope\activate();
+            } finally {
+                $this->scopeProbe = null;
+            }
+        }
+        if ([] !== $this->scopeHooks) {
+            $outer           = $this->hookFiber;
+            $this->hookFiber = $this->currentFiber;
+            try {
+                foreach ($this->scopeHooks as $hook) {
+                    $hook($scope, $old);
+                }
+            } finally {
+                $this->hookFiber = $outer;
+            }
+        }
+    }
+
+    /**
+     * The running coroutine suspends: the scope current in it is what it resumes in.
+     *
+     * @internal phasync::suspend()
+     */
+    public function suspending(\Fiber $fiber): void
+    {
+        $this->fiberScopes[$fiber] = \Scope::getCurrent();
+    }
+
+    /**
+     * Register an onScopeChange() hook.
+     *
+     * @internal phasync::onScopeChange()
+     */
+    public function onScopeChange(\Closure $hook): void
+    {
+        $this->scopeHooks[] = $hook;
     }
 
     /**
@@ -831,14 +853,14 @@ final class EventLoop implements \Countable
      * PHP loop, about every $preemptInterval seconds. The running coroutine yields when it has
      * run a whole interval and isn't in phasync's or swerve's own code, so that timers, I/O and
      * other requests get their turn (whether any is ready is only known after the loop has
-     * polled); its root context stays frozen until it resumes.
+     * polled); its scope stays frozen until it resumes.
      *
      * @internal phasync::run()
      */
     public function preempt(): void
     {
         $fiber = \phasync\ext\current_fiber();
-        if (null === $fiber || !isset($this->contexts[$fiber])) {
+        if (null === $fiber || !isset($this->frames[$fiber])) {
             return; // not in a coroutine: the loop's own tick, or a Fiber of the coroutine's own
         }
         if ($fiber !== $this->preemptFiber || $this->ticks !== $this->preemptTick) {
@@ -852,97 +874,98 @@ final class EventLoop implements \Countable
         if (\str_starts_with($caller, 'phasync\\') || 'phasync' === $caller || \str_starts_with($caller, 'Swerve\\')) {
             return; // never inside the runtime's own code
         }
-        $root = $this->rootContexts[$this->contexts[$fiber]];
-        if (isset($this->frozen[$root])) {
-            return; // its root is frozen already (another coroutine of it was preempted)
+        $scope = \Scope::getCurrent();
+        if (isset($this->frozen[$scope])) {
+            return; // its scope is frozen already (another coroutine of it was preempted)
         }
-        $this->frozen[$root] = $fiber;
-        $this->held[$root]   = [];
+        $this->frozen[$scope] = $fiber;
+        $this->held[$scope]   = [];
         ++$this->preempted;
         $this->preemptFiber = null;
         $this->enqueue($fiber);
+        $this->fiberScopes[$fiber] = $scope;
         \Fiber::suspend();
     }
 
     /**
-     * Create a coroutine that will run independently of contexts. It will run in the event
-     * loop until it completes its work. The intended use case is to provide services for
-     * many other fibers, such as curl_multi_exec() invocations.
+     * Start a service coroutine: in the service frame and the root scope; see phasync::service().
      */
-    public function runService(\Closure $closure): void
+    public function runService(\Closure $closure, array $args): \Fiber
     {
-        $fiber = $this->create(closure: $closure, context: $this->serviceContext);
+        $fiber = $this->create($closure, $args, $this->serviceFrame, \Scope::getRootScope());
         unset($this->parentFibers[$fiber]);
+
+        return $fiber;
     }
 
     /**
-     * Create a coroutine. If no `$context` is provided, the new Fiber will inherit the
-     * context of the current coroutine, or get a context of its own (an object).
+     * Create a coroutine of $frame running in $scope, and run it up to its first suspension.
      *
-     * This function must not throw exceptions; the exception must be associated with the
-     * returned Fiber, and be thrown when the coroutine is awaited.
+     * What the coroutine throws is kept with it, and thrown where it is awaited. An
+     * onScopeChange() hook that throws before the coroutine starts throws from here, and no
+     * coroutine is created (#106).
      */
-    public function create(\Closure $closure, array $args = [], ?object $context = null): \Fiber
+    public function create(\Closure $closure, array $args, Frame $frame, \Scope $scope): \Fiber
     {
         $currentFiber = $this->currentFiber;
-        if (null !== $currentFiber && isset($this->lazyContexts[$id = \spl_object_id($currentFiber)])) {
-            $this->enterLazyContext($currentFiber, $id);
-        }
-        $currentContext = $this->currentContext;
-        if (null !== $context) {
-            if ($context !== $this->serviceContext) { // services share theirs
-                $this->useContext($context, $currentContext);
-            }
-        } elseif (null !== $currentContext) {
-            $context = $currentContext;
+        $currentFrame = $this->currentFrame;
+        $before       = \Scope::getCurrent();
+        if ($this->scopePolyfill) {
+            // The polyfill keeps a scope per Fiber only inside run()
+            $fn      = $closure;
+            $closure = static fn (mixed ...$args) => $scope->run($fn, ...$args);
+            $fiber   = new \Fiber($closure);
         } else {
-            $this->useContext($context = new \stdClass(), null);
+            // A Fiber belongs to the scope it is constructed in
+            $fiber = $scope === $before ? new \Fiber($closure) : $scope->run(static fn () => new \Fiber($closure));
         }
-        $fiber = new \Fiber($closure);
-        // FiberState::register($fiber);
 
-        $this->contexts[$fiber]     = $context;
+        $this->frames[$fiber] = $frame; // a wait in a hook is undone by discard(), which needs it
+        if ($scope !== $this->liveScope) {
+            $this->currentFiber = $fiber;
+            $this->currentFrame = $frame;
+            try {
+                $this->switchScope($scope, $fiber);
+            } catch (\Throwable $e) {
+                unset($this->frames[$fiber]);
+                $this->currentFiber = $currentFiber;
+                $this->currentFrame = $currentFrame;
+                $this->switchScope($before, null);
+
+                throw $e;
+            }
+            $this->currentFiber = $currentFiber;
+            $this->currentFrame = $currentFrame;
+        }
+
+        $this->fiberScopes[$fiber]  = $scope;
         $this->parentFibers[$fiber] = $currentFiber;
-
-        // The context should track all fibers associated with it. This is
-        // especially useful to ensure nested phasync::run() calls complete
-        // in order.
-        $this->joinContext($context, $fiber);
+        $this->joinFrame($frame, $fiber);
 
         // Start the code in the Fiber, so that we don't have to support
         // launching of coroutines as part of the event loop.
         try {
-            $this->currentFiber    = $fiber;
-            $this->currentContext  = $context;
-            if ($context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
-                $this->switchAware = true;
-                $this->makeLive($context);
-            }
-            if ($this->stateOn && $context !== $this->stateContext) {
-                $this->liveState($context);
-            }
+            $this->currentFiber = $fiber;
+            $this->currentFrame = $frame;
             $fiber->start(...$args);
         } catch (\Throwable $e) {
-            // $e = ExceptionTool::popTrace($e, __FILE__);
             $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
         } finally {
-            $this->currentFiber    = $currentFiber;
-            $this->currentContext  = $currentContext;
-            if ($this->switchAware && null !== $currentFiber && $currentContext instanceof SwitchAwareInterface && $currentContext !== $this->liveContext) {
-                $this->makeLive($currentContext); // the creating coroutine goes on
-            }
-            if ($this->stateOn && null !== $currentFiber && $currentContext !== $this->stateContext) {
-                $this->liveState($currentContext); // likewise
-            }
+            $this->currentFiber = $currentFiber;
+            $this->currentFrame = $currentFrame;
             if ($fiber->isTerminated()) {
                 $this->handleTerminatedFiber($fiber);
             }
         }
-        if (0 !== $this->preempted && null !== $currentFiber && isset($this->frozen[$root = $this->rootContexts[$currentContext]])) {
+        if ($this->liveScope !== $before) {
+            $this->switchScope($before, null); // the creating code goes on
+        }
+        if (0 !== $this->preempted && null !== $currentFiber && isset($this->frozen[$before])) {
             // The new coroutine was preempted before it first suspended: its creator is of the
-            // same frozen root, so it waits too (go() returns once the root thaws)
-            $this->pending[$currentFiber] = \PHP_FLOAT_MAX;
-            $this->held[$root][]          = $currentFiber;
+            // same frozen scope, so it waits too (go() returns once the scope thaws)
+            $this->pending[$currentFiber]     = \PHP_FLOAT_MAX;
+            $this->held[$before][]            = $currentFiber;
+            $this->fiberScopes[$currentFiber] = $before;
             \Fiber::suspend();
         }
 
@@ -950,15 +973,29 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * The context of $fiber.
+     * The frame of $fiber, null for a Fiber phasync did not start.
      */
-    public function getContext(\Fiber $fiber): ?object
+    public function getFrame(\Fiber $fiber): ?Frame
     {
-        if ($fiber === $this->currentFiber && isset($this->lazyContexts[$id = \spl_object_id($fiber)])) {
-            $this->enterLazyContext($fiber, $id);
-        }
+        return $this->frames[$fiber] ?? null;
+    }
 
-        return $this->contexts[$fiber] ?? null;
+    /**
+     * The frame of the running coroutine, null outside one.
+     */
+    public function getCurrentFrame(): ?Frame
+    {
+        return $this->currentFrame;
+    }
+
+    /**
+     * The frame of the services.
+     *
+     * @internal phasync::frame()
+     */
+    public function isServiceFrame(Frame $frame): bool
+    {
+        return $frame === $this->serviceFrame;
     }
 
     /**
@@ -1168,11 +1205,12 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Schedule a callback to be invoked after the current (or next) tick, outside of the fiber.
+     * Schedule a callback to be invoked after the current (or next) tick, outside of the fiber,
+     * in the scope current now.
      */
     public function defer(\Closure $callback): void
     {
-        $this->callbackQueue->enqueue($callback);
+        $this->callbackQueue->enqueue([\Scope::getCurrent(), $callback]);
     }
 
     /**
@@ -1186,7 +1224,7 @@ final class EventLoop implements \Countable
      *
      * Invariants of a tick run in place: it never resumes a coroutine that is running (one in
      * the chain of Fibers that led here, which waits in a Fiber of its own: its turn marks its wait
-     * as over instead); it restores the running coroutine and its context when it returns; waits
+     * as over instead); it restores the running coroutine, its frame and its scope when it returns; waits
      * nest last-in-first-out, so a wait deeper in the stack holds the ones below it until it is
      * over, even when theirs are over first.
      *
@@ -1196,11 +1234,13 @@ final class EventLoop implements \Countable
     {
         $fiber = $this->currentFiber;
         if (self::$extFiber && \phasync\ext\current_fiber() === $fiber) {
+            $this->suspending($fiber);
             \Fiber::suspend(); // a virtualize() request's root coroutine, where Fiber::getCurrent() is null
 
             return;
         }
-        $context           = $this->currentContext;
+        $frame             = $this->currentFrame;
+        $scope             = $this->fiberScopes[$fiber] = \Scope::getCurrent();
         $id                = \spl_object_id($fiber);
         $this->nested[$id] = null;
         ++$this->nesting;
@@ -1211,13 +1251,10 @@ final class EventLoop implements \Countable
         } finally {
             --$this->nesting;
             unset($this->nested[$id]);
-            $this->currentFiber    = $fiber;
-            $this->currentContext  = $context;
-            if ($this->switchAware && $context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
-                $this->makeLive($context);
-            }
-            if ($this->stateOn && $context !== $this->stateContext) {
-                $this->liveState($context);
+            $this->currentFiber = $fiber;
+            $this->currentFrame = $frame;
+            if ($this->liveScope !== $scope) {
+                $this->switchScope($scope, null);
             }
         }
         if (isset($this->fiberExceptionHolders[$fiber])) {
@@ -1271,6 +1308,7 @@ final class EventLoop implements \Countable
         }
         try {
             if (\Fiber::getCurrent() === $fiber) {
+                $this->fiberScopes[$fiber] = \Scope::getCurrent();
                 \Fiber::suspend();
             } else {
                 $this->wait();
@@ -1306,14 +1344,14 @@ final class EventLoop implements \Countable
 
     /**
      * Whether coroutines wait and nothing can ever wake them (DLK-3): none can run, no callback is
-     * queued, and no timer, timeout, idle() waiter or signal is left. Waits on the poller are
+     * queued, and no timer, timeout, frame deadline, idle() waiter or signal is left. Waits on the poller are
      * checked by the caller (tick()), as is the afterNext flag.
      */
     private function isStalled(): bool
     {
         return 0 !== $this->pending->count() && 0 === $this->queue->count() && $this->callbackQueue->isEmpty()
             && $this->scheduler->isEmpty() && [] === $this->timeoutBuckets && [] === $this->idleWaiters
-            && [] === $this->signalCounts;
+            && [] === $this->signalCounts && [] === $this->deadlines;
     }
 
     /**
@@ -1366,8 +1404,8 @@ final class EventLoop implements \Countable
             $lines[] = $line;
         }
         $exception = new DeadlockException((1 === \count($lines) ? '1 coroutine waits and nothing can wake it' : \count($lines) . ' coroutines wait and nothing can wake them') . ":\n" . \implode("\n", $lines));
-        $root      = $this->rootRunContext ?? throw $exception;
-        $failing   = isset($this->runCancellations[$root]);
+        $root      = $this->rootFrame ?? throw $exception;
+        $failing   = null !== $root->fatal;
         $this->failRun($root, $exception);
         if ($failing) {
             $dropped = [];
@@ -1402,214 +1440,148 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Run $fn in the current coroutine as a coroutine of $context: while $fn runs, $context is the
-     * coroutine's context and counts it among its coroutines; afterwards the coroutine has its own
-     * context again. Coroutines $fn starts belong to $context and keep running after $fn returns.
+     * A nested phasync::run(): $fn runs in the calling coroutine, in a new frame nested in the
+     * coroutine's own. Coroutines $fn starts join the frame. phasync::finally() callbacks
+     * registered in $fn run when it returns, still in the frame, shielded; then the call waits
+     * for the frame's coroutines, and returns what $fn returned or throws (see finishFrame()).
      *
-     * Given a {@see ContextFactoryInterface} instead of a context, $fn runs in the coroutine's own
-     * context until it needs the context (see enterLazyContext()); a $fn that never does costs no
-     * context.
+     * @internal phasync::run()
      */
-    public function withContext(\Closure $fn, object $context): mixed
+    public function runNested(\Closure $fn, array $args): mixed
     {
-        $fiber = $this->currentFiber ?? throw ExceptionTool::popTrace(ExceptionTool::popTrace(new \LogicException('withContext() runs only inside a coroutine')));
-        $id    = \spl_object_id($fiber);
-        if (isset($this->lazyContexts[$id])) {
-            $this->enterLazyContext($fiber, $id); // this context is entered from the one being awaited
-        }
-        if ($context instanceof ContextFactoryInterface) {
-            $lazy    = $this->lazyContexts[$id] = new LazyContext($context);
-            $failure = null;
+        $fiber                                = $this->currentFiber;
+        $id                                   = \spl_object_id($fiber);
+        $outer                                = $this->currentFrame;
+        $frame                                = new Frame($outer);
+        $frame->fibers                        = $fiber;
+        $frame->live                          = 1;
+        $outer->inner[\spl_object_id($frame)] = $frame;
+        $outerFinally                         = $this->frameFinally[$id] ?? null;
+        $this->frameFinally[$id]              = [];
+        $this->frames[$fiber]                 = $this->currentFrame = $frame;
+        $failure                              = null;
+        $result                               = null;
+        try {
             try {
-                return $fn();
+                $result = $fn(...$args);
             } catch (\Throwable $e) {
-                throw $failure = $e;
-            } finally {
-                if (null === $lazy->context) {
-                    unset($this->lazyContexts[$id]);
-                } else {
-                    $this->leaveContext($fiber, $id, $lazy->context, $lazy->outerFinally, $failure);
-                }
+                $failure = $e;
             }
-        }
-        $outerFinally = $this->enterContext($fiber, $id, $context);
-        $failure      = null;
-        try {
-            return $fn();
-        } catch (\Throwable $e) {
-            throw $failure = $e;
-        } finally {
-            $this->leaveContext($fiber, $id, $context, $outerFinally, $failure);
-        }
-    }
-
-    /**
-     * The running coroutine needs the context of the withContext() call it is in, which was given
-     * a factory: create it and enter it, as withContext() enters a context it is given.
-     */
-    private function enterLazyContext(\Fiber $fiber, int $id): void
-    {
-        $lazy = $this->lazyContexts[$id];
-        // Entered from here on: a resume() hook that starts a coroutine must not enter it again (#86)
-        unset($this->lazyContexts[$id]);
-        try {
-            $context = $lazy->factory->createContext();
-        } catch (\Throwable $e) {
-            $this->lazyContexts[$id] = $lazy; // not entered: the next ask tries the factory again
-
-            throw $e;
-        }
-        $lazy->outerFinally = $this->enterContext($fiber, $id, $context);
-        $lazy->context      = $context;
-    }
-
-    /**
-     * The running $fiber enters $context from its own: useContext() and joinContext(), inline
-     * (a request's context passes here once per request). Returns the phasync::finally() list of
-     * the withContext() call it was in, for leaveContext().
-     *
-     * @return list<\Closure>|null
-     */
-    private function enterContext(\Fiber $fiber, int $id, object $context): ?array
-    {
-        $previous = $this->contexts[$fiber];
-        if (isset($this->usedContexts[$context])) {
-            throw new ContextUsedException();
-        }
-        $this->usedContexts[$context]   = true;
-        $this->outerContexts[$context]  = $previous;
-        $this->hasInner[$previous]      = true;
-        if (!isset($this->rootContexts[$context])) {
-            $this->rootContexts[$context] = isset($this->runContexts[$previous]) ? $context : $this->rootContexts[$previous];
-        }
-        $outerFinally                   = $this->withContextFinally[$id] ?? null;
-        $this->contexts[$fiber]         = $context;
-        $this->currentContext           = $context;
-        $this->contextFibers[$context]  = $fiber;
-        if ($context instanceof SwitchAwareInterface && $context !== $this->liveContext) {
-            $this->switchAware = true;
-            $this->makeLive($context);
-        }
-        if ($this->stateOn && $context !== $this->stateContext) {
-            $this->liveState($context);
-        }
-        $this->withContextFinally[$id]  = [];
-
-        return $outerFinally;
-    }
-
-    /**
-     * The running $fiber leaves $context, which it entered with enterContext(): the
-     * phasync::finally() callbacks registered in it run first, and the context it came from is
-     * restored.
-     *
-     * @param list<\Closure>|null $outerFinally
-     */
-    private function leaveContext(\Fiber $fiber, int $id, object $context, ?array $outerFinally, ?\Throwable $failure): void
-    {
-        $callbacks = $this->withContextFinally[$id];
-        try {
-            if ([] !== $callbacks) {
-                // phasync::finally() callbacks registered in $fn, last first, still in $context,
-                // and shielded: they complete also when $context was cancelled
+            if ([] !== ($callbacks = $this->frameFinally[$id])) {
+                $this->frameFinally[$id] = [];
                 $this->shield($fiber);
                 try {
                     self::runFinally($callbacks);
+                } catch (\Throwable $e) {
+                    $failure = $e; // as a finally block's exception
                 } finally {
                     $this->unshield($fiber);
                 }
             }
-            $this->endScope($fiber, $context, $failure);
+            try {
+                $this->awaitFrame($fiber, $frame);
+            } catch (\Throwable $e) {
+                $failure = $e;
+            }
         } finally {
             if (null === $outerFinally) {
-                unset($this->withContextFinally[$id]);
+                unset($this->frameFinally[$id]);
             } else {
-                $this->withContextFinally[$id] = $outerFinally;
+                $this->frameFinally[$id] = $outerFinally;
             }
-            $previous = $this->outerContexts[$context];
-            $this->leftContext($context, $fiber);
-            $this->contexts[$fiber] = $previous;
-            $this->currentContext   = $previous;
-            if ($this->switchAware && $previous instanceof SwitchAwareInterface && $previous !== $this->liveContext) {
-                $this->makeLive($previous);
-            }
-            if ($this->stateOn && $previous !== $this->stateContext) {
-                $this->liveState($previous);
-            }
+            unset($outer->inner[\spl_object_id($frame)]);
+            $this->leftFrame($frame, $fiber);
+            $this->frames[$fiber] = $this->currentFrame = $outer;
         }
+
+        return $this->finishFrame($frame, null, $failure, $result);
     }
 
     /**
-     * withContext() returns only when the coroutines of $context have ended, as run() does. When
-     * $fn failed, or the caller is cancelled while waiting, they are cancelled and waited for
-     * (shielded: they must unwind) before the failure goes on.
+     * Wait until $fiber is the only coroutine left in $frame. When $fiber is cancelled while it
+     * waits, the frame's coroutines are cancelled too, and waited for (shielded: they must
+     * unwind) before the cancellation goes on.
      */
-    private function endScope(\Fiber $fiber, object $context, ?\Throwable $failure): void
+    private function awaitFrame(\Fiber $fiber, Frame $frame): void
     {
-        if (self::$exiting) {
-            return; // PHP destroys the suspended coroutines, which unwind here: a destroyed one can't wait
+        if ($frame->live <= 1 || self::$exiting) {
+            return; // the caller alone: a request that started nothing (most); or PHP destroys the coroutines
         }
-        $members = $this->contextFibers[$context] ?? null;
-        if ((null === $members || $members === $fiber) && !isset($this->hasInner[$context])) {
-            return; // the caller alone: a request that started nothing (most)
-        }
-        $cancelled = null;
-        if (null === $failure) {
-            try {
-                $this->awaitContext($context, \PHP_FLOAT_MAX);
-
-                return;
-            } catch (CancelledException $e) {
-                $failure = $cancelled = $e;
-            }
-        }
-        $this->cancelContext($context, new CancelledException('Cancelled: the context ended with ' . \get_class($failure) . ': ' . $failure->getMessage(), 0, $failure), false);
-        $this->shield($fiber);
         try {
-            $this->awaitContext($context, \PHP_FLOAT_MAX);
-        } finally {
-            $this->unshield($fiber);
-        }
-        if (null !== $cancelled) {
-            throw $cancelled;
+            while ($frame->live > 1) {
+                \phasync::awaitFlag($frame);
+            }
+        } catch (CancelledException $e) {
+            $this->cancelFrame($frame, new CancelledException('Cancelled: the run() was cancelled with ' . $e->getMessage(), 0, $e), false);
+            $this->shield($fiber);
+            try {
+                while ($frame->live > 1) {
+                    \phasync::awaitFlag($frame);
+                }
+            } finally {
+                $this->unshield($fiber);
+            }
+
+            throw $e;
         }
     }
 
     /**
-     * Wait until every coroutine of $context, and of the contexts nested in it, has ended; see
-     * phasync::awaitContext().
-     *
-     * @throws TimeoutException
+     * The run() of $frame ends: the failures of its coroutines nobody awaited are settled, and
+     * it throws its deadlock, else what $fn threw ($failure; a TimeoutException when the
+     * frame's deadline cancelled it), else the earliest failure nobody awaited, else returns
+     * $result.
      */
-    public function awaitContext(object $context, float $timeout): void
+    private function finishFrame(Frame $frame, ?\Fiber $main, ?\Throwable $failure, mixed $result): mixed
     {
-        $caller   = $this->currentFiber ?? throw ExceptionTool::popTrace(new \LogicException('Can only await a context from within a coroutine'));
-        $deadline = \microtime(true) + $timeout;
-        while (true) {
-            $pending = null;
-            foreach ($this->getFibers($context) as $fiber) {
-                if ($fiber !== $caller && !$fiber->isTerminated()) {
-                    $pending = $fiber;
-                    break;
+        // A failure nobody took is this frame's, also while something still holds its coroutine;
+        // run() takes its main coroutine's itself
+        if (0 !== $this->fiberExceptionHolders->count()) {
+            foreach ($this->fiberExceptionHolders as $fiber => $holder) {
+                if ($fiber !== $main && !$holder->isHandled() && ($holder->frame === $frame || ($frame === $this->rootFrame && $holder->frame === $this->serviceFrame))) {
+                    $holder->ended = true;
+                    $holder->handleException();
                 }
             }
-            if (null === $pending) {
-                return;
-            }
-            \phasync::awaitFlag($pending, \max(0.0, $deadline - \microtime(true)));
         }
+        if ([] !== $frame->handlerQueue) {
+            $this->runExceptionHandler($frame);
+        }
+        $frame->ended = true;
+        unset($this->deadlines[\spl_object_id($frame)]);
+        if (null !== $frame->fatal) {
+            throw $frame->fatal;
+        }
+        if (null !== $failure) {
+            if (null !== $frame->timeout && self::causedBy($failure, $frame->timeout)) {
+                throw $frame->timeout;
+            }
+
+            throw $failure;
+        }
+        if ([] !== $frame->failures) {
+            $first = $frame->failures[0];
+            foreach ($frame->failures as $f) {
+                if ($f[0] < $first[0]) {
+                    $first = $f;
+                }
+            }
+
+            throw $first[1];
+        }
+
+        return $result;
     }
 
     /**
-     * The coroutines of $context, and of the contexts nested in it: those entered from it with
-     * withContext() or given to go() by its coroutines.
+     * The coroutines of $frame, and of the frames nested in it.
      *
      * @return list<\Fiber>
      */
-    public function getFibers(object $context): array
+    public function getFibers(Frame $frame): array
     {
         $fibers  = [];
-        $members = $this->contextFibers[$context] ?? null;
+        $members = $frame->fibers;
         if ($members instanceof \Fiber) {
             $fibers[] = $members;
         } elseif (null !== $members) {
@@ -1617,30 +1589,27 @@ final class EventLoop implements \Countable
                 $fibers[] = $fiber;
             }
         }
-        foreach ($this->outerContexts as $inner => $outer) {
-            if ($outer === $context) {
-                \array_push($fibers, ...$this->getFibers($inner));
-            }
+        foreach ($frame->inner as $inner) {
+            \array_push($fibers, ...$this->getFibers($inner));
         }
 
         return $fibers;
     }
 
     /**
-     * Cancel every coroutine of $context and of the contexts nested in it (getFibers()), the
-     * deepest in the tree of coroutines first, except the coroutine that cancels. Coroutines that
-     * aren't waiting, because they run or are about to, are left to finish.
+     * Cancel every coroutine of $frame and of the frames nested in it (getFibers()), the
+     * deepest in the tree of coroutines first, except the coroutine that cancels. Coroutines
+     * that aren't waiting, because they run or are about to, meet it at their next wait.
      */
-    public function cancelContext(object $context, ?\Throwable $exception = null, bool $throwInCaller = true): void
+    public function cancelFrame(Frame $frame, \Throwable $exception, bool $throwInCaller = true): void
     {
-        $exception ??= new CancelledException('Operation cancelled');
         $this->issued[$exception] = true;
-        if (!isset($this->cancelledContexts[$context])) {
+        if (null === $frame->cancellation) {
             ++$this->cancellations;
         }
-        $this->cancelledContexts[$context] = $exception;
-        $depths                            = [];
-        foreach ($this->getFibers($context) as $fiber) {
+        $frame->cancellation = $exception;
+        $depths              = [];
+        foreach ($this->getFibers($frame) as $fiber) {
             if ($fiber === $this->currentFiber || $fiber->isTerminated()) {
                 continue;
             }
@@ -1652,90 +1621,54 @@ final class EventLoop implements \Countable
         foreach ($depths as [, $fiber]) {
             $this->wake($fiber);
         }
-        if ($throwInCaller && null !== ($caller = \phasync\ext\current_fiber()) && isset($this->contexts[$caller]) && null !== ($e = $this->cancellationFor($caller))) {
+        if ($throwInCaller && null !== ($caller = \phasync\ext\current_fiber()) && isset($this->frames[$caller]) && null !== ($e = $this->cancellationFor($caller))) {
             throw $e; // the caller is in it: as a throw
         }
     }
 
-    /** Mark $context used, entered from $outer: ContextUsedException if it was used before. */
-    private function useContext(object $context, ?object $outer): void
+    /** Set the deadline of $frame, see Frame::setTimeout(). */
+    public function setDeadline(Frame $frame, float $deadline): void
     {
-        if (isset($this->usedContexts[$context])) {
-            throw new ContextUsedException();
-        }
-        $this->usedContexts[$context] = true;
-        if (null !== $outer) {
-            $this->outerContexts[$context] = $outer;
-            $this->hasInner[$outer]        = true;
-        }
-        if (!isset($this->rootContexts[$context])) { // a run()'s context is set by beginRun()
-            $this->rootContexts[$context] = null === $outer || isset($this->runContexts[$outer]) ? $context : $this->rootContexts[$outer];
-        }
+        $frame->deadline                              = $deadline;
+        $this->deadlines[\spl_object_id($frame)]      = $frame;
     }
 
-    private function joinContext(object $context, \Fiber $fiber): void
+    private function joinFrame(Frame $frame, \Fiber $fiber): void
     {
-        $members = $this->contextFibers[$context] ?? null;
+        $members = $frame->fibers;
         if (null === $members) {
-            $this->contextFibers[$context] = $fiber;
+            $frame->fibers = $fiber;
         } elseif ($members instanceof \Fiber) {
-            $this->contextFibers[$context]           = new \WeakMap();
-            $this->contextFibers[$context][$members] = true;
-            $this->contextFibers[$context][$fiber]   = true;
+            $frame->fibers           = new \WeakMap();
+            $frame->fibers[$members] = true;
+            $frame->fibers[$fiber]   = true;
         } else {
             $members[$fiber] = true;
         }
+        ++$frame->live;
     }
 
-    /**
-     * The root context of $context: the one below the nearest run()'s context that $context was
-     * entered from, or $context itself. See phasync::getRootContext().
-     */
-    public function getRootContext(object $context): object
+    /** $fiber left $frame: it ended, or returned from the nested run() of $frame. */
+    private function leftFrame(Frame $frame, \Fiber $fiber): void
     {
-        return $this->rootContexts[$context];
-    }
-
-    /** $fiber left $context: a root with none left drops its self-reference (the service context is kept: the driver holds it, and a later service needs its root). */
-    private function leftContext(object $context, \Fiber $fiber): void
-    {
-        $members = $this->contextFibers[$context];
+        $members = $frame->fibers;
         if ($members instanceof \Fiber) {
-            unset($this->contextFibers[$context]);
-        } else {
+            $frame->fibers = null;
+        } elseif (null !== $members) {
             unset($members[$fiber]);
-            if (0 !== \count($members)) {
-                return;
+        }
+        if (--$frame->live <= 1) {
+            $this->raiseFlag($frame); // a nested run() waits for its coroutines
+            if (0 === $frame->live && null !== $frame->cancellation) {
+                // No coroutine can join a frame that has none left
+                $frame->cancellation = null;
+                --$this->cancellations;
             }
         }
-        // Cheapest first: coroutines of a run()'s context (most) leave it without this
-        if (!isset($this->runContexts[$context]) && ($this->rootContexts[$context] ?? null) === $context && $context !== $this->serviceContext) {
-            unset($this->rootContexts[$context]);
-        }
-        if (0 !== $this->cancellations && isset($this->cancelledContexts[$context])) {
-            // No coroutine can join a context that has none left
-            unset($this->cancelledContexts[$context]);
-            --$this->cancellations;
-        }
-    }
-
-    /** $context's coroutine runs next, and another switch-aware context's ran last. */
-    private function makeLive(SwitchAwareInterface $context): void
-    {
-        $was               = $this->liveContext;
-        $this->liveContext = $context;
-        $outer             = $this->hookFiber;
-        $this->hookFiber   = $this->currentFiber;
-        try {
-            $was?->suspend();
-            $context->resume();
-        } finally {
-            $this->hookFiber = $outer;
-        }
     }
 
     /**
-     * A wait in a SwitchAwareInterface hook, or in a Fiber the hook runs: it is undone, then refused.
+     * A wait in an onScopeChange() hook, or in a Fiber the hook runs: it is undone, then refused.
      *
      * @throws \LogicException always
      */
@@ -1743,50 +1676,12 @@ final class EventLoop implements \Countable
     {
         $this->discard($this->currentFiber);
 
-        throw new \LogicException('A SwitchAwareInterface hook must not wait: resume() and suspend() run in the event loop, outside any coroutine; start a coroutine with phasync::go() for work that waits');
-    }
-
-    /** $context's coroutine runs next: phasync::$contextState becomes its array, a copy of the defaults at first. */
-    private function liveState(object $context): void
-    {
-        $this->stateContext     = $context;
-        $holder                 = $this->states[$context] ??= new ContextState(\phasync::$contextStateDefaults);
-        \phasync::$contextState = &$holder->a;
+        throw new \LogicException('An onScopeChange() hook must not wait: it runs in the event loop, outside any coroutine; start a coroutine with phasync::go() for work that waits');
     }
 
     /**
-     * Turn context-local state on; the running coroutine's context gets its array at once.
-     */
-    public function enableContextState(): void
-    {
-        if (!$this->stateOn) {
-            $this->stateOn = true;
-            if (null !== $this->currentContext) {
-                $this->liveState($this->currentContext);
-            }
-        }
-    }
-
-    /**
-     * Make $state, by reference, the context-local state of the running coroutine's context (which a
-     * lazy withContext() creates now), and of the loop's live state at once. Outside a coroutine it
-     * only becomes phasync::$contextState.
-     */
-    public function adoptContextState(array &$state): void
-    {
-        $this->stateOn = true;
-        $context       = $this->getCurrentContext();
-        if (null !== $context) {
-            $holder             = $this->states[$context] ??= new ContextState([]);
-            $holder->a          = &$state;
-            $this->stateContext = $context;
-        }
-        \phasync::$contextState = &$state;
-    }
-
-    /**
-     * Register a phasync::finally() callback: it runs as the withContext() call the running
-     * coroutine is in returns, or when the coroutine ends when it is in none.
+     * Register a phasync::finally() callback: it runs as the nested run() the running coroutine
+     * runs inline returns, or when the coroutine ends when it is in none.
      *
      * @internal
      */
@@ -1794,11 +1689,8 @@ final class EventLoop implements \Countable
     {
         $fiber = $this->currentFiber ?? throw ExceptionTool::popTrace(ExceptionTool::popTrace(new \LogicException('This function can not be used outside of a coroutine')));
         $id    = \spl_object_id($fiber);
-        if (isset($this->lazyContexts[$id])) {
-            $this->enterLazyContext($fiber, $id);
-        }
-        if (isset($this->withContextFinally[$id])) {
-            $this->withContextFinally[$id][] = $fn;
+        if (isset($this->frameFinally[$id])) {
+            $this->frameFinally[$id][] = $fn;
 
             return;
         }
@@ -1852,12 +1744,12 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Cancel every coroutine but the caller, whatever its context, with $exception, see
+     * Cancel every coroutine but the caller, whatever its frame, with $exception, see
      * phasync::shutdown().
      */
     public function shutdown(ShutdownException $exception): void
     {
-        foreach ($this->contexts as $fiber => $_) {
+        foreach ($this->frames as $fiber => $_) {
             if ($fiber !== \phasync\ext\current_fiber() && !$fiber->isTerminated()) {
                 $this->cancel($fiber, $exception);
             }
@@ -1868,7 +1760,7 @@ final class EventLoop implements \Countable
     public function countFibers(): int
     {
         $count = 0;
-        foreach ($this->contexts as $fiber => $_) {
+        foreach ($this->frames as $fiber => $_) {
             $count += (int) ($fiber !== \phasync\ext\current_fiber() && !$fiber->isTerminated());
         }
 
@@ -1888,7 +1780,7 @@ final class EventLoop implements \Countable
         if ($fiber->isTerminated()) {
             throw new \LogicException("Can't cancel a terminated fiber");
         }
-        if (!isset($this->contexts[$fiber])) {
+        if (!isset($this->frames[$fiber])) {
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
         $exception ??= new CancelledException('Operation cancelled');
@@ -1910,7 +1802,7 @@ final class EventLoop implements \Countable
      */
     public function throw(\Fiber $fiber, \Throwable $exception): void
     {
-        if (!isset($this->contexts[$fiber])) {
+        if (!isset($this->frames[$fiber])) {
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
         $this->issued[$exception] = true;
@@ -1942,7 +1834,7 @@ final class EventLoop implements \Countable
         if (!isset($this->pending[$fiber]) || isset($this->fiberExceptionHolders[$fiber]) || isset($this->shielded[$fiber])) {
             return false;
         }
-        if (0 !== $this->preempted && ($this->frozen[$this->rootContexts[$this->contexts[$fiber]]] ?? null) === $fiber) {
+        if (0 !== $this->preempted && ($this->frozen[$this->fiberScopes[$fiber]] ?? null) === $fiber) {
             return false;
         }
         if (!$this->discard($fiber)) {
@@ -1962,8 +1854,8 @@ final class EventLoop implements \Countable
         if (null !== ($exception = $this->cancelledFibers[$fiber] ?? null)) {
             return $exception;
         }
-        for ($c = $this->contexts[$fiber] ?? null; null !== $c; $c = $this->outerContexts[$c] ?? null) {
-            if (null !== ($exception = $this->cancelledContexts[$c] ?? null)) {
+        for ($f = $this->frames[$fiber] ?? null; null !== $f; $f = $f->parent) {
+            if (null !== ($exception = $f->cancellation)) {
                 return $exception;
             }
         }
@@ -1988,7 +1880,7 @@ final class EventLoop implements \Countable
 
     /**
      * $fiber's waits are out of every cancellation's reach until unshield(): phasync::finally()
-     * callbacks complete also in a cancelled coroutine or context.
+     * callbacks complete also in a cancelled coroutine or frame.
      *
      * @internal
      */
@@ -2012,7 +1904,7 @@ final class EventLoop implements \Countable
      */
     public function discard(\Fiber $fiber): bool
     {
-        if (!isset($this->contexts[$fiber])) {
+        if (!isset($this->frames[$fiber])) {
             return false;
         }
 
@@ -2054,12 +1946,12 @@ final class EventLoop implements \Countable
                 }
             }
 
-            // Held while its root is frozen
-            if (0 !== $this->preempted && isset($this->held[$root = $this->rootContexts[$this->contexts[$fiber]]])
-                && false !== ($i = \array_search($fiber, $held = $this->held[$root], true))) {
+            // Held while its scope is frozen
+            if (0 !== $this->preempted && isset($this->held[$scope = $this->fiberScopes[$fiber]])
+                && false !== ($i = \array_search($fiber, $held = $this->held[$scope], true))) {
                 \array_splice($held, $i, 1);
-                $this->held[$root] = $held;
-                $cancelled         = true;
+                $this->held[$scope] = $held;
+                $cancelled          = true;
                 break;
             }
 
@@ -2144,18 +2036,6 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Returns the context of the currently executing fiber.
-     */
-    public function getCurrentContext(): ?object
-    {
-        if (null !== ($fiber = $this->currentFiber) && isset($this->lazyContexts[$id = \spl_object_id($fiber)])) {
-            $this->enterLazyContext($fiber, $id);
-        }
-
-        return $this->currentContext;
-    }
-
-    /**
      * Cancel, with TimeoutException, the coroutines whose timeout falls in a slot up to $slot:
      * everything in those buckets has expired.
      */
@@ -2222,25 +2102,25 @@ final class EventLoop implements \Countable
      * When the Fiber is garbage collected, the ExceptionHolder instance will be
      * destroyed thanks to the WeakMap. The ExceptionHolder tracks if the exception
      * is retrieved. If it has not been retrieved when the ExceptionHolders'
-     * destructor is invoked, the exception will be attached to the nearest ancestor
-     * Fiber.
+     * destructor is invoked, the failure goes to the coroutine's frame.
      */
     private function makeExceptionHolder(\Throwable $exception, \Fiber $fiber): FiberExceptionHolder
     {
-        $context = $this->getContext($fiber);
+        $frame = $this->frames[$fiber] ?? null;
+        $seq   = ++$this->failureSeq;
 
-        return FiberExceptionHolder::create($exception, $fiber, function (\Throwable $exception, \WeakReference $fiberRef) use ($context) {
-            // Nobody took the failure: it goes to the context's handler, or fails its run()
-            $this->unhandled($context, $exception);
-        }, $context);
+        return FiberExceptionHolder::create($exception, $fiber, function (\Throwable $exception) use ($frame, $seq) {
+            // Nobody took the failure: it goes to the frame's handler, or its run() throws it
+            $this->unhandled($frame, $exception, $seq);
+        }, $frame);
     }
 
     /**
-     * A failure no coroutine took: to the nearest ExceptionHandlerInterface among $context and
-     * the contexts it is nested in, else to the log. Cancellations while PHP shuts down (it
-     * destroys the coroutines still waiting) are no failures.
+     * A failure no coroutine took: to the frame's exception handler, else kept for its run() to
+     * throw. A service's goes to the outermost run()'s frame. Cancellations, also while PHP shuts
+     * down (it destroys the coroutines still waiting), are no failures.
      */
-    private function unhandled(object $context, \Throwable $exception): void
+    private function unhandled(?Frame $frame, \Throwable $exception, int $seq): void
     {
         if (self::$exiting && $exception instanceof CancelledException) {
             return;
@@ -2248,167 +2128,159 @@ final class EventLoop implements \Countable
         if ($this->isCancellation($exception)) {
             return; // it was cancelled; it did not fail
         }
-        for ($c = $context; null !== $c; $c = $this->outerContexts[$c] ?? null) {
-            if ($c instanceof ExceptionHandlerInterface) {
-                // This may run in a destructor: the handler runs in the loop, from the next tick.
-                // One that returns has handled it; what it throws goes on outward.
-                $this->defer(function () use ($c, $exception) {
-                    try {
-                        $c->handleException($exception);
-                    } catch (\Throwable $e) {
-                        if (null !== ($outer = $this->outerContexts[$c] ?? null)) {
-                            $this->unhandled($outer, $e);
-                        } elseif (isset($this->runContexts[$c])) {
-                            $this->failRun($c, $e);
-                        } elseif (null !== $this->rootRunContext) {
-                            $this->failRun($this->rootRunContext, $e);
-                        } else {
-                            throw $e;
-                        }
-                    }
-                });
-
-                return;
-            }
-            if (isset($this->runContexts[$c])) {
-                $this->failRun($c, $exception);
-
-                return;
-            }
+        if ($frame === $this->serviceFrame) {
+            $frame = $this->rootFrame;
         }
-        if (null === $this->rootRunContext) {
-            // Its run() ended before the failure was known (the Fiber object was kept): it is
-            // thrown where the last reference goes, rather than lost
+        if (null === $frame || $frame->ended) {
+            // Its run() ended before the failure was known: it is thrown where the last
+            // reference goes, rather than lost
             throw $exception;
         }
-        // A service's, which belongs to no run(): the outermost one's
-        $this->failRun($this->rootRunContext, $exception);
+        if (null !== $frame->exceptionHandler) {
+            $frame->handlerQueue[] = $exception;
+            if (1 === \count($frame->handlerQueue)) {
+                // This may run in a destructor: the handler runs in the loop, from the next tick
+                $this->defer(fn () => $this->runExceptionHandler($frame));
+            }
+
+            return;
+        }
+        $frame->failures[] = [$seq, $exception];
+    }
+
+    /** Give the failures waiting for $frame's exception handler to it; what it throws, its run() throws. */
+    private function runExceptionHandler(Frame $frame): void
+    {
+        while ([] !== $frame->handlerQueue) {
+            $exception = \array_shift($frame->handlerQueue);
+            try {
+                ($frame->exceptionHandler ?? throw $exception)($exception);
+            } catch (\Throwable $e) {
+                $frame->failures[] = [++$this->failureSeq, $e];
+            }
+        }
     }
 
     /** Whether a phasync::run() is in progress. */
     public function isRunning(): bool
     {
-        return null !== $this->rootRunContext;
+        return null !== $this->rootFrame;
     }
 
     /**
-     * A phasync::run() is in progress with $context: failures no handler takes fail it.
+     * The outermost phasync::run() begins: its frame. The scope current in {main} is what ran last.
      *
      * @internal phasync::run()
      */
-    public function beginRun(object $context, bool $root): void
+    public function beginRun(): Frame
     {
-        $this->runContexts[$context]  = [];
-        $this->rootContexts[$context] = $context;
-        if ($root) {
-            $this->rootRunContext = $context;
-        }
+        $this->liveScope = \Scope::getCurrent();
+
+        return $this->rootFrame = new Frame(null);
     }
 
     /**
-     * The phasync::run() with $context ends: the failures that reached it, if any. Its coroutines
-     * were dropped by the loop when the first arrived (failRun()).
+     * Run the loop for the outermost run() until its frame has no coroutine left; then cancel the
+     * services, and run it until they have ended.
      *
      * @internal phasync::run()
-     *
-     * @return list<\Throwable>
      */
-    public function endRun(object $context, ?\Fiber $main = null): array
+    public function drive(Frame $frame): void
     {
-        if (!isset($this->runContexts[$context])) {
-            return []; // it has ended
+        while ($frame->live > 0 && $this->pending->count() > 0) {
+            $this->tick();
         }
-        // A failure nobody took is this run's, also while something still holds its coroutine;
-        // run() takes its main coroutine's itself
-        foreach ($this->fiberExceptionHolders as $fiber => $holder) {
-            if ($fiber !== $main && !$holder->isHandled() && $this->within($holder->context, $context)) {
-                $holder->ended = true;
-                $holder->handleException();
+        if ($this->serviceFrame->live > 0) {
+            $this->cancelFrame($this->serviceFrame, new CancelledException('Cancelled: the outermost run() returned'), false);
+            while ($this->serviceFrame->live > 0 && $this->pending->count() > 0) {
+                $this->tick();
             }
         }
-        $failures = $this->runContexts[$context] ?? [];
-        unset($this->runContexts[$context], $this->rootContexts[$context]);
-        if (0 !== $this->cancellations) {
-            // Its cancellation ends with it; the services' too, which outlive every run()
-            foreach ($context === $this->rootRunContext ? [$context, $this->serviceContext] : [$context] as $c) {
-                if (isset($this->cancelledContexts[$c])) {
-                    unset($this->cancelledContexts[$c]);
-                    --$this->cancellations;
+        while (!$this->callbackQueue->isEmpty()) {
+            [$scope, $callback] = $this->callbackQueue->dequeue();
+            $scope->run($callback);
+        }
+    }
+
+    /**
+     * The outermost phasync::run() ends: as a nested one, see finishFrame(). The scope of {main}
+     * becomes current again.
+     *
+     * @internal phasync::run()
+     */
+    public function endRun(Frame $frame, ?\Fiber $main): mixed
+    {
+        try {
+            if (null !== $frame->fatal) {
+                // The deadlock dropped the coroutines still waiting: they unwind as their last
+                // references go, here, rather than in whatever runs next
+                $main = null;
+                try {
+                    \gc_collect_cycles();
+                } catch (\Throwable) {
+                    // the deadlock is what run() throws
                 }
+
+                return $this->finishFrame($frame, null, null, null);
             }
-        }
-        if ($context === $this->rootRunContext) {
-            $this->rootRunContext = null;
-        }
-
-        return $failures;
-    }
-
-    /** Whether $context is $outer or nested in it. */
-    private function within(?object $context, object $outer): bool
-    {
-        for ($c = $context; null !== $c; $c = $this->outerContexts[$c] ?? null) {
-            if ($c === $outer) {
-                return true;
+            if (!$main->isTerminated()) {
+                throw new \LogicException('The main coroutine of run() did not end'); // unreachable: the loop ran until it did
             }
-        }
+            $failure = $this->getException($main);
 
-        return false;
-    }
-
-    /**
-     * A failure no handler took reached the run() with $context: the run fails. Its first failure
-     * cancels the run's scope (the coroutines of it and of the contexts nested in it, and for the
-     * outermost run() the services): they unwind with a CancelledException whose previous
-     * exception is that failure, and phasync::finally() callbacks complete. The cancellations they
-     * throw on are no further failures; anything else they throw is. run() then throws.
-     */
-    private function failRun(object $context, \Throwable $exception): void
-    {
-        if (null !== ($cancellation = $this->runCancellations[$context] ?? null) && self::causedBy($exception, $cancellation)) {
-            return;
-        }
-        $failures                    = $this->runContexts[$context];
-        $failures[]                  = $exception;
-        $this->runContexts[$context] = $failures;
-        if (1 === \count($failures)) {
-            // This may run in a destructor, and the loop may be iterating: from the next tick
-            $this->defer(fn () => $this->cancelRun($context, $exception));
+            return $this->finishFrame($frame, $main, $failure, null === $failure ? $main->getReturn() : null);
+        } finally {
+            $this->closeRun($frame);
         }
     }
 
     /**
-     * The run() with $context has failed with $failure: its scope is cancelled (see failRun()).
-     * Also when its main coroutine fails, which run() itself then throws.
+     * The outermost phasync::run() is over, also when it failed before endRun().
      *
      * @internal phasync::run()
      */
-    public function cancelRun(object $context, \Throwable $failure): void
+    public function closeRun(Frame $frame): void
     {
-        if (!isset($this->runContexts[$context]) || isset($this->runCancellations[$context])) {
+        if ($this->rootFrame !== $frame) {
             return;
         }
-        $cancellation                     = new CancelledException('Cancelled: the run failed with ' . \get_class($failure) . ': ' . $failure->getMessage(), 0, $failure);
-        $this->runCancellations[$context] = $cancellation;
-        $this->cancelContext($context, $cancellation, false);
-        if ($context === $this->rootRunContext) {
-            $this->cancelContext($this->serviceContext, $cancellation, false);
+        $frame->ended    = true;
+        $this->rootFrame = null;
+        $this->deadlines = [];
+        foreach ([$frame, $this->serviceFrame] as $f) {
+            if (null !== $f->cancellation) {
+                // Its coroutines ended, or a deadlock dropped them
+                $f->cancellation = null;
+                --$this->cancellations;
+            }
+        }
+        if (($scope = \Scope::getCurrent()) !== $this->liveScope) {
+            $this->switchScope($scope, null);
         }
     }
 
     /**
-     * Whether $exception comes from the cancellation of the run() with $context.
-     *
-     * @internal phasync::run()
+     * The outermost run() fails with $exception (a deadlock): its frame, and the services, are
+     * cancelled, with a CancelledException whose previous exception is $exception; the
+     * cancellations they unwind with are no failures. run() throws $exception.
      */
-    public function isRunCancellation(object $context, \Throwable $exception): bool
+    private function failRun(Frame $frame, \Throwable $exception): void
     {
-        return null !== ($cancellation = $this->runCancellations[$context] ?? null) && self::causedBy($exception, $cancellation);
+        if (null !== $frame->fatal) {
+            return;
+        }
+        $frame->fatal = $exception;
+        // This may run while the loop is iterating: from the next tick
+        $this->defer(function () use ($frame, $exception) {
+            $cancellation = new CancelledException('Cancelled: the run failed with ' . \get_class($exception) . ': ' . $exception->getMessage(), 0, $exception);
+            $this->cancelFrame($frame, $cancellation, false);
+            $this->cancelFrame($this->serviceFrame, $cancellation, false);
+        });
     }
 
     /**
-     * Whether $exception comes from a cancellation cancel() or a failed run() issued: a coroutine
-     * ending with it was cancelled, it did not fail (CAN-9).
+     * Whether $exception comes from a cancellation cancel(), Frame::cancel() or a deadlock issued:
+     * a coroutine ending with it was cancelled, it did not fail (CAN-9).
      *
      * @internal
      */
@@ -2437,49 +2309,39 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Whenever a fiber is terminated, this method must be used. It will ensure that any
-     * deferred closures are immediately run. Cyclic garbage it leaves behind is collected by
-     * tick()'s idle-time or busy-loop GC, not by this method.
-     * If the Fiber threw an exception, ensure it is thrown in the parent if that is still
-     * running, or.
+     * Whenever a fiber is terminated, this method must be used. It runs the coroutine's
+     * phasync::finally() callbacks (in a coroutine of their own), wakes its awaiters, and takes
+     * it out of its frame. Cyclic garbage it leaves behind is collected by tick()'s idle-time or
+     * busy-loop GC, not by this method.
      */
     private function handleTerminatedFiber(\Fiber $fiber): void
     {
-        // FiberState::for($fiber)->log('handleTerminatedFiber');
-        $context = $this->contexts[$fiber];
+        $frame = $this->frames[$fiber];
         if (isset($this->fiberFinally[$fiber])) {
-            // The callbacks may suspend: they run in a coroutine of their own, in the context the
+            // The callbacks may suspend: they run in a coroutine of their own, in the frame the
             // coroutine ended in (which waits for it), shielded so they complete also when that
-            // context was cancelled
+            // frame was cancelled
             $callbacks = $this->fiberFinally[$fiber];
             unset($this->fiberFinally[$fiber]);
-            $outer                = $this->currentContext;
-            $this->currentContext = $context;
-            try {
-                $this->create(function () use ($callbacks): void {
-                    $fiber = $this->currentFiber;
-                    $this->shield($fiber);
-                    try {
-                        $this->enqueue($fiber); // after whatever else the ending coroutine's tick has to do
-                        \Fiber::suspend();
-                        self::runFinally($callbacks);
-                    } finally {
-                        $this->unshield($fiber);
-                    }
-                });
-            } finally {
-                $this->currentContext = $outer;
-                if ($this->stateOn && null !== $outer && $outer !== $this->stateContext) {
-                    $this->liveState($outer);
+            $this->create(function () use ($callbacks): void {
+                $fiber = $this->currentFiber;
+                $this->shield($fiber);
+                try {
+                    $this->enqueue($fiber); // after whatever else the ending coroutine's tick has to do
+                    $this->suspending($fiber);
+                    \Fiber::suspend();
+                    self::runFinally($callbacks);
+                } finally {
+                    $this->unshield($fiber);
                 }
-            }
+            }, [], $frame, $this->fiberScopes[$fiber]);
         }
         if (0 !== $this->cancellations && isset($this->cancelledFibers[$fiber])) {
             unset($this->cancelledFibers[$fiber]);
             --$this->cancellations;
         }
         $this->raiseFlag($fiber);
-        $this->leftContext($context, $fiber);
-        unset($this->contexts[$fiber], $this->parentFibers[$fiber]);
+        $this->leftFrame($frame, $fiber);
+        unset($this->frames[$fiber], $this->fiberScopes[$fiber], $this->parentFibers[$fiber]);
     }
 }

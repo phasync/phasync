@@ -162,7 +162,7 @@ test('DLK-3: a stall while the coroutines of the failed run unwind fails it agai
         PHP);
 
     expect($r['running'])->toBeFalse();
-    expect($r['stdout'])->toContain("dropped\n", "phasync\\AggregateException: 2 failures, the first: 2 coroutines wait and nothing can wake them:\n");
+    expect($r['stdout'])->toContain("dropped\n", "phasync\\DeadlockException: 2 coroutines wait and nothing can wake them:\n");
 });
 
 // ---------------------------------------------------------------------------

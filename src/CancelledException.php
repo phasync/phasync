@@ -5,7 +5,7 @@ namespace phasync;
 use phasync\Internal\RethrowExceptionTrait;
 
 /**
- * Thrown in a coroutine whose wait was cancelled with `phasync::cancel()`, or whose scope failed.
+ * Thrown in a coroutine whose wait was cancelled: with `phasync::cancel()`, or with its frame (`Frame::cancel()`, the frame's deadline, a deadlock).
  *
  * The coroutine meets it at its next wait, or at once if it is waiting, and its `finally` blocks run as it unwinds. It is sticky: waits after it throw it again, so cleanup that must wait belongs in `phasync::finally()`. A coroutine that ends with it does not fail its `run()`. The failure that caused a cancellation, when there is one, is `getPrevious()`.
  *
@@ -34,7 +34,7 @@ use phasync\Internal\RethrowExceptionTrait;
  *
  * @example examples/CancelledException/1-clean-up-and-let-it-through.php Clean up, then let the cancellation end the coroutine
  */
-class CancelledException extends \RuntimeException implements RethrowExceptionInterface
+class CancelledException extends \RuntimeException implements RethrowExceptionInterface, \async\CancelledException
 {
     use RethrowExceptionTrait;
 }

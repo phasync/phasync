@@ -11,7 +11,7 @@ use phasync\TimeoutException;
 /**
  * Lets events pass at a fixed rate, shared by every coroutine that calls `wait()`.
  *
- * The constructor starts a coroutine in the current context that issues one permit every `1 / $eventsPerSecond` seconds, and it stops when the limiter is dropped. The first `wait()` returns at once. A `$burst` above 0 lets permits accumulate while nobody waits: after an idle period, up to `$burst + 1` events pass at once. A limiter is a SelectableInterface: it is ready when a permit is available.
+ * The constructor starts a coroutine in the current frame that issues one permit every `1 / $eventsPerSecond` seconds, and it stops when the limiter is dropped. The first `wait()` returns at once. A `$burst` above 0 lets permits accumulate while nobody waits: after an idle period, up to `$burst + 1` events pass at once. A limiter is a SelectableInterface: it is ready when a permit is available.
  *
  * ```php
  * phasync::run(function () {

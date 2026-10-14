@@ -6,8 +6,6 @@
  * tests/Characterization/README.md before changing anything here.
  */
 
-use phasync\ContextUsedException;
-
 uses()->group('characterization');
 
 // ---------------------------------------------------------------------------
@@ -176,30 +174,30 @@ test('RT-3: isRunning() is true only inside a coroutine', function () {
         ->toBe([false, true, false]);
 });
 
-test('RT-3: getFiber() and getContext() outside a coroutine throw LogicException', function () {
+test('RT-3: getFiber() and frame() outside a coroutine throw LogicException', function () {
     expect(static fn () => phasync::getFiber())
         ->toThrow(LogicException::class, 'This function can not be used outside of a coroutine');
-    expect(static fn () => phasync::getContext())
-        ->toThrow(LogicException::class, 'This function can not be used outside of a coroutine');
+    expect(static fn () => phasync::frame())
+        ->toThrow(LogicException::class, 'phasync::frame() can only be used inside a coroutine');
 });
 
-test('RT-3: getContext() is an object shared by a scope\'s coroutines and different in a nested run()', function () {
+test('RT-3: frame() is shared by a run()\'s coroutines and different in a nested run()', function () {
     $result = phasync::run(static function () {
-        $context = phasync::getContext();
+        $frame = phasync::frame();
 
         return [
-            $context::class,
-            phasync::await(phasync::go(static fn () => phasync::getContext() === $context)),
-            phasync::run(static fn () => phasync::getContext() === $context),
+            $frame::class,
+            phasync::await(phasync::go(static fn () => phasync::frame() === $frame)),
+            phasync::run(static fn () => phasync::frame() === $frame),
         ];
     });
 
-    expect($result)->toBe([stdClass::class, true, false]);
+    expect($result)->toBe([phasync\Frame::class, true, false]);
 });
 
 test('RT-3: run() returns the closure\'s value and passes its arguments', function () {
     expect(phasync::run(static fn () => 'value'))->toBe('value');
-    expect(phasync::run(static fn ($a, $b) => $a + $b, [2, 3]))->toBe(5);
+    expect(phasync::run(static fn ($a, $b) => $a + $b, 2, 3))->toBe(5);
 });
 
 test('RT-3: run() can be nested at any depth, also inside child coroutines', function () {
@@ -219,13 +217,12 @@ test('RT-3: run() works again after a previous run() threw', function () {
     expect(phasync::run(static fn () => 'second'))->toBe('second');
 });
 
-test('RT-3: an explicit context is used by run() and can not be reused', function () {
-    $context = new stdClass();
-    $seen    = phasync::run(static fn () => phasync::getContext() === $context, [], $context);
+test('RT-3: run() runs in the caller\'s scope, and leaves it unchanged', function () {
+    $scope = new Scope();
+    $seen  = $scope->run(static fn () => phasync::run(static fn () => Scope::getCurrent() === $scope));
 
     expect($seen)->toBeTrue();
-    expect(static fn () => phasync::run(static fn () => 2, [], $context))
-        ->toThrow(ContextUsedException::class, "Can't use a context multiple times");
+    expect(Scope::getCurrent())->toBe(Scope::getRootScope());
 });
 
 // ---------------------------------------------------------------------------
@@ -234,7 +231,7 @@ test('RT-3: an explicit context is used by run() and can not be reused', functio
 
 test('RT-4: go() outside run() throws LogicException naming phasync::run()', function () {
     expect(static fn () => phasync::go(static fn () => 1))
-        ->toThrow(LogicException::class, "Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context.");
+        ->toThrow(LogicException::class, "Can't create a coroutine outside of a coroutine. Use `phasync::run()` to start the event loop.");
 });
 
 test('RT-4: await() of a Fiber that phasync did not create throws LogicException', function () {

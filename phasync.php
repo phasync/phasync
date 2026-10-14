@@ -1,9 +1,9 @@
 <?php
 
-use phasync\AggregateException;
 use phasync\CancelledException;
 use phasync\DeadlockException;
 use phasync\EventLoop;
+use phasync\Frame;
 use phasync\Internal\Channel;
 use phasync\Internal\Debug;
 use phasync\Internal\ExceptionTool;
@@ -20,11 +20,11 @@ use phasync\TimeoutException;
 use phasync\WriteChannelInterface;
 
 /**
- * The static API of phasync: start coroutines, wait for them, cancel them, and wait for streams, flags and contexts.
+ * The static API of phasync: start coroutines, wait for them, cancel them, and wait for streams and flags.
  *
  * A coroutine is a closure that runs as a PHP Fiber in the event loop of the process. It runs until it waits (`sleep()`, `yield()`, `await()`, `readable()`, `writable()`, `awaitFlag()`, a channel operation), and then the loop runs another. Code that never waits holds up every other coroutine. A wait looks like a plain function call: it returns a value or throws, so a coroutine reads top to bottom. With the optional phasync-ext extension, blocking PHP functions wait in the same way; phasync behaves the same with and without it.
  *
- * `run()` starts the loop and returns when every coroutine it started has ended; `go()` starts a coroutine inside it. Every coroutine belongs to a context (any object), and `run()` does not return before the coroutines of its context have ended. A coroutine that throws, with nobody awaiting it, fails its `run()`.
+ * `run()` starts the loop and returns when every coroutine it started has ended; `go()` starts a coroutine inside it. Every coroutine belongs to the frame of a `run()` (see {@see Frame}), which waits for it, and to the current `Scope` (fiber-interop/scope), the identity of the operation it serves, which it inherits from the code that started it. A coroutine that throws, with nobody awaiting it, makes its `run()` throw once the others have ended.
  *
  * A wait takes a timeout in seconds and throws a TimeoutException when it passes; without one it waits for as long as it takes. `cancel()` throws a CancelledException into a coroutine, so its `finally` blocks run. To build a wait of your own, park the coroutine with `awaitFlag()` and wake it with `raiseFlag()`.
  *
@@ -40,6 +40,7 @@ use phasync\WriteChannelInterface;
  * @see phasync::run
  * @see phasync::go
  * @see phasync::channel
+ * @see phasync\Frame
  * @see phasync\Util\WaitGroup
  *
  * @topic coroutines
@@ -49,42 +50,18 @@ use phasync\WriteChannelInterface;
 final class phasync
 {
     /**
-     * The context-local state: the array of the running coroutine's context, while {@see phasync::enableContextState()} or {@see phasync::adoptContextState()} has turned the swapping on.
-     *
-     * Every context has an array of its own, which this property is bound to by reference as a coroutine of the context runs: writes land in it, are not seen by other contexts, and are seen again after the coroutine has waited. The coroutines of a context share its array. Until the swapping is turned on this is an ordinary static array shared by all coroutines.
-     *
-     * ```php
-     * phasync::enableContextState();
-     * phasync::run(function () {
-     *     phasync::go(function () { phasync::$contextState['user'] = 'ann'; phasync::sleep(0.01); echo phasync::$contextState['user']; }, [], new stdClass());
-     *     phasync::go(function () { phasync::$contextState['user'] = 'bob'; phasync::sleep(0.01); echo phasync::$contextState['user']; }, [], new stdClass());
-     * });   // annbob
-     * ```
-     *
-     * @see phasync::$contextStateDefaults
-     */
-    public static array $contextState = [];
-
-    /**
-     * What a context's array starts as when it is first made live (a copy: arrays are copy-on-write).
-     *
-     * @see phasync::$contextState
-     */
-    public static array $contextStateDefaults = [];
-
-    /**
      * The currently set driver.
      */
     private static ?EventLoop $driver = null;
 
     /**
-     * Runs `$fn` as a coroutine and returns its result once it and every coroutine started inside it have ended.
+     * Runs `$fn` and returns its result once it and every coroutine started inside it have ended.
      *
-     * Outside a coroutine, `run()` starts the event loop and blocks the process until then. This is how a script, a test or a controller under PHP-FPM enters phasync. Inside a coroutine it opens a nested scope in the same loop: the calling coroutine waits and the others go on.
+     * Outside a coroutine, `run()` starts the event loop, runs `$fn` as a coroutine and blocks the process until then. This is how a script, a test or a controller under PHP-FPM enters phasync. Inside a coroutine it runs `$fn` in that coroutine, in a new frame: the calling coroutine waits for what `$fn` started, and the others go on. A nested `run()` costs no coroutine, so a server can give each request one.
      *
-     * The coroutines started inside belong to `$context`. If one of them throws and nobody awaits it, and no handler takes it (see {@see ExceptionHandlerInterface}), the run fails: its other coroutines are cancelled with a CancelledException, their `finally` blocks run, and `run()` throws the failure, or an AggregateException when several coroutines failed. A cancellation a coroutine ends with is no failure. What `$fn` itself throws is thrown from `run()` in the same way. A nested `run()` fails alone, and throws into the coroutine that called it. When coroutines wait and nothing can ever wake them, the outermost `run()` fails in the same way with a DeadlockException.
+     * Every `run()` creates a {@see Frame}: the coroutines started inside it belong to it, also those started by its coroutines, and it waits for them. A failure does not cancel the others. Once they have all ended, `run()` throws what `$fn` threw; else the earliest failure of a coroutine nobody awaited (a later await counts, until `run()` ends); else it returns what `$fn` returned. A coroutine that ends with a cancellation phasync issued is no failure. With an exception handler on the frame ({@see Frame::setExceptionHandler()}), the failures nobody awaited go to it instead. When coroutines wait and nothing can ever wake them, the outermost `run()` cancels its coroutines and throws a DeadlockException.
      *
-     * `$context` may be any object. A context can be used once: a second `run()`, `go()` or `withContext()` with the same object throws ContextUsedException. Without one, the run gets a new `stdClass`.
+     * When the outermost `run()` has no coroutine left, it cancels the services ({@see phasync::service()}) and returns once they have ended. `run()` does not change the current `Scope`: `$fn` runs in the caller's.
      *
      * ```php
      * $result = phasync::run(function () {
@@ -99,19 +76,18 @@ final class phasync
      * echo "third: $result\n";    // run() returned after the coroutine ended
      * ```
      *
-     * @param Closure     $fn      the main coroutine
-     * @param array       $args    passed to `$fn`
-     * @param object|null $context the context of the run; used once
+     * @param callable $fn      what to run
+     * @param mixed    ...$args passed to `$fn`
      *
-     * @throws Throwable            what `$fn` threw, or the failure of a coroutine nobody awaited
-     * @throws AggregateException   when several coroutines failed
-     * @throws DeadlockException    from the outermost `run()`, when coroutines wait and nothing can wake them
-     * @throws ContextUsedException if `$context` was used before
+     * @throws Throwable         what `$fn` threw, or the earliest failure of a coroutine nobody awaited
+     * @throws TimeoutException  when the frame's deadline passed ({@see Frame::setTimeout()})
+     * @throws DeadlockException from the outermost `run()`, when coroutines wait and nothing can wake them
+     * @throws LogicException    inside the event loop but outside a coroutine (an onScopeChange() hook)
      *
      * @return mixed what `$fn` returned
      *
-     * @see phasync::go           starts a coroutine without waiting for it
-     * @see phasync::withContext  the same, without starting a coroutine
+     * @see phasync::go       starts a coroutine without waiting for it
+     * @see phasync::frame
      * @see phasync::await
      * @see phasync::service
      * @see phasync\DeadlockException
@@ -119,60 +95,44 @@ final class phasync
      * @topic coroutines
      *
      * @example examples/phasync.run/1-returns-after-every-coroutine.php run() returns after every coroutine it started
-     * @example examples/phasync.run/2-a-failure-cancels-the-rest.php A failure nobody awaits cancels the rest and is thrown
+     * @example examples/phasync.run/2-a-failure-is-thrown-after-the-rest.php A failure nobody awaits is thrown once the rest have ended
      */
-    public static function run(Closure $fn, ?array $args = [], ?object $context = null): mixed
+    public static function run(callable $fn, mixed ...$args): mixed
     {
+        $fn     = $fn instanceof Closure ? $fn : Closure::fromCallable($fn);
         $driver = self::getDriver();
-        $root   = !$driver->isRunning();
-        // Any object: the coroutines of this run belong to it
-        $context ??= new stdClass();
-        $driver->beginRun($context, $root);
-        try {
-            if ($root) {
-                \gc_disable();
+        if ($driver->isRunning()) {
+            if (null === $driver->getCurrentFiber()) {
+                throw ExceptionTool::popTrace(new LogicException('phasync::run() inside the event loop must be called from a coroutine'));
             }
 
+            return $driver->runNested($fn, $args);
+        }
+
+        $frame = $driver->beginRun();
+        try {
+            \gc_disable();
+            $fiber     = null;
             $exception = null;
-
-            // The main coroutine failing fails the run: its other coroutines are cancelled
-            $main = static function (mixed ...$args) use ($driver, $fn, $context) {
+            $start     = static function () use ($driver, $fn, $args, $frame, &$fiber, &$exception) {
                 try {
-                    return $fn(...$args);
+                    $fiber = $driver->create($fn, $args, $frame, \Scope::getCurrent());
                 } catch (Throwable $e) {
-                    if (!$driver->isCancellation($e)) {
-                        $driver->cancelRun($context, $e); // cancelled, it did not fail (CAN-9)
-                    }
+                    $exception = $e; // an onScopeChange() hook threw: no coroutine was started
 
-                    throw $e;
+                    return;
                 }
-            };
-
-            $start = static function () use ($driver, $main, $args, $context, $root, &$fiber, &$exception) {
-                try {
-                    $fiber = $driver->create($main, $args, $context);
-                } catch (Throwable $e) {
-                    $fiber     = null;
-                    $exception = $e;
-                }
-
-                if ($root) {
-                    while ($driver->count() > 0) {
-                        $driver->tick();
-                    }
-                } else {
-                    $driver->awaitContext($context, \PHP_FLOAT_MAX);
-                }
+                $driver->drive($frame);
             };
 
             // With phasync-ext, a coroutine that runs a whole interval in a PHP loop yields to
             // other requests (EventLoop::preempt())
-            $preempting = $root && \function_exists('phasync\ext\set_preempt_function');
+            $preempting = \function_exists('phasync\ext\set_preempt_function');
             if ($preempting) {
                 $previousPreempt = \phasync\ext\set_preempt_function($driver->preempt(...), $driver->preemptInterval);
             }
 
-            if ($root && \function_exists('phasync\ext\manage')) {
+            if (\function_exists('phasync\ext\manage')) {
                 // With phasync-ext, blocking I/O and sleeps inside coroutines park them in the
                 // event loop instead of blocking the process. When PHP's own call has a timeout
                 // and the park times out, the extension finishes the call the way PHP does.
@@ -190,54 +150,21 @@ final class phasync
                 throw $exception;
             }
 
-            if ([] !== ($failures = $driver->endRun($context, $fiber))) {
-                // A failure no handler took failed the run: its coroutines were dropped by the
-                // loop, and are destroyed as their last references go (their finally blocks run)
-                if ($fiber->isTerminated() && null !== ($e = $driver->getException($fiber)) && !$driver->isRunCancellation($context, $e)) {
-                    \array_unshift($failures, $e);
-                }
-                $fiber = $start = null;
-                try {
-                    \gc_collect_cycles();
-                } catch (Throwable $e) {
-                    $failures[] = $e; // thrown while a coroutine unwound
-                }
-
-                throw 1 === \count($failures) ? $failures[0] : new AggregateException($failures);
-            }
-
-            return self::await($fiber);
-        } catch (CancelledException $e) {
-            if (null === $fiber || $fiber->isTerminated()) {
-                throw $e; // a failure of the run (null: its coroutines were dropped), or the main coroutine's own
-            }
-            phasync::cancel($fiber);
-            // Shielded: the run returns once its main coroutine has unwound, though the calling
-            // coroutine was cancelled
-            $driver->shield($caller = \phasync\ext\current_fiber());
-            try {
-                return phasync::await($fiber);
-            } finally {
-                $driver->unshield($caller);
-            }
+            return $driver->endRun($frame, $fiber);
         } finally {
             if (isset($preempting) && $preempting) {
                 \phasync\ext\set_preempt_function($previousPreempt);
             }
-            $driver->endRun($context, $fiber ?? null);
-            if ($root) {
-                $driver->restoreSignals(); // every signal phasync took gets its own handler back
-                \gc_enable();
-            }
+            $driver->closeRun($frame);
+            $driver->restoreSignals(); // every signal phasync took gets its own handler back
+            \gc_enable();
         }
     }
 
     /**
-     * Starts `$fn` as a coroutine in the current context and returns it, without waiting for it.
+     * Starts `$fn` as a coroutine in the current frame and scope, and returns it, without waiting for it.
      *
-     * The coroutine runs at once, up to its first wait, and then `go()` returns it: the caller's next statement sees what the coroutine did before it waited. The run (or `withContext()` call) the caller is in does not end before the coroutine has. Pass the result to `await()` for the return value or the exception; an exception nobody awaits fails the run, see {@see phasync::run()}.
-     *
-     * With `$context` the coroutine gets a context of its own, nested in the caller's: `getContext()` returns it inside, and `cancel($context)` cancels it. A context can be used once.
+     * The coroutine runs at once, up to its first wait, and then `go()` returns it: the caller's next statement sees what the coroutine did before it waited. It belongs to the frame of the `run()` the caller is in, which does not return before it has ended, and runs in the `Scope` current where `go()` is called (`Scope::getCurrent()` inside it returns that scope, also after it waited). Pass the result to `await()` for the return value or the exception; an exception nobody awaits is thrown by the `run()`, see {@see phasync::run()}.
      *
      * ```php
      * phasync::run(function () {
@@ -251,12 +178,10 @@ final class phasync
      * });
      * ```
      *
-     * @param Closure     $fn      the coroutine
-     * @param array       $args    passed to `$fn`
-     * @param object|null $context a context of its own
+     * @param callable $fn      the coroutine
+     * @param mixed    ...$args passed to `$fn`
      *
-     * @throws LogicException       outside a coroutine
-     * @throws ContextUsedException if `$context` was used before
+     * @throws LogicException outside a coroutine
      *
      * @return Fiber the coroutine, for `await()`, `cancel()` and `throw()`
      *
@@ -268,36 +193,40 @@ final class phasync
      * @topic coroutines
      *
      * @example examples/phasync.go/1-start-and-await.php The coroutine runs up to its first wait before go() returns
-     * @example examples/phasync.go/2-a-context-of-its-own.php Cancel a job and everything it started
+     * @example examples/phasync.go/2-the-scope-it-was-started-in.php The coroutine runs in the scope it was started in
      */
-    public static function go(Closure $fn, array $args = [], ?object $context = null): Fiber
+    public static function go(callable $fn, mixed ...$args): Fiber
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
-        if (!$fiber) {
-            throw ExceptionTool::popTrace(new LogicException("Can't create a coroutine outside of a context. Use `phasync::run()` to launch a context."));
+        if (null === $driver->getCurrentFiber()) {
+            throw ExceptionTool::popTrace(new LogicException("Can't create a coroutine outside of a coroutine. Use `phasync::run()` to start the event loop."));
         }
 
-        return $driver->create($fn, $args, $context);
+        return $driver->create($fn instanceof Closure ? $fn : Closure::fromCallable($fn), $args, $driver->getCurrentFrame(), \Scope::getCurrent());
     }
 
     /**
-     * Starts `$coroutine` as a service: a coroutine that belongs to no context, so that it outlives the scope that started it.
+     * Starts `$fn` as a service: a coroutine of no frame, in the root scope, which outlives the code that started it, and returns it.
      *
-     * A service is for one coroutine that serves many others and is started on first use, such as a connection manager. The scope that started it can end while it runs, but the outermost `run()` does not return before it has ended: a service that never ends keeps `run()` waiting. A service that throws fails the outermost `run()`.
+     * A service is for one coroutine that serves many others and is started on first use, such as a connection manager. It belongs to no `run()`: no `run()` waits for it, and it runs while the outermost `run()` does. When the outermost `run()` has no coroutine left, it cancels its services and returns once they have ended, so write a service to be started again by the next use. It runs in the root scope (`Scope::getRootScope()`) whatever scope starts it, and {@see phasync::frame()} throws inside it. A failure nobody awaits goes to the outermost `run()`.
      *
      * ```php
      * phasync::run(function () {
      *     phasync::service(function () {
-     *         phasync::sleep(0.1);
-     *         echo "service ends\n";
+     *         phasync::sleep(10);   // cancelled when the run has nothing else to do
      *     });
+     *     phasync::sleep(0.1);
      *     echo "main ends\n";
      * });
-     * // run() returns after "service ends"
+     * // run() returns after 0.1 seconds
      * ```
      *
+     * @param callable $fn      the service
+     * @param mixed    ...$args passed to `$fn`
+     *
      * @throws LogicException outside a coroutine
+     *
+     * @return Fiber the service's coroutine
      *
      * @see phasync::go
      * @see phasync::run
@@ -306,14 +235,14 @@ final class phasync
      *
      * @example examples/phasync.service/1-a-connection-started-on-first-use.php A connection that outlives the request that started it
      */
-    public static function service(Closure $coroutine): void
+    public static function service(callable $fn, mixed ...$args): Fiber
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
-        if (null === $fiber || null === $driver->getContext($fiber)) {
-            throw new LogicException('Services must be started on-demand inside a coroutine.');
+        if (null === $driver->getCurrentFiber()) {
+            throw ExceptionTool::popTrace(new LogicException('Services must be started on-demand inside a coroutine.'));
         }
-        $driver->runService($coroutine);
+
+        return $driver->runService($fn instanceof Closure ? $fn : Closure::fromCallable($fn), $args);
     }
 
     /**
@@ -348,7 +277,7 @@ final class phasync
      *
      * @see phasync::go
      * @see phasync::cancel
-     * @see phasync::awaitContext
+     * @see phasync::run
      *
      * @topic coroutines
      *
@@ -377,7 +306,7 @@ final class phasync
                 }
             }
             $fiber = $fiberOrPromise;
-            if (!$driver->getContext($fiber)) {
+            if (null === $driver->getFrame($fiber)) {
                 throw new LogicException("Can't await a coroutine not from phasync");
             }
         } else {
@@ -446,11 +375,11 @@ final class phasync
     }
 
     /**
-     * Registers `$fn` to run when the current coroutine ends, or when the `withContext()` call it is in returns.
+     * Registers `$fn` to run when the current coroutine ends, or when the nested `run()` it is in returns.
      *
      * The callbacks run last registered first, and each runs even when another threw. They are for releasing what a coroutine acquired, where a `try {} finally {}` does not fit. Their waits are not cancelled, so cleanup that does I/O completes even when the coroutine was cancelled.
      *
-     * Which callbacks run when depends on where `finally()` is called. Inside a `withContext()` call, they run as it returns, in the calling coroutine and still in the context, also when the closure threw, and before `withContext()` waits for the coroutines the closure started. Otherwise they run when the coroutine ends, in a coroutine of their own.
+     * Which callbacks run when depends on where `finally()` is called. Inside a `run()` nested in a coroutine, they run as `$fn` returns, in the calling coroutine and still in the run's frame, also when `$fn` threw, and before `run()` waits for the coroutines `$fn` started. Otherwise they run when the coroutine ends, in a coroutine of their own.
      *
      * ```php
      * phasync::run(function () {
@@ -464,7 +393,7 @@ final class phasync
      *
      * @throws LogicException outside a coroutine
      *
-     * @see phasync::withContext
+     * @see phasync::run
      * @see phasync::cancel
      *
      * @topic cancellation-and-cleanup
@@ -477,11 +406,11 @@ final class phasync
     }
 
     /**
-     * Cancels a coroutine, or every coroutine of a context, with a CancelledException.
+     * Cancels a coroutine with a CancelledException.
      *
      * The cancellation is sticky: every wait of the coroutine throws the CancelledException from then on, so a coroutine that catches it and waits again is cancelled again. A coroutine that is not waiting meets it at its next wait; one that cancels itself gets it at once. A coroutine that ends with the exception it was cancelled with is no failure of the run, but awaiting it throws it. `finally()` callbacks are not cancelled.
      *
-     * It is a teardown, not a signal: to interrupt a wait once with an exception of your own, use {@see phasync::throw()}. Given a context, it cancels every coroutine of it and of the contexts nested in it, the deepest first, and cancels the coroutines that join it until it has none left; the calling coroutine, if it is in the context, gets the exception thrown. A coroutine that is running, and not waiting, meets it at its next wait.
+     * It is a teardown, not a signal: to interrupt a wait once with an exception of your own, use {@see phasync::throw()}. It cancels that coroutine only, not the coroutines it started; to cancel a whole tree, cancel its frame ({@see Frame::cancel()}).
      *
      * ```php
      * phasync::run(function () {
@@ -505,24 +434,24 @@ final class phasync
      * });
      * ```
      *
-     * @param object                               $fiber    a coroutine, or a context
+     * @param Fiber                                $fiber    a coroutine
      * @param string|Stringable|CancelledException $message  the message of the CancelledException, or the CancelledException itself (such as a ShutdownException); another Throwable is refused, see {@see phasync::throw()}
      * @param int                                  $code     the code of the CancelledException
-     * @param Throwable|null                       $previous what caused the cancellation, such as the failure that tears a context down
+     * @param Throwable|null                       $previous what caused the cancellation
      *
      * @throws InvalidArgumentException if the coroutine has ended, or the message is a Throwable
      * @throws LogicException           if the coroutine was not started by phasync
      *
      * @see phasync::throw      interrupts one wait
+     * @see phasync\Frame::cancel  cancels a frame
      * @see phasync::go
-     * @see phasync::awaitContext
      *
      * @topic cancellation-and-cleanup
      *
      * @example examples/phasync.cancel/1-cancel-a-worker.php Cancel a worker; its finally block runs
      * @example examples/phasync.cancel/2-the-cancellation-is-sticky.php Every later wait is cancelled too
      */
-    public static function cancel(object $fiber, string|Stringable|CancelledException $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void
+    public static function cancel(Fiber $fiber, string|Stringable|CancelledException $message = 'Operation cancelled', int $code = 0, ?Throwable $previous = null): void
     {
         if ($message instanceof CancelledException) {
             $cancellation = $message; // a cancellation of the caller's own, such as a ShutdownException
@@ -530,11 +459,6 @@ final class phasync
             throw new InvalidArgumentException('cancel() takes a message or a CancelledException, not another exception: use phasync::throw() to throw an exception into a coroutine, or pass it as $previous');
         } else {
             $cancellation = new CancelledException((string) $message, $code, $previous);
-        }
-        if (!$fiber instanceof Fiber) {
-            self::getDriver()->cancelContext($fiber, $cancellation);
-
-            return;
         }
         if ($fiber->isTerminated()) {
             throw new InvalidArgumentException('Fiber is already terminated');
@@ -847,7 +771,7 @@ final class phasync
      *
      * Each subscription receives the messages written after it was made, in order, and a slow subscription does not hold back the others. A subscription made later does not see earlier messages. Writing with no subscriber succeeds. Closing the publisher ends the subscriptions once they have read what was written.
      *
-     * A publisher runs a {@see phasync::service()} coroutine to forward messages, so the outermost `run()` does not return before the publisher is closed or its write end is dropped.
+     * A publisher forwards messages in a {@see phasync::service()} coroutine, which ends when the publisher is closed or its write end is dropped, and is cancelled when the outermost `run()` has nothing else left to do.
      *
      * ```php
      * phasync::run(function () {
@@ -962,7 +886,7 @@ final class phasync
     }
 
     /**
-     * Stop the program's coroutines: every coroutine but the caller, whatever context it runs in,
+     * Stop the program's coroutines: every coroutine but the caller, whatever frame it is in,
      * gets `$exception` (a ShutdownException, which is a CancelledException) at its wait,
      * as `phasync::cancel()` does, and has up to `$window` seconds to clean up: `finally` blocks,
      * and `phasync::finally()` callbacks, which may wait. Returns how many are still running
@@ -1005,7 +929,7 @@ final class phasync
     }
 
     /**
-     * Run `$fn` out of every cancellation's reach: `phasync::cancel()`, a failed scope, and
+     * Run `$fn` out of every cancellation's reach: `phasync::cancel()`, `Frame::cancel()`, and
      * `phasync::shutdown()` don't cut its waits short. A cancellation that comes meanwhile applies
      * at the coroutine's first wait after `$fn` returns. For infrastructure that must finish what
      * it started, such as a server ending a protocol cleanly while the application's coroutines
@@ -1118,39 +1042,6 @@ final class phasync
     }
 
     /**
-     * Waits until every coroutine of `$context`, and of the contexts nested in it, has ended.
-     *
-     * A server that lets requests start coroutines of their own waits for them this way before it exits. Coroutines started in the meantime are waited for too. Nothing is thrown for their failures: those go where they always go, see {@see phasync::run()}. The calling coroutine does not wait for itself.
-     *
-     * ```php
-     * phasync::run(function () {
-     *     $context = new stdClass();
-     *     phasync::go(function () { phasync::sleep(0.1); echo "ended\n"; }, [], $context);
-     *
-     *     phasync::awaitContext($context);
-     *     echo "all ended\n";
-     * });
-     * ```
-     *
-     * @param object $context a context given to `run()`, `go()` or `withContext()`
-     * @param float  $timeout seconds to wait at most
-     *
-     * @throws LogicException   outside a coroutine
-     * @throws TimeoutException if coroutines of the context still run after `$timeout` seconds
-     *
-     * @see phasync::cancel  given a context, cancels its coroutines
-     * @see phasync::withContext
-     *
-     * @topic contexts
-     *
-     * @example examples/phasync.awaitContext/1-wait-for-background-jobs.php Wait for the coroutines of a context
-     */
-    public static function awaitContext(object $context, float $timeout = \PHP_FLOAT_MAX): void
-    {
-        self::getDriver()->awaitContext($context, $timeout);
-    }
-
-    /**
      * Returns true while a {@see phasync::run()} is in progress, and false otherwise.
      *
      * ```php
@@ -1168,88 +1059,70 @@ final class phasync
     }
 
     /**
-     * Runs `$fn` in the current coroutine as the main coroutine of a `run()` of `$context`, without starting a coroutine.
+     * Registers `$fn` to be called when the current `Scope` changes as the event loop switches coroutines.
      *
-     * It returns what `$fn` returns, once the coroutines `$fn` started in the context have ended too. When `$fn` throws, those are cancelled first and the exception is rethrown. A coroutine of the context that fails with nobody awaiting it fails the call as it fails a `run()`: the rest are cancelled, and the failure is thrown from `withContext()`. Starting a coroutine costs far more than this: a server gives each request a context of its own this way.
+     * It is called as `$fn(Scope $new, ?Scope $old)` before a coroutine runs, when the scope that is current in it differs from the one current where the loop last switched: when a coroutine starts or resumes in another scope than the coroutine that ran before. Switches between coroutines of one scope call nothing. It is the place to swap state that PHP keeps globally in and out per operation (a locale, a static of a library that is not scope-aware). `$scope->run()` entered or left inside a coroutine calls nothing: code that does so makes the change itself.
      *
-     * Given a {@see Context\ContextFactoryInterface} instead of a context, `$fn` runs in the coroutine's own context until it needs a context of its own: `getContext()`, `getRootContext()`, `go()`, `finally()`, `run()` and `withContext()` called inside create it, once, with the factory. A request handler that does none of these costs no context at all.
+     * The hooks run in the event loop, outside any coroutine, in the order registered: they must not wait (a wait there throws LogicException), and an exception from one ends `phasync::run()`. They stay registered for the life of the event loop.
+     *
+     * Without the phasync extension, a generator runs in the scope of the code that iterates it (fiber-interop/scope's polyfill); with it, in the scope it was created in, and the hooks fire when a generator of another scope resumes.
+     *
+     * ```php
+     * $locales = new WeakMap();   // per Scope
+     * phasync::onScopeChange(function (Scope $new) use ($locales) {
+     *     Locale::setDefault($locales[$new] ?? 'en');
+     * });
+     * ```
+     *
+     * @param callable(Scope, ?Scope):void $fn
+     *
+     * @see phasync::go
+     *
+     * @topic coroutines
+     *
+     * @example examples/phasync.onScopeChange/1-a-locale-per-request.php A locale per request
+     */
+    public static function onScopeChange(callable $fn): void
+    {
+        self::getDriver()->onScopeChange($fn instanceof Closure ? $fn : Closure::fromCallable($fn));
+    }
+
+    /**
+     * Returns the frame of the running coroutine: that of the innermost `run()` it is in.
+     *
+     * A coroutine belongs to the frame of the `run()` that started it, and a nested `run()` gives the coroutine that calls it a new frame until it returns.
      *
      * ```php
      * phasync::run(function () {
-     *     $request = new stdClass();
-     *     $result  = phasync::withContext(function () use ($request) {
-     *         phasync::go(function () { phasync::sleep(0.1); echo "child ended\n"; });
-     *         var_dump(phasync::getContext() === $request);   // true
-     *         return 'response';
-     *     }, $request);
-     *     echo "$result\n";   // after "child ended"
+     *     phasync::frame()->setTimeout(1.0);   // this run(), and every coroutine started inside it
      * });
      * ```
      *
-     * @param Closure $fn      what to run
-     * @param object  $context a context, or a ContextFactoryInterface; used once
+     * @throws LogicException outside a coroutine, and in a service, which has no frame
      *
-     * @throws LogicException       outside a coroutine
-     * @throws ContextUsedException if `$context` was used before
-     *
-     * @return mixed what `$fn` returned
-     *
+     * @see phasync\Frame
      * @see phasync::run
-     * @see phasync::finally
-     * @see phasync::awaitContext
      *
-     * @topic contexts
-     *
-     * @example examples/phasync.withContext/1-a-context-per-request.php A context per request
+     * @topic coroutines
      */
-    public static function withContext(Closure $fn, object $context): mixed
+    public static function frame(): Frame
     {
-        return self::getDriver()->withContext($fn, $context);
+        $driver = self::getDriver();
+        $frame  = $driver->getCurrentFrame();
+        if (null === $frame) {
+            throw ExceptionTool::popTrace(new LogicException('phasync::frame() can only be used inside a coroutine'));
+        }
+        if ($driver->isServiceFrame($frame)) {
+            throw ExceptionTool::popTrace(new LogicException('A service has no frame: it belongs to no run()'));
+        }
+
+        return $frame;
     }
 
     /**
-     * Turns the swapping of the context-local state on; calling it again does nothing.
+     * Returns the event loop, for code that waits with its low-level API (`getSlot()`, `park()` and `unpark()` of the returned object), or drives it in place (`tick()`).
      *
-     * From then on, whenever the loop runs a coroutine of another context than the one that ran last, `phasync::$contextState` is bound to that context's array. Before it, a switch checks one flag. Inside a coroutine, its context gets its array at once.
-     *
-     * @see phasync::adoptContextState
-     *
-     * @topic contexts
-     *
-     * @example examples/phasync.enableContextState/1-state-per-request.php State that belongs to each request
-     */
-    public static function enableContextState(): void
-    {
-        self::getDriver()->enableContextState();
-    }
-
-    /**
-     * Makes `$state`, by reference, the context-local state of the running coroutine's context, effective at once and for every later resume of it.
-     *
-     * The caller keeps `$state` and may adopt it into another context later. A `withContext()` given a factory creates its context here. It also turns the swapping on. Outside a coroutine it only binds `phasync::$contextState` to `$state`.
-     *
-     * ```php
-     * $shared = ['count' => 0];
-     * phasync::run(function () use (&$shared) {
-     *     phasync::adoptContextState($shared);
-     *     phasync::$contextState['count']++;
-     *     echo $shared['count'];   // 1
-     * });
-     * ```
-     *
-     * @topic contexts
-     *
-     * @example examples/phasync.adoptContextState/1-state-that-outlives-the-context.php State kept between requests
-     */
-    public static function adoptContextState(array &$state): void
-    {
-        self::getDriver()->adoptContextState($state);
-    }
-
-    /**
-     * Returns the event loop, for code that waits with its low-level API (`getSlot()`, `park()` and `unpark()` of the returned object).
-     *
-     * Application code does not need it: the other methods of this class are the API of the loop.
+     * Application code does not need it: the other methods of this class are the API of the loop. `tick()` runs the coroutines that are ready once, from a Fiber phasync did not start (an adapter's in-place wait), and puts the running coroutine and its frame back when it returns.
      *
      * @throws LogicException outside `phasync::run()`
      *
@@ -1293,59 +1166,6 @@ final class phasync
     }
 
     /**
-     * Returns the root context of the running coroutine.
-     *
-     * The context of a `run()` is its own root, and so is a context entered from it (`withContext()`, or `go()` with a context of its own); contexts entered from any other share that one's root. For a root context, `getRootContext() === getContext()`.
-     *
-     * ```php
-     * phasync::run(function () {
-     *     var_dump(phasync::getRootContext() === phasync::getContext());   // true
-     * });
-     * ```
-     *
-     * @throws LogicException outside a coroutine
-     *
-     * @see phasync::getContext
-     *
-     * @topic contexts
-     *
-     * @example examples/phasync.getRootContext/1-nested-contexts.php Which context is the root
-     */
-    public static function getRootContext(): object
-    {
-        return self::getDriver()->getRootContext(self::getContext());
-    }
-
-    /**
-     * Returns the context of the running coroutine: the object given to `run()`, `go()` or `withContext()`, or the one it inherited.
-     *
-     * A run without a context object gets a `stdClass`.
-     *
-     * ```php
-     * phasync::run(function () {
-     *     $context = phasync::getContext();
-     *     phasync::go(fn () => var_dump(phasync::getContext() === $context));   // true: inherited
-     * }, [], new stdClass());
-     * ```
-     *
-     * @throws LogicException outside a coroutine
-     *
-     * @see phasync::getRootContext
-     * @see phasync::withContext
-     *
-     * @topic contexts
-     */
-    public static function getContext(): object
-    {
-        $context = self::getDriver()->getContext(self::getFiber());
-        if (!$context) {
-            throw new LogicException('This function can only be used inside a `phasync` coroutine');
-        }
-
-        return $context;
-    }
-
-    /**
      * Function is used internally to suspend coroutines and ensure
      * exceptions have a proper stack trace.
      *
@@ -1364,6 +1184,7 @@ final class phasync
         }
         try {
             if (Fiber::getCurrent() === self::$driver->currentFiber) {
+                self::$driver->suspending(self::$driver->currentFiber);
                 Fiber::suspend();
             } else {
                 self::$driver->wait(); // in a Fiber the coroutine runs itself

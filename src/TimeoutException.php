@@ -29,7 +29,7 @@ use phasync\Internal\RethrowExceptionTrait;
  *
  * @example examples/TimeoutException/1-give-up-waiting.php A timeout ends only that wait
  */
-class TimeoutException extends \RuntimeException implements RethrowExceptionInterface
+class TimeoutException extends \RuntimeException implements RethrowExceptionInterface, \async\TimeoutException
 {
     use RethrowExceptionTrait;
 }

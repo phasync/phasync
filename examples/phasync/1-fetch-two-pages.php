@@ -9,8 +9,8 @@ $fetch = function (string $url, float $seconds): string {
 };
 
 $pages = phasync::run(function () use ($fetch) {
-    $about = phasync::go($fetch, ['https://example.com/about', 0.06]);
-    $blog  = phasync::go($fetch, ['https://example.com/blog', 0.03]);
+    $about = phasync::go($fetch, 'https://example.com/about', 0.06);
+    $blog  = phasync::go($fetch, 'https://example.com/blog', 0.03);
 
     return [phasync::await($about), phasync::await($blog)];
 });
