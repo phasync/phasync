@@ -442,3 +442,80 @@ test('phasync\'s TimeoutException and CancelledException implement the fiber-int
 test('go() and run() take their arguments variadically', function () {
     expect(phasync::run(fn ($a, $b) => phasync::await(phasync::go(fn ($c, $d) => $a . $b . $c . $d, 'c', 'd')), 'a', 'b'))->toBe('abcd');
 });
+
+// #108: waits in a Fiber phasync did not start (run in place)
+
+test('a wait in a Fiber phasync did not start keeps its scope, and onScopeChange() switches back to it after every wait (#108)', function () {
+    $names = new WeakMap();
+    $live  = 'none';
+    phasync::onScopeChange(function (Scope $new) use ($names, &$live) {
+        $live = $names[$new] ?? 'root';
+    });
+    $log = [];
+    phasync::run(function () use ($names, &$live, &$log) {
+        $a         = new Scope();
+        $names[$a] = 'A';
+        $b         = new Scope();
+        $names[$b] = 'B';
+        $b->run(function () use (&$live, &$log) {
+            phasync::go(function () use (&$live, &$log) {
+                phasync::sleep(0.05);
+                $log[] = "B live=$live";
+                phasync::sleep(0.1);
+                $log[] = "B live=$live";
+            });
+        });
+        $a->run(function () use ($names, &$live, &$log) {
+            phasync::go(function () use ($names, &$live, &$log) {
+                $f = new Fiber(function () use ($names, &$live, &$log) {
+                    $log[] = "A live=$live";
+                    phasync::sleep(0.1);
+                    $log[] = "A live=$live scope=" . ($names[Scope::getCurrent()] ?? 'root');
+                    phasync::sleep(0.1);
+                    $log[] = "A live=$live scope=" . ($names[Scope::getCurrent()] ?? 'root');
+                });
+                $f->start();
+            });
+        });
+    });
+    expect($log)->toBe(['A live=A', 'B live=B', 'A live=A scope=A', 'B live=B', 'A live=A scope=A']);
+});
+
+test('nested in-place waits from Fibers of two scopes, with a third scope running between, each keep their scope and their hook state (#108)', function () {
+    $names = new WeakMap();
+    $live  = 'none';
+    phasync::onScopeChange(function (Scope $new) use ($names, &$live) {
+        $live = $names[$new] ?? 'root';
+    });
+    $log = [];
+    phasync::run(function () use ($names, &$live, &$log) {
+        $c         = new Scope();
+        $names[$c] = 'C';
+        $c->run(function () {   // a plain coroutine of a third scope runs in between
+            phasync::go(function () {
+                for ($i = 0; $i < 8; ++$i) {
+                    phasync::sleep(0.012);
+                }
+            });
+        });
+        foreach (['A' => 0.03, 'B' => 0.02] as $name => $delay) {
+            $scope         = new Scope();
+            $names[$scope] = $name;
+            $scope->run(function () use ($name, $delay, $names, &$live, &$log) {
+                phasync::go(function () use ($name, $delay, $names, &$live, &$log) {
+                    (new Fiber(function () use ($name, $delay, $names, &$live, &$log) {
+                        for ($i = 0; $i < 3; ++$i) {
+                            phasync::sleep($delay);
+                            $log[] = "$name: live=$live scope=" . ($names[Scope::getCurrent()] ?? 'root');
+                        }
+                    }))->start();
+                });
+            });
+        }
+    });
+    expect(\count($log))->toBe(6);
+    foreach ($log as $line) {
+        [$name, $rest] = \explode(': ', $line);
+        expect($rest)->toBe("live=$name scope=$name");
+    }
+});
