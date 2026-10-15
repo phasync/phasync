@@ -1221,12 +1221,11 @@ final class phasync
                 self::$driver->wait(); // in a Fiber the coroutine runs itself
             }
         } catch (Throwable $e) {
-            try {
-                $className = \get_class($e);
-                throw new $className($e->getMessage(), $e->getCode(), $e);
-            } catch (Throwable) {
-                throw $e;
+            if ($e instanceof phasync\RethrowExceptionInterface) {
+                $e->rebuildStackTrace();
             }
+
+            throw $e;
         }
     }
 
