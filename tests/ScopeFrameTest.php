@@ -72,6 +72,26 @@ test('a coroutine that suspends inside $scope->run() finds that scope again, and
     expect($log)->toBe(['neighbour: root', 'inside: request', 'after: root']);
 });
 
+test('a coroutine that leaves $scope->run() and then waits resumes in the outer scope', function () {
+    $scope = new Scope();
+    $log   = [];
+    phasync::run(function () use ($scope, &$log) {
+        phasync::go(function () use ($scope, &$log) {
+            $scope->run(function () {
+                phasync::sleep(0.01);
+            });
+            $log[] = 'before wait: ' . (Scope::getCurrent() === Scope::getRootScope() ? 'root' : 'other');
+            phasync::sleep(0.01);
+            $log[] = 'after wait: ' . (Scope::getCurrent() === Scope::getRootScope() ? 'root' : 'other');
+        });
+        phasync::go(function () use (&$log) {
+            phasync::sleep(0.005);
+            $log[] = 'neighbour: ' . (Scope::getCurrent() === Scope::getRootScope() ? 'root' : 'other');
+        });
+    });
+    expect($log)->toBe(['neighbour: root', 'before wait: root', 'after wait: root']);
+});
+
 test('queued callbacks run in the scope they were queued from', function () {
     $scope = new Scope();
     $seen  = null;

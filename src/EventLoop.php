@@ -44,6 +44,18 @@ final class EventLoop implements \Countable
     private \WeakMap $fiberScopes;
 
     /**
+     * fiber-interop/scope polyfill only: fiber_interop\scope\generation() as of each coroutine's
+     * last resume, read once its scope (fiberScopes[$fiber]) was settled by switchScope() for it.
+     * suspending() skips Scope::getCurrent() and the write to fiberScopes when the generation has
+     * not moved since: nothing changed the active scope, so fiberScopes[$fiber] is already right
+     * (phasync#112). Unset means unknown (a freshly created fiber's first suspend): suspending()
+     * falls back to Scope::getCurrent(), as it always did.
+     *
+     * @var \WeakMap<\Fiber, int>
+     */
+    private \WeakMap $fiberGenerations;
+
+    /**
      * The scope the loop last made current (and reported to the onScopeChange() hooks): they
      * fire when the scope of the coroutine the loop runs next differs. A scope entered or left
      * with Scope::run() inside a coroutine is not seen until then.
@@ -414,6 +426,7 @@ final class EventLoop implements \Countable
     {
         $this->frames            = new \WeakMap();
         $this->fiberScopes       = new \WeakMap();
+        $this->fiberGenerations  = new \WeakMap();
         $this->frozen            = new \WeakMap();
         $this->held              = new \WeakMap();
         $this->preempted         = 0;
@@ -663,6 +676,9 @@ final class EventLoop implements \Countable
                 if ($fiberScopes[$fiber] !== $this->liveScope) {
                     $this->switchScope($fiberScopes[$fiber], $fiber);
                 }
+                if ($this->scopePolyfill) {
+                    $this->fiberGenerations[$fiber] = \fiber_interop\scope\generation();
+                }
 
                 if (isset($fiberExceptionHolders[$fiber])) {
                     // We got an opportunity to throw the exception inside the coroutine
@@ -784,6 +800,9 @@ final class EventLoop implements \Countable
             if ($this->fiberScopes[$fiber] !== $this->liveScope) {
                 $this->switchScope($this->fiberScopes[$fiber], $fiber);
             }
+            if ($this->scopePolyfill) {
+                $this->fiberGenerations[$fiber] = \fiber_interop\scope\generation();
+            }
             if (isset($this->fiberExceptionHolders[$fiber])) {
                 $eh = $this->fiberExceptionHolders[$fiber];
                 unset($this->fiberExceptionHolders[$fiber]);
@@ -840,10 +859,19 @@ final class EventLoop implements \Countable
     /**
      * The running coroutine suspends: the scope current in it is what it resumes in.
      *
+     * Under the polyfill, when the resume-side already recorded fiberGenerations[$fiber] and
+     * fiber_interop\scope\generation() has not moved since, nothing could have changed the active
+     * scope: fiberScopes[$fiber] is already right, so Scope::getCurrent() and the write are
+     * skipped (phasync#112). A moved generation is not always a real change (run() bumps on both
+     * entry and exit of a no-op $scope->run($scope)), but a never-moved one never misses a real one.
+     *
      * @internal phasync::suspend()
      */
     public function suspending(\Fiber $fiber): void
     {
+        if ($this->scopePolyfill && ($this->fiberGenerations[$fiber] ?? null) === \fiber_interop\scope\generation()) {
+            return;
+        }
         $this->fiberScopes[$fiber] = \Scope::getCurrent();
     }
 
