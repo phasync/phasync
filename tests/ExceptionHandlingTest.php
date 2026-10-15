@@ -1,5 +1,7 @@
 <?php
 
+use phasync\TimeoutException;
+
 test('exception thrown directly in run', function () {
     expect(function () {
         phasync::run(function () {
@@ -111,4 +113,26 @@ test('exception thrown inside 1 deep coroutine that is awaited 2 times', functio
             phasync::await($future);
         })->toThrow(new Exception('Exception in awaited coroutine'));
     });
+});
+
+test('a rethrown exception keeps its identity and points to the interrupted wait', function () {
+    $sent     = new TimeoutException('sent');
+    $seen     = null;
+    $waitLine = null;
+    phasync::run(static function () use ($sent, &$seen, &$waitLine) {
+        $child = phasync::go(static function () use (&$seen, &$waitLine) {
+            try {
+                $waitLine = __LINE__ + 1;
+                phasync::sleep(5);
+            } catch (Throwable $e) {
+                $seen = $e;
+            }
+        });
+        phasync::throw($child, $sent);
+        phasync::await($child);
+    });
+
+    expect($seen)->toBe($sent)
+        ->and($seen->getFile())->toBe(__FILE__)
+        ->and($seen->getLine())->toBe($waitLine);
 });
