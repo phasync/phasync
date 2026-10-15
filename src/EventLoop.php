@@ -278,6 +278,22 @@ final class EventLoop implements \Countable
      */
     private array $timeoutSlots = [];
 
+    /**
+     * The spl_object_id() of each coroutine in $timeoutSlots whose whenFlagged() wait was
+     * registered with throwOnTimeout: false; see expire() and consumeTimedOutWithoutThrow().
+     *
+     * @var array<int, true>
+     */
+    private array $timeoutNoThrow = [];
+
+    /**
+     * Fibers expire() resumed without a TimeoutException (throwOnTimeout: false); read and
+     * cleared once by consumeTimedOutWithoutThrow() right after the fiber resumes.
+     *
+     * @var \WeakMap<\Fiber, true>
+     */
+    private \WeakMap $timedOutWithoutThrow;
+
     /** The last slot whose timeouts were delivered. */
     private int $lastTimeoutSlot = 0;
 
@@ -454,6 +470,8 @@ final class EventLoop implements \Countable
         $this->scheduler                           = new Scheduler();
         $this->timeoutBuckets                      = [];
         $this->timeoutSlots                        = [];
+        $this->timeoutNoThrow                      = [];
+        $this->timedOutWithoutThrow                = new \WeakMap();
         $this->lastTimeoutSlot                     = (int) (\microtime(true) * 100);
         $this->flaggedFibers                       = new \WeakMap();
         $this->flagGraph                           = new \WeakMap();
@@ -1193,11 +1211,21 @@ final class EventLoop implements \Countable
      * Schedule the Fiber instance to run when the object is flagged
      * {@see self::raiseFlag()}
      *
-     * @param float $timeout The number of seconds to allow the fiber to be suspended. Will raise a TimeoutException.
+     * @param float $timeout        the number of seconds to allow the fiber to be suspended
+     * @param bool  $throwOnTimeout when false, a timeout resumes $fiber without a TimeoutException
+     *                              (see {@see self::consumeTimedOutWithoutThrow()}) instead of
+     *                              throwing one into it; a deadline already past then makes this
+     *                              method return false instead of throwing
+     *
+     * @return bool false only when $throwOnTimeout is false and $timeout was already past: the
+     *              fiber was not registered to wait at all
      */
-    public function whenFlagged(object $flag, float $timeout, \Fiber $fiber): void
+    public function whenFlagged(object $flag, float $timeout, \Fiber $fiber, bool $throwOnTimeout = true): bool
     {
         if ($timeout <= 0) {
+            if (!$throwOnTimeout) {
+                return false; // a deadline already past: the caller resolves this without waiting
+            }
             throw new TimeoutException('The timeout had run out before waiting'); // a deadline already past
         }
         if (isset($this->pending[$fiber])) {
@@ -1223,13 +1251,32 @@ final class EventLoop implements \Countable
         $this->flaggedFibers[$flag]->add($fiber);
         if ($timeout < 1e9) {
             $this->pending[$fiber] = $deadline = \microtime(true) + $timeout;
-            $this->addTimeout($fiber, $deadline);
+            $this->addTimeout($fiber, $deadline, $throwOnTimeout);
         } else {
             // No real deadline: the stored value is never read for an unbounded wait (only
             // its presence as a pending key is), so skip computing one (a syscall otherwise
             // paid on every unbounded wait, which is most of them).
             $this->pending[$fiber] = \PHP_FLOAT_MAX;
         }
+
+        return true;
+    }
+
+    /**
+     * Whether $fiber's most recent whenFlagged() wait ended by a $throwOnTimeout: false timeout
+     * (see {@see self::whenFlagged()}); consumed once, so a later wait starts clean.
+     *
+     * @internal
+     */
+    public function consumeTimedOutWithoutThrow(\Fiber $fiber): bool
+    {
+        if (isset($this->timedOutWithoutThrow[$fiber])) {
+            unset($this->timedOutWithoutThrow[$fiber]);
+
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -2134,21 +2181,33 @@ final class EventLoop implements \Countable
         unset($this->timeoutBuckets[$slot]);
         foreach ($fibers as $id => $fiber) {
             unset($this->timeoutSlots[$id]);
+            $throwOnTimeout = !isset($this->timeoutNoThrow[$id]);
+            unset($this->timeoutNoThrow[$id]);
             // FiberState::for($fiber)->log("timeout");
             // One wait timed out: thrown once, not sticky as a cancellation
             if ($this->discard($fiber)) {
-                $this->enqueueWithException($fiber, new TimeoutException('Operation timed out for ' . Debug::getDebugInfo($fiber)));
+                if ($throwOnTimeout) {
+                    $this->enqueueWithException($fiber, new TimeoutException('Operation timed out for ' . Debug::getDebugInfo($fiber)));
+                } else {
+                    // whenFlagged(..., throwOnTimeout: false): resume without constructing an
+                    // exception; awaitFlag() reads this marker once control returns to it.
+                    $this->timedOutWithoutThrow[$fiber] = true;
+                    $this->enqueueKnownLive($fiber);
+                }
             }
         }
     }
 
-    private function addTimeout(\Fiber $fiber, float $deadline): void
+    private function addTimeout(\Fiber $fiber, float $deadline, bool $throwOnTimeout = true): void
     {
         // A positive timeout always lands after the last slot handled (it is at most now)
         $slot                             = (int) \ceil($deadline * 100);
         $id                               = \spl_object_id($fiber);
         $this->timeoutBuckets[$slot][$id] = $fiber;
         $this->timeoutSlots[$id]          = $slot;
+        if (!$throwOnTimeout) {
+            $this->timeoutNoThrow[$id] = true;
+        }
     }
 
     /** $fiber no longer waits (it was woken or cancelled): its timeout goes. */
@@ -2157,7 +2216,7 @@ final class EventLoop implements \Countable
         $id = \spl_object_id($fiber);
         if (isset($this->timeoutSlots[$id])) {
             $slot = $this->timeoutSlots[$id];
-            unset($this->timeoutSlots[$id], $this->timeoutBuckets[$slot][$id]);
+            unset($this->timeoutSlots[$id], $this->timeoutBuckets[$slot][$id], $this->timeoutNoThrow[$id]);
             if ([] === $this->timeoutBuckets[$slot]) {
                 unset($this->timeoutBuckets[$slot]);
             }

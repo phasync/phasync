@@ -1024,9 +1024,16 @@ final class phasync
      *
      * @param object $signal  the object a raiser will pass to `raiseFlag()`
      * @param float  $timeout seconds to wait at most
+     * @param bool   $throw   when false, a timeout returns false instead of throwing
+     *                        TimeoutException, and never constructs one: for a wait that is
+     *                        expected to time out often, where building the exception would be
+     *                        the expensive part
      *
-     * @throws TimeoutException   if the flag is not raised in time
-     * @throws CancelledException if the flag was released while waiting
+     * @return bool true once the flag is raised; false only when `throw: false` and $timeout
+     *              passed first
+     *
+     * @throws TimeoutException   if the flag is not raised in time and `throw` is true (the default)
+     * @throws CancelledException if the flag was released, or the coroutine cancelled, while waiting
      * @throws LogicException     outside a coroutine
      *
      * @see phasync::raiseFlag
@@ -1035,8 +1042,9 @@ final class phasync
      *
      * @example examples/phasync.awaitFlag/1-a-gate-of-your-own.php A gate built on a flag
      * @example examples/phasync.awaitFlag/2-timeout.php A flag that is not raised in time
+     * @example examples/phasync.awaitFlag/3-no-throw.php A poll that usually times out, without the cost of an exception
      */
-    public static function awaitFlag(object $signal, float $timeout = \PHP_FLOAT_MAX): void
+    public static function awaitFlag(object $signal, float $timeout = \PHP_FLOAT_MAX, bool $throw = true): bool
     {
         $driver = self::getDriver();
         $fiber  = $driver->getCurrentFiber();
@@ -1044,11 +1052,16 @@ final class phasync
             throw ExceptionTool::popTrace(new LogicException('Can only await flags from within a coroutine'));
         }
 
-        $driver->whenFlagged($signal, $timeout, $fiber);
+        if (!$driver->whenFlagged($signal, $timeout, $fiber, $throw)) {
+            // throw: false, and $timeout had already passed: resolved without registering a wait.
+            return false;
+        }
         // A waiting coroutine must not keep its flag alive. If the owner of the flag lets go
         // of it, the Flag destructor wakes this coroutine with a CancelledException.
         unset($signal);
         self::suspend();
+
+        return !$driver->consumeTimedOutWithoutThrow($fiber);
     }
 
     /**

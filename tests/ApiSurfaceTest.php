@@ -23,7 +23,7 @@ test('the phasync facade has exactly these public methods and signatures', funct
 
     expect(\array_values($actual))->toBe([
         'static await(object $fiberOrPromise, float $timeout = 1.7976931348623157e+308): mixed',
-        'static awaitFlag(object $signal, float $timeout = 1.7976931348623157e+308): void',
+        'static awaitFlag(object $signal, float $timeout = 1.7976931348623157e+308, bool $throw = true): bool',
         'static cancel(Fiber $fiber, Stringable|phasync\\CancelledException|string $message = "Operation cancelled", int $code = 0, ?Throwable $previous = null): void',
         'static channel(?phasync\\ReadChannelInterface &$read, ?phasync\\WriteChannelInterface &$write, int $bufferSize = 0): void',
         'static finally(Closure $fn): void',

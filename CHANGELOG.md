@@ -4,6 +4,15 @@ Earlier releases are listed on the GitHub releases page.
 
 ## Unreleased
 
+### Added
+
+- `phasync::awaitFlag(object $signal, float $timeout = \PHP_FLOAT_MAX, bool $throw = true): bool`
+  now returns `bool`, and takes a `$throw` parameter: with `throw: false`, a timeout returns
+  `false` instead of throwing `TimeoutException`, and never constructs one -- for a wait that is
+  expected to time out often, where building the exception would be the expensive part.
+  Cancellation and the flag being released still throw `CancelledException` as before. The
+  default behaviour (`$throw: true`) is unchanged.
+
 ### Fixed
 
 - A publisher (`phasync::publisher()`) leaked memory and could crash a worker: `Subscribers`
