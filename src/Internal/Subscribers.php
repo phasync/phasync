@@ -32,11 +32,18 @@ final class Subscribers implements SubscribersInterface
             self::$receiverStates = new \WeakMap();
         }
         $notifyMessageFlag   = $this->notifyMessageFlag = new \stdClass();
-        $lastMessage         = $this->lastMessage = new ChannelMessage();
+        $this->lastMessage   = new ChannelMessage();
+        // The service below and getStartMessage() must share the same notion of "the tail": a
+        // reference, not a copy, so every append also moves $this->lastMessage. Without this, the
+        // property only caught up with the chain's real tail when subscribe() happened to call
+        // getStartMessage(), pinning the head of every message published since the last subscribe
+        // alive -- unbounded growth, and a stack-overflowing recursive free once the publisher is
+        // dropped (#113).
+        $lastMessage         = &$this->lastMessage;
         $waiting             = &$this->waiting;
         $this->readChannel   = $readChannel;
 
-        \phasync::service(static function () use ($lastMessage, $notifyMessageFlag, $readChannel, &$waiting) {
+        \phasync::service(static function () use (&$lastMessage, $notifyMessageFlag, $readChannel, &$waiting) {
             try {
                 // Must read unconditionally from the moment the publisher exists, not only
                 // once a subscriber is waiting: $readChannel is an unbuffered channel, and
@@ -90,17 +97,13 @@ final class Subscribers implements SubscribersInterface
     }
 
     /**
-     * Returns the first message that is available
+     * Returns the first message that is available: the tail of the chain, i.e. the next message
+     * that will be published, or the closed sentinel (its own `next`) if the publisher is closed.
      *
      * @internal
      */
     public function getStartMessage(): ChannelMessage
     {
-        // A closed publisher's last message is its own next: the end
-        while ($this->lastMessage->next && $this->lastMessage->next !== $this->lastMessage) {
-            $this->lastMessage = $this->lastMessage->next;
-        }
-
         return $this->lastMessage;
     }
 

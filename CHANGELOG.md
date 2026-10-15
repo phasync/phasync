@@ -2,6 +2,18 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Fixed
+
+- A publisher (`phasync::publisher()`) leaked memory and could crash a worker: `Subscribers`
+  pinned the head of its `ChannelMessage` chain between `subscribe()` calls instead of tracking
+  the tail continuously, so every message published since the last subscribe stayed referenced
+  even once every subscriber had read it. Freeing that chain (one nested destructor per queued
+  message) could then overflow the C stack -- a SIGSEGV, reachable with ~20,000 queued messages
+  inside a fiber. `ChannelMessage` also now frees a long chain iteratively instead of recursively,
+  so a subscriber that lagged far behind can be dropped without crashing either (#113).
+
 ## 2.0.0-beta9 (2026-10-15)
 
 ### Changed (breaking): Scope for identity, Frame for lifetime

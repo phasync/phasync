@@ -2,6 +2,132 @@
 
 use phasync\Util\WaitGroup;
 
+/*
+ * #113: Subscribers pinned the head of the ChannelMessage chain between subscribe() calls, so
+ * every message published since the last subscribe() stayed referenced even once every
+ * subscriber had read it -- unbounded growth, and a stack-overflowing recursive free (one nested
+ * destructor per queued message) once the publisher was dropped. These run in a child process:
+ * a regression here is exactly a crash, which must not take the whole suite down with it.
+ */
+if (!\function_exists('pubChild')) {
+    /**
+     * Runs $body as the main coroutine of phasync::run() in a child process and waits for it to
+     * finish. Returns the exit code and everything printed (stdout and stderr together, so a
+     * fatal error/segfault message is visible in assertion failures).
+     *
+     * @return array{exit: int, stdout: string}
+     */
+    function pubChild(string $body): array
+    {
+        $file = \tempnam(\sys_get_temp_dir(), 'phasync-pub-');
+        \file_put_contents($file, "<?php\nrequire " . \var_export(\dirname(__DIR__) . '/vendor/autoload.php', true) . ";\nphasync::run(function () {\n$body\n});\n");
+        $process = \proc_open(
+            [\PHP_BINARY, '-d', 'display_errors=stderr', $file],
+            [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+            $pipes
+        );
+        $stdout = \stream_get_contents($pipes[1]);
+        $exit   = \proc_close($process);
+        \unlink($file);
+
+        return ['exit' => $exit, 'stdout' => $stdout];
+    }
+}
+
+test('#113: memory stays flat reading 200k messages with nobody subscribing after, and freeing the publisher afterwards does not crash', function () {
+    $r = pubChild(<<<'PHP'
+        phasync::publisher($subscribers, $writer);
+        $sub   = $subscribers->subscribe();
+        $count = 0;
+        $reader = phasync::go(function () use ($sub, &$count) {
+            foreach ($sub as $message) {
+                ++$count;
+            }
+        });
+        $before = \memory_get_usage();
+        for ($i = 0; $i < 200000; ++$i) {
+            $writer->write($i);
+            if (0 === $i % 1000) {
+                phasync::sleep(0); // let the reader keep up
+            }
+        }
+        $writer->close();
+        phasync::await($reader);
+        $grown = \memory_get_usage() - $before;
+        echo "count=$count grown=$grown\n";
+        unset($sub, $subscribers, $writer);
+        echo "freed\n";
+        PHP);
+
+    expect($r['exit'])->toBe(0, $r['stdout']);
+    expect($r['stdout'])->toContain('count=200000');
+    expect($r['stdout'])->toContain('freed');
+    \preg_match('/grown=(-?\d+)/', $r['stdout'], $matches);
+    expect((int) $matches[1])->toBeLessThan(1 << 20); // bounded growth, not ~135 bytes * 200000
+});
+
+test('#113: dropping a subscriber that lagged 100,000 messages behind, inside a coroutine, does not crash', function () {
+    $r = pubChild(<<<'PHP'
+        phasync::publisher($subscribers, $writer);
+        $doneWriting = new stdClass();
+        $dropped = phasync::go(function () use ($subscribers, $doneWriting) {
+            $lagging = $subscribers->subscribe(); // never read from
+            phasync::awaitFlag($doneWriting);
+            unset($lagging); // frees a chain of 100,000 unread ChannelMessage nodes
+            echo "dropped\n";
+        });
+        for ($i = 0; $i < 100000; ++$i) {
+            $writer->write($i);
+            if (0 === $i % 1000) {
+                phasync::sleep(0);
+            }
+        }
+        $writer->close();
+        phasync::raiseFlag($doneWriting);
+        phasync::await($dropped);
+        echo "done\n";
+        PHP);
+
+    expect($r['exit'])->toBe(0, $r['stdout']);
+    expect($r['stdout'])->toContain('dropped');
+    expect($r['stdout'])->toContain('done');
+});
+
+test('#113: dropping a lagging subscriber does not corrupt a second, still-reading subscriber sharing the same chain', function () {
+    $out = phasync::run(function () {
+        phasync::publisher($subscribers, $writer);
+        $slow   = $subscribers->subscribe(); // never read from
+        $fast   = $subscribers->subscribe();
+        $got    = [];
+        $reader = phasync::go(function () use ($fast, &$got) {
+            foreach ($fast as $message) {
+                $got[] = $message;
+                if (50 === \count($got)) {
+                    break; // let the writer get ahead before we finish reading
+                }
+            }
+            foreach ($fast as $message) {
+                $got[] = $message;
+            }
+        });
+        for ($i = 0; $i < 300; ++$i) {
+            $writer->write($i);
+            if (0 === $i % 50) {
+                phasync::sleep(0);
+            }
+        }
+        $writer->close();
+        // $slow has read nothing; $fast is stalled partway through the same chain. Dropping
+        // $slow here must not sever the link $fast still needs to finish reading.
+        unset($slow);
+        phasync::await($reader);
+
+        return $got;
+    });
+
+    expect($out)->toBe(\range(0, 299));
+});
+
 test('the coroutine that created a publisher can subscribe to it and receive what it publishes', function () {
     expect(
         phasync::run(function () {
