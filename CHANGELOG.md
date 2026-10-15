@@ -2,7 +2,7 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.0-beta9 (2026-10-15)
 
 ### Changed (breaking): Scope for identity, Frame for lifetime
 
