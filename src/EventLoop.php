@@ -1181,9 +1181,14 @@ final class EventLoop implements \Countable
             $this->flagGraph[$fiber] = $flag;
         }
         $this->flaggedFibers[$flag]->add($fiber);
-        $this->pending[$fiber] = $deadline = \microtime(true) + $timeout;
         if ($timeout < 1e9) {
+            $this->pending[$fiber] = $deadline = \microtime(true) + $timeout;
             $this->addTimeout($fiber, $deadline);
+        } else {
+            // No real deadline: the stored value is never read for an unbounded wait (only
+            // its presence as a pending key is), so skip computing one (a syscall otherwise
+            // paid on every unbounded wait, which is most of them).
+            $this->pending[$fiber] = \PHP_FLOAT_MAX;
         }
     }
 
@@ -1311,9 +1316,12 @@ final class EventLoop implements \Countable
         }
         $this->parked[$slot]                       = $fiber;
         $this->parkedSlots[\spl_object_id($fiber)] = $slot;
-        $this->pending[$fiber]                     = $deadline = \microtime(true) + $timeout;
         if ($timeout < 1e9) {
+            $this->pending[$fiber] = $deadline = \microtime(true) + $timeout;
             $this->addTimeout($fiber, $deadline);
+        } else {
+            // See whenFlagged(): no real deadline, skip the microtime() syscall.
+            $this->pending[$fiber] = \PHP_FLOAT_MAX;
         }
         try {
             if (\Fiber::getCurrent() === $fiber) {
