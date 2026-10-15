@@ -1098,6 +1098,17 @@ final class EventLoop implements \Countable
         if ($fiber->isTerminated()) {
             throw new \LogicException("Can't enqueue a terminated fiber (" . Debug::getDebugInfo($fiber) . ')');
         }
+        $this->enqueueKnownLive($fiber);
+    }
+
+    /**
+     * enqueue(), without the isTerminated() guard: for callers on the hot path (Flag::raiseFlag())
+     * that just checked it themselves, so as not to pay for the same Fiber method call twice.
+     *
+     * @internal
+     */
+    public function enqueueKnownLive(\Fiber $fiber): void
+    {
         // FiberState::for($fiber)->log("enqueued");
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
         if ([] !== $this->timeoutSlots) {
@@ -1164,17 +1175,18 @@ final class EventLoop implements \Countable
         if (isset($this->pending[$fiber])) {
             throw new \LogicException('Fiber is already pending when enqueueing for flag');
         }
-        if ($flag instanceof \Fiber && $this->isBlockedByFlag($flag, $fiber)) {
+        $isFiberFlag = $flag instanceof \Fiber;
+        if ($isFiberFlag && $this->isBlockedByFlag($flag, $fiber)) {
             // Detect cycles
             throw new \LogicException('Await cycle deadlock detected');
         }
 
         if (!isset($this->flaggedFibers[$flag])) {
-            $this->flaggedFibers[$flag] = Flag::create($this);
+            $this->flaggedFibers[$flag] = Flag::create($this, $isFiberFlag);
         }
 
         // FiberState::for($fiber)->log("whenFlagged for " . Debug::getDebugInfo($flag));
-        if ($flag instanceof \Fiber) {
+        if ($isFiberFlag) {
             // The graph is only used to detect await cycles, which only follow fibers. It
             // must not hold ordinary flags, or a flag could never be garbage collected while
             // a coroutine waits for it.

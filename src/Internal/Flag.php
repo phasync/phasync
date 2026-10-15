@@ -24,16 +24,27 @@ final class Flag implements ObjectPoolInterface, \Countable
     private int $id;
     private EventLoop $driver;
 
-    public static function create(EventLoop $driver): Flag
+    /**
+     * Whether the flag this instance tracks waiters for is itself a Fiber (await-cycle
+     * detection, see EventLoop::whenFlagged()). All waiters here share one flag identity, so
+     * this is the same for every one of them: raiseFlag()/cancelAll() use it to skip touching
+     * EventLoop::$flagGraph, which an ordinary flag's waiters never entered.
+     */
+    private bool $isFiberFlag = false;
+
+    public static function create(EventLoop $driver, bool $isFiberFlag = false): Flag
     {
         $instance = self::popInstance();
         if ($instance) {
-            $instance->driver = $driver;
+            $instance->driver      = $driver;
+            $instance->isFiberFlag = $isFiberFlag;
 
             return $instance;
         }
+        $instance              = new Flag($driver);
+        $instance->isFiberFlag = $isFiberFlag;
 
-        return new Flag($driver);
+        return $instance;
     }
 
     private function __construct(EventLoop $driver)
@@ -69,14 +80,17 @@ final class Flag implements ObjectPoolInterface, \Countable
         if (0 === $this->count()) {
             return 0;
         }
-        $driver = $this->driver;
-        $count  = 0;
+        $driver      = $this->driver;
+        $isFiberFlag = $this->isFiberFlag;
+        $count       = 0;
         foreach (self::$allFibers[$this->id] as $k => $fiber) {
             unset(self::$allFibers[$this->id][$k]);
-            unset($driver->flagGraph[$fiber]);
+            if ($isFiberFlag) {
+                unset($driver->flagGraph[$fiber]);
+            }
             // A waiter destroyed in that shutdown, already
             if (!$fiber->isTerminated()) {
-                $this->driver->enqueue($fiber);
+                $driver->enqueueKnownLive($fiber);
                 ++$count;
             }
         }
@@ -89,12 +103,15 @@ final class Flag implements ObjectPoolInterface, \Countable
         if (0 === $this->count()) {
             return;
         }
+        $isFiberFlag = $this->isFiberFlag;
         foreach (self::$allFibers[$this->id] as $fid => $fiber) {
             if (!$fiber->isTerminated()) {
                 $this->driver->enqueueWithException($fiber, $cancellationException ?? new CancelledException('The operation was cancelled'));
             }
             unset(self::$allFibers[$this->id][$fid]);
-            unset($this->driver->flagGraph[$fiber]);
+            if ($isFiberFlag) {
+                unset($this->driver->flagGraph[$fiber]);
+            }
         }
     }
 
