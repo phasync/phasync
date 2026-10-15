@@ -12,6 +12,12 @@ Earlier releases are listed on the GitHub releases page.
   expected to time out often, where building the exception would be the expensive part.
   Cancellation and the flag being released still throw `CancelledException` as before. The
   default behaviour (`$throw: true`) is unchanged.
+- phasync warns (`E_USER_WARNING`) when a `CancelledException` escapes a `finally` block of a
+  coroutine that was being cancelled: the coroutine was cancelled, entered its `finally`, and a
+  wait inside it threw the cancellation again (cancellation is sticky, CAN-4), cutting the rest
+  of the `finally` short. The warning names the coroutine and points at `phasync::shielded()`
+  for cleanup that must wait. It does not fire when the `finally` completes without waiting, or
+  when its wait is inside `shielded()` (#115).
 
 ### Fixed
 

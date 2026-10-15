@@ -305,6 +305,23 @@ final class EventLoop implements \Countable
     public \WeakMap $flagGraph;
 
     /**
+     * Fibers whose cancellation (the one cancellationFor() returns for them) has already reached
+     * them once, via wake()'s deliver() or a prior checkCancelled(); see checkCancelled().
+     *
+     * @var \WeakMap<\Fiber, true>
+     */
+    private \WeakMap $cancellationFirstSeen;
+
+    /**
+     * Fibers a checkCancelled() hit for the second time: the cancellation reached them again
+     * while they were already unwinding from it (a wait in a `finally` block, most often).
+     * makeExceptionHolder() warns if a CancelledException is what then terminates the fiber.
+     *
+     * @var \WeakMap<\Fiber, true>
+     */
+    private \WeakMap $cutShortCleanup;
+
+    /**
      * Callbacks to be invoked between fibers.
      *
      * @var \SplQueue<\Closure>
@@ -475,6 +492,8 @@ final class EventLoop implements \Countable
         $this->lastTimeoutSlot                     = (int) (\microtime(true) * 100);
         $this->flaggedFibers                       = new \WeakMap();
         $this->flagGraph                           = new \WeakMap();
+        $this->cancellationFirstSeen               = new \WeakMap();
+        $this->cutShortCleanup                     = new \WeakMap();
         $this->afterNextFlag                       = new \stdClass();
         $this->signalFlag                          = new \stdClass();
         $this->newFrame ??= \Closure::bind(static fn (?Frame $parent): Frame => new Frame($parent), null, Frame::class);
@@ -698,6 +717,10 @@ final class EventLoop implements \Countable
                     $this->fiberGenerations[$fiber] = \fiber_interop\scope\generation();
                 }
 
+                // A cut-short mark from an earlier resumption only still matters if nothing ran
+                // for this fiber since: it really suspended and resumed again, so whatever it was
+                // unwinding from completed (see checkCancelled()).
+                unset($this->cutShortCleanup[$fiber]);
                 if (isset($fiberExceptionHolders[$fiber])) {
                     // We got an opportunity to throw the exception inside the coroutine
                     $eh = $fiberExceptionHolders[$fiber];
@@ -821,6 +844,8 @@ final class EventLoop implements \Countable
             if ($this->scopePolyfill) {
                 $this->fiberGenerations[$fiber] = \fiber_interop\scope\generation();
             }
+            // See the same unset() in tick()'s own loop.
+            unset($this->cutShortCleanup[$fiber]);
             if (isset($this->fiberExceptionHolders[$fiber])) {
                 $eh = $this->fiberExceptionHolders[$fiber];
                 unset($this->fiberExceptionHolders[$fiber]);
@@ -1935,7 +1960,10 @@ final class EventLoop implements \Countable
     private function wake(\Fiber $fiber): void
     {
         if (null !== ($exception = $this->cancellationFor($fiber))) {
-            $this->deliver($fiber, $exception);
+            if ($this->deliver($fiber, $exception)) {
+                // The first time this fiber actually meets this cancellation; see checkCancelled().
+                $this->cancellationFirstSeen[$fiber] = true;
+            }
         }
     }
 
@@ -1981,12 +2009,22 @@ final class EventLoop implements \Countable
      * At a wait: a cancelled coroutine throws its cancellation instead of waiting (callers check
      * $cancellations first), and what it registered to wait for is dropped.
      *
+     * A second (or later) throw here for the same fiber means the cancellation reached it once
+     * already (here or via wake()) and it is waiting again regardless -- most often a `finally`
+     * block cleaning up after the first one, whose wait just failed the same way: marked, so
+     * makeExceptionHolder() can warn if that is what ends up terminating the fiber.
+     *
      * @internal
      */
     public function checkCancelled(\Fiber $fiber): void
     {
         if (null !== ($exception = $this->cancellationFor($fiber))) {
             $this->discard($fiber);
+            if (isset($this->cancellationFirstSeen[$fiber])) {
+                $this->cutShortCleanup[$fiber] = true;
+            } else {
+                $this->cancellationFirstSeen[$fiber] = true;
+            }
 
             throw $exception;
         }
@@ -2232,6 +2270,16 @@ final class EventLoop implements \Countable
      */
     private function makeExceptionHolder(\Throwable $exception, \Fiber $fiber): FiberExceptionHolder
     {
+        if ($fiber->isTerminated() && $exception instanceof CancelledException && isset($this->cutShortCleanup[$fiber])) {
+            // The fiber ended with a CancelledException after checkCancelled() noticed the
+            // cancellation reaching it a second time: whatever it was still unwinding -- a
+            // finally block's own cleanup wait, most often -- did not run to completion.
+            unset($this->cutShortCleanup[$fiber]);
+            \trigger_error(
+                'Cleanup in a finally block of ' . Debug::getDebugInfo($fiber) . ' was cut short by its cancellation reaching it again; use phasync::shielded() for cleanup that must wait',
+                \E_USER_WARNING
+            );
+        }
         $frame = $this->frames[$fiber] ?? null;
         $seq   = ++$this->failureSeq;
 

@@ -945,6 +945,10 @@ final class phasync
      * it started, such as a server ending a protocol cleanly while the application's coroutines
      * stop; application code rarely needs it.
      *
+     * A `finally` block's own wait is not shielded by default: the cancellation is sticky, so it
+     * throws again there too. When that is what ends up terminating the coroutine, phasync warns
+     * (`E_USER_WARNING`) that cleanup was cut short -- wrap the wait in `shielded()` instead.
+     *
      * ```php
      * phasync::shielded(function () use ($socket) {
      *     fwrite($socket, $goodbye);   // still sent during a shutdown

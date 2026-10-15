@@ -275,6 +275,12 @@ in it throws the cancellation again, until the coroutine ends or leaves the fram
 completes, bounded by that I/O's own timeouts. Timeouts are not cancellations: a
 `TimeoutException` is thrown once. (D5, revised) ✅ CancellationTest
 
+If that repeated `CancelledException` is what ends up terminating the coroutine, phasync warns
+(`E_USER_WARNING`): cleanup in a `finally` block was cut short, and points at
+`phasync::shielded()` for cleanup that must wait. A `finally` that catches the repeat and
+finishes anyway, or that waits inside `shielded()`, does not warn; nor does a cancellation with
+no `finally` wait at all. ✅ CutShortCleanupTest
+
 **CAN-5. `cancel($fiber)` stops that coroutine and nothing else, never its children;
 `$frame->cancel()` stops the frame's.** `phasync::cancel()` takes a `Fiber` only.
 `Frame::cancel()` cancels every coroutine of the frame and of the frames nested in it, the

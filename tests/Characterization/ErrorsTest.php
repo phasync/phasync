@@ -377,31 +377,46 @@ test('ERR-5: a finally block runs when an exception is thrown into the suspended
 });
 
 test('ERR-5: finally blocks of a cancelled coroutine run, but a wait in them is cancelled too; phasync::finally() callbacks complete', function () {
-    $log = [];
-    phasync::run(function () use (&$log) {
-        $c = phasync::go(function () use (&$log) {
-            phasync::finally(function () use (&$log) {
-                phasync::sleep(0.01);
-                $log[] = 'finally() callback end';
+    // Since the "warn on a cut-short finally" feature (see CutShortCleanupTest.php): the
+    // cleanup's own wait is cancelled too, so "cleanup end" never logs -- cut short -- and this
+    // now also triggers that E_USER_WARNING.
+    $log      = [];
+    $warnings = [];
+    \set_error_handler(function (int $level, string $message) use (&$warnings) {
+        $warnings[] = $message;
+
+        return true;
+    }, \E_USER_WARNING);
+    try {
+        phasync::run(function () use (&$log) {
+            $c = phasync::go(function () use (&$log) {
+                phasync::finally(function () use (&$log) {
+                    phasync::sleep(0.01);
+                    $log[] = 'finally() callback end';
+                });
+                try {
+                    phasync::sleep(1);
+                } finally {
+                    $log[] = 'cleanup start';
+                    phasync::sleep(0.01);
+                    $log[] = 'cleanup end';
+                }
             });
+            phasync::sleep(0.01);
+            phasync::cancel($c);
             try {
-                phasync::sleep(1);
-            } finally {
-                $log[] = 'cleanup start';
-                phasync::sleep(0.01);
-                $log[] = 'cleanup end';
+                phasync::await($c);
+            } catch (Throwable) {
             }
+            $log[] = 'parent continues';
+            phasync::sleep(0.05);
         });
-        phasync::sleep(0.01);
-        phasync::cancel($c);
-        try {
-            phasync::await($c);
-        } catch (Throwable) {
-        }
-        $log[] = 'parent continues';
-        phasync::sleep(0.05);
-    });
+    } finally {
+        \restore_error_handler();
+    }
     expect($log)->toBe(['cleanup start', 'parent continues', 'finally() callback end']);
+    expect($warnings)->toHaveCount(1);
+    expect($warnings[0])->toContain('cut short');
 });
 
 test('ERR-5: phasync::finally() callbacks run last-registered-first, after the coroutine has failed and before an awaiter sees it', function () {

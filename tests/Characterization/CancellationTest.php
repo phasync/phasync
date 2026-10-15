@@ -225,36 +225,51 @@ test('CAN-4: cancellation is sticky: every later wait of a cancelled coroutine t
 });
 
 test('CAN-4: a wait in a finally block of a cancelled coroutine throws; a phasync::finally() callback completes', function () {
-    $log = phasync::run(static function () {
-        $log   = [];
-        $child = phasync::go(static function () use (&$log) {
-            phasync::finally(static function () use (&$log) {
-                phasync::sleep(0.05);
-                $log[] = 'finally() callback finished';
-            });
-            try {
-                phasync::sleep(5);
-            } finally {
-                try {
-                    phasync::sleep(0.05);
-                    $log[] = 'finally block finished';
-                } catch (CancelledException) {
-                    $log[] = 'finally block cancelled';
-                }
-            }
-        });
-        phasync::cancel($child);
-        try {
-            phasync::await($child);
-        } catch (CancelledException) {
-            $log[] = 'awaiter got CancelledException';
-        }
-        phasync::sleep(0.1);
+    // Since the "warn on a cut-short finally" feature (see CutShortCleanupTest.php), this also
+    // triggers that E_USER_WARNING: the finally block's own wait is cut short by the sticky
+    // cancellation reaching it a second time, even though it catches that and finishes anyway.
+    $warnings = [];
+    \set_error_handler(function (int $level, string $message) use (&$warnings) {
+        $warnings[] = $message;
 
-        return $log;
-    });
+        return true;
+    }, \E_USER_WARNING);
+    try {
+        $log = phasync::run(static function () {
+            $log   = [];
+            $child = phasync::go(static function () use (&$log) {
+                phasync::finally(static function () use (&$log) {
+                    phasync::sleep(0.05);
+                    $log[] = 'finally() callback finished';
+                });
+                try {
+                    phasync::sleep(5);
+                } finally {
+                    try {
+                        phasync::sleep(0.05);
+                        $log[] = 'finally block finished';
+                    } catch (CancelledException) {
+                        $log[] = 'finally block cancelled';
+                    }
+                }
+            });
+            phasync::cancel($child);
+            try {
+                phasync::await($child);
+            } catch (CancelledException) {
+                $log[] = 'awaiter got CancelledException';
+            }
+            phasync::sleep(0.1);
+
+            return $log;
+        });
+    } finally {
+        \restore_error_handler();
+    }
 
     expect($log)->toBe(['finally block cancelled', 'awaiter got CancelledException', 'finally() callback finished']);
+    expect($warnings)->toHaveCount(1);
+    expect($warnings[0])->toContain('cut short');
 });
 
 test('CAN-4: cancelled twice before it resumes, a coroutine gets the first exception, and its later waits the second', function () {
