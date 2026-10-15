@@ -21,10 +21,10 @@ jobs:
     # the second time with the extension binary bundled in the newest release tag (main has none)
     steps:
       - name: 📥 Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Check commit messages
-        uses: webiny/action-conventional-commits@v1.3.0
+        uses: webiny/action-conventional-commits@v1.4.2
 
       - name: 🧰 Setup PHP
         uses: shivammathur/setup-php@v2
@@ -37,7 +37,7 @@ jobs:
 
       - name: 📦 Cache Composer packages
         id: composer-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: vendor
           key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
@@ -84,7 +84,7 @@ jobs:
           PHASYNC_EXT_SO="$PWD/${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect
 
       - name: 📤 Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
         if: matrix.php == '8.2'
@@ -99,7 +99,7 @@ jobs:
     # and out of scope for issue #45 -- tracked separately (phasync/phasync#64).
     steps:
       - name: 📥 Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 🧰 Setup PHP
         uses: shivammathur/setup-php@v2
@@ -125,7 +125,7 @@ jobs:
     # every one: untyped parameters, v2's return types
     steps:
       - name: 📥 Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 🧰 Setup PHP
         uses: shivammathur/setup-php@v2
@@ -150,7 +150,7 @@ jobs:
     # Applications may depend on any psr/log version, so ConsoleLogger must satisfy every one
     steps:
       - name: 📥 Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 🧰 Setup PHP
         uses: shivammathur/setup-php@v2
