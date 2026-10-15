@@ -2,7 +2,7 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.0-beta10 (2026-10-15)
 
 ### Added
 
@@ -18,6 +18,13 @@ Earlier releases are listed on the GitHub releases page.
   of the `finally` short. The warning names the coroutine and points at `phasync::shielded()`
   for cleanup that must wait. It does not fire when the `finally` completes without waiting, or
   when its wait is inside `shielded()` (#115).
+
+### Changed
+
+- Waiting and waking do less work per coroutine: no clock read for waits without a timeout, no
+  scope lookup at suspend under the fiber-interop/scope polyfill when the scope can't have
+  changed, and an inlined common case in `awaitFlag()` and `raiseFlag()` (#111, #112).
+- Requires fiber-interop/scope ^0.2.1 (its `generation()` counter, used by the above).
 
 ### Fixed
 
