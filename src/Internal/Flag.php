@@ -72,30 +72,31 @@ final class Flag implements ObjectPoolInterface, \Countable
         }
     }
 
-    public function raiseFlag(): int
+    /**
+     * Pops every waiter for raiseFlag(): returns them so the caller (EventLoop::raiseFlag())
+     * does the liveness check and the enqueue bookkeeping itself, in one loop, instead of
+     * calling back here once per waiter.
+     *
+     * Destroyed: after exit(), PHP's shutdown destroys every object, also those still
+     * referenced, in no particular order, and a destructor may raise this flag after it
+     * was destroyed itself (a channel closing). Its waiters were cancelled then.
+     *
+     * @return array<int,\Fiber>
+     */
+    public function takeFibers(): array
     {
-        // Destroyed: after exit(), PHP's shutdown destroys every object, also those still
-        // referenced, in no particular order, and a destructor may raise this flag after it
-        // was destroyed itself (a channel closing). Its waiters were cancelled then.
-        if (0 === $this->count()) {
-            return 0;
+        if (!isset(self::$allFibers[$this->id]) || [] === ($fibers = self::$allFibers[$this->id])) {
+            return [];
         }
-        $driver      = $this->driver;
-        $isFiberFlag = $this->isFiberFlag;
-        $count       = 0;
-        foreach (self::$allFibers[$this->id] as $k => $fiber) {
-            unset(self::$allFibers[$this->id][$k]);
-            if ($isFiberFlag) {
+        self::$allFibers[$this->id] = [];
+        if ($this->isFiberFlag) {
+            $driver = $this->driver;
+            foreach ($fibers as $fiber) {
                 unset($driver->flagGraph[$fiber]);
-            }
-            // A waiter destroyed in that shutdown, already
-            if (!$fiber->isTerminated()) {
-                $driver->enqueueKnownLive($fiber);
-                ++$count;
             }
         }
 
-        return $count;
+        return $fibers;
     }
 
     public function cancelAll(?\Throwable $cancellationException = null): void

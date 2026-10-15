@@ -1155,8 +1155,24 @@ final class EventLoop implements \Countable
         // Raising resumes every waiter, so the store is empty afterwards
         $fiberStore = $this->flaggedFibers[$flag];
         unset($this->flaggedFibers[$flag]);
-        $count = $fiberStore->raiseFlag();
+        $fibers = $fiberStore->takeFibers();
         $fiberStore->returnToPool();
+
+        // enqueueKnownLive(), inlined: one loop, no per-waiter method call (perf#117)
+        $queue           = $this->queue;
+        $hasTimeoutSlots = [] !== $this->timeoutSlots;
+        $count           = 0;
+        foreach ($fibers as $fiber) {
+            if ($fiber->isTerminated()) {
+                continue;
+            }
+            $this->pending[$fiber] = \PHP_FLOAT_MAX;
+            if ($hasTimeoutSlots) {
+                $this->removeTimeout($fiber);
+            }
+            $queue->enqueue($fiber);
+            ++$count;
+        }
 
         return $count;
     }
@@ -1173,8 +1189,9 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * enqueue(), without the isTerminated() guard: for callers on the hot path (Flag::raiseFlag())
-     * that just checked it themselves, so as not to pay for the same Fiber method call twice.
+     * enqueue(), without the isTerminated() guard: for callers on the hot path (expire()'s
+     * no-throw timeout) that just checked it themselves, so as not to pay for the same Fiber
+     * method call twice. raiseFlag() inlines this itself instead of calling it per waiter.
      *
      * @internal
      */
