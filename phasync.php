@@ -1051,12 +1051,16 @@ final class phasync
     public static function awaitFlag(object $signal, float $timeout = \PHP_FLOAT_MAX, bool $throw = true): bool
     {
         $driver = self::getDriver();
-        $fiber  = $driver->getCurrentFiber();
+        $fiber  = $driver->currentFiber;
         if (null === $fiber) {
             throw ExceptionTool::popTrace(new LogicException('Can only await flags from within a coroutine'));
         }
 
-        if (!$driver->whenFlagged($signal, $timeout, $fiber, $throw)) {
+        if (\PHP_FLOAT_MAX === $timeout && !($signal instanceof Fiber)) {
+            // The common case: no timeout, not a Fiber flag. whenFlagged() inlined, skipping the
+            // timeout and await-cycle checks this case never needs.
+            $driver->whenFlaggedFast($signal, $fiber);
+        } elseif (!$driver->whenFlagged($signal, $timeout, $fiber, $throw)) {
             // throw: false, and $timeout had already passed: resolved without registering a wait.
             return false;
         }

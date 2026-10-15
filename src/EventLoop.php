@@ -1250,6 +1250,22 @@ final class EventLoop implements \Countable
     }
 
     /**
+     * whenFlagged()'s common case, inlined: an unbounded wait on an ordinary (non-Fiber) flag,
+     * which needs none of whenFlagged()'s timeout or await-cycle checks.
+     *
+     * @internal phasync::awaitFlag()
+     */
+    public function whenFlaggedFast(object $flag, \Fiber $fiber): void
+    {
+        if (isset($this->pending[$fiber])) {
+            throw new \LogicException('Fiber is already pending when enqueueing for flag');
+        }
+        $flagStore = $this->flaggedFibers[$flag] ??= Flag::create($this);
+        $flagStore->add($fiber);
+        $this->pending[$fiber] = \PHP_FLOAT_MAX;
+    }
+
+    /**
      * Schedule the Fiber instance to run when the object is flagged
      * {@see self::raiseFlag()}
      *
