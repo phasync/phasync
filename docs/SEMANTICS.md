@@ -296,6 +296,14 @@ entered later included, which `Frame::isCancellationRequested()` reads; it throw
 wakes nothing. `Frame::cancel()` and a passed `setTimeout()` deadline set it too. (#110) ✅
 ScopeFrameTest
 
+A `run()`'s own `$fn`, having started the frame's other coroutines, can call
+`phasync::frame()->requestCancellation()` and return normally to end them and itself cleanly:
+the others see `isCancellationRequested()` and end, and `run()` returns what `$fn` returned once
+they have. `phasync::frame()->cancel()` from inside the frame instead makes `run()` throw
+`CancelledException` (its own wait for the frame's coroutines is the next wait), which is right
+when the run as a whole is being cancelled, rather than ending itself on purpose.
+✅ Frame.requestCancellation example "2-a-session-tearing-itself-down"
+
 **CAN-6. Cancellation never loses or duplicates data.** A cancelled operation either
 completed before the exception, or did not happen. Examples: a cancelled channel write
 did not deliver its value; a cancelled channel read did not consume a value. ⚠️

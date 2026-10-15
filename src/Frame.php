@@ -163,12 +163,20 @@ final class Frame
      * });
      * ```
      *
+     * `run()`'s own `$fn`, having started the other coroutines of its frame, can call this and
+     * return normally to end them and itself cleanly: the others see `isCancellationRequested()`
+     * and end, and `run()` returns what `$fn` returned once they have. Calling
+     * {@see Frame::cancel()} from inside the frame instead makes `run()` throw
+     * `CancelledException` -- its own wait for the frame's coroutines is the next wait -- which
+     * is right when the run as a whole is being cancelled, rather than ending itself on purpose.
+     *
      * @throws \LogicException when the frame's run() has returned
      *
      * @see Frame::isCancellationRequested
      * @see Frame::cancel  with a CancelledException at every wait
      *
      * @example examples/Frame.requestCancellation/1-stop-a-loop.php Stop a loop at the end of its tick
+     * @example examples/Frame.requestCancellation/2-a-session-tearing-itself-down.php A run() ending its own frame normally
      */
     public function requestCancellation(): void
     {
