@@ -17,6 +17,23 @@ jobs:
 
     name: ⚙️ Running test for PHP ${{ matrix.php }}
 
+    # For tests/MySQLiPollTest.php (skipped when PHASYNC_TEST_MYSQL is unset); data on tmpfs, as an
+    # image's VOLUME would leave an anonymous volume per run
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: test
+        ports:
+          - 3306:3306
+        options: >-
+          --tmpfs /var/lib/mysql
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=24
+
+    env:
+      PHASYNC_TEST_MYSQL: 127.0.0.1:3306:root:test
+
     # phasync must behave the same with and without the extension, so the suite runs both ways:
     # the second time with the extension binary bundled in the newest release tag (main has none)
     steps:
@@ -30,7 +47,8 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: xdebug
+          extensions: mysqli
+          coverage: pcov   # unlike xdebug it loads alongside the phasync extension, whose run is measured too
 
       - name: ✅ Validate composer.json and composer.lock
         run: composer validate --strict
@@ -81,13 +99,26 @@ jobs:
             export PHASYNC_LICENSE_FILE="$RUNNER_TEMP/phasync.license"
           fi
           # bin/phasync loads it through PHP_INI_SCAN_DIR, so the PHP processes the tests start load it too
-          PHASYNC_EXT_SO="$PWD/${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect
+          # one job also measures this run: Codecov merges it with the one without the extension
+          COVERAGE=""
+          if [ "${{ matrix.php }}" = "8.5" ]; then COVERAGE="--coverage-clover clover-ext.xml"; fi
+          PHASYNC_EXT_SO="$PWD/${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect $COVERAGE
 
       - name: 📤 Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: clover.xml
+          flags: plain
         if: matrix.php == '8.2'
+
+      - name: 📤 Upload coverage of the run with the extension to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: clover-ext.xml
+          flags: ext
+        if: matrix.php == '8.5' && steps.ext.outputs.so
 
   windows:
     runs-on: windows-latest
