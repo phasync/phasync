@@ -1,6 +1,6 @@
 # Changelog
 
-Earlier releases are listed on the GitHub releases page.
+Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
 ## 2.0.0-rc1 (2026-10-16)
 
