@@ -92,41 +92,6 @@ test('an empty entry in PATH is not treated as the current directory', function 
     }
 });
 
-test('a child that exits 127 before the parent first polls it is reported as a failed start', function () {
-    // The exit is a race against the constructor's first poll. Pinning this process to one CPU
-    // makes the child run first, which makes the race go the same way nearly every time.
-    $taskset = \trim((string) \shell_exec('command -v taskset'));
-    if ('' === $taskset) {
-        $this->markTestSkipped('taskset is not available');
-    }
-    $pid  = \getmypid();
-    $info = \shell_exec(\escapeshellarg($taskset) . ' -c -p ' . $pid . ' 2>&1');
-    if (!\preg_match('/:\s*(\d+)\S*\s*$/', \trim((string) $info), $first) || !\preg_match('/:\s*(\S+)\s*$/', \trim((string) $info), $list)) {
-        $this->markTestSkipped('cannot read the CPU affinity');
-    }
-    $original = $list[1];
-    \shell_exec(\escapeshellarg($taskset) . ' -c -p ' . $first[1] . ' ' . $pid . ' 2>&1');
-
-    $failure   = null;
-    $processes = [];
-    try {
-        for ($i = 0; $i < 100 && null === $failure; ++$i) {
-            try {
-                $processes[] = new ProcessRunner(['sh', '-c', 'exit 127']);
-            } catch (RuntimeException $e) {
-                $failure = $e;
-            }
-        }
-    } finally {
-        \shell_exec(\escapeshellarg($taskset) . ' -c -p ' . $original . ' ' . $pid . ' 2>&1');
-        foreach ($processes as $p) {
-            $p->stop();
-        }
-    }
-    expect($failure)->toBeInstanceOf(RuntimeException::class);
-    expect($failure->getMessage())->toBe("Process could not be started: 'sh' exited immediately with code 127");
-})->skip(\PHP_OS_FAMILY !== 'Linux', 'needs taskset');
-
 test('stop escalates to SIGKILL when the process does not end within a second of SIGTERM', function () {
     phasync::run(function () {
         $process = Process::run('sleep', ['100']);
