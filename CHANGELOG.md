@@ -8,6 +8,10 @@ Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
 - `phasync\Services\CurlMulti` and `phasync\Services\MySQLiPoll` are public API, documented and with an example. They were marked `@internal` in 2.0.0-beta5 while the README and docs recommended them.
 
+### Fixed
+
+- `CurlMulti::await()` polled curl once every 20 ms, so a request chain ran at about 25 requests a second and every transfer was noticed late. It now runs curl again at once while there is work ready and backs off from 0.5 ms to 10 ms when idle: 50 sequential requests to a local server take 60 ms instead of 3 s (#133).
+
 ## 2.0.0-rc1 (2026-10-16)
 
 The first release candidate.

@@ -142,3 +142,19 @@ test('test concurrent versus sequential execution time', function () {
 
     expect($concurrentTime)->toBeLessThan($sequentialTime * 0.8);
 });
+
+test('sequential requests are not paced by a polling interval (#133)', function () {
+    $elapsed = phasync::run(function () {
+        $start = \microtime(true);
+        for ($i = 0; $i < 50; ++$i) {
+            $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
+            \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
+            CurlMulti::await($ch);
+        }
+
+        return \microtime(true) - $start;
+    });
+
+    // 50 requests used to take 3 s: every curl round trip waited 20 ms
+    expect($elapsed)->toBeLessThan(1.0);
+});

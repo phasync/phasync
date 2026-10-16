@@ -77,8 +77,8 @@ final class CurlMulti
                     \phasync::run(function () use ($ch) {
                         try {
                             self::$isRunning = true;
+                            $delay = 0.0;
                             do {
-                                \phasync::sleep(0.02);
                                 $status = \curl_multi_exec(self::$curlMulti, $active);
                                 /*
                                     * @var array
@@ -93,6 +93,12 @@ final class CurlMulti
                                         \phasync::raiseFlag($info['handle']);
                                         unset(self::$curlHandles[\spl_object_id($info['handle'])]);
                                     }
+                                }
+                                if ($active && \CURLM_OK === $status) {
+                                    // curl exposes no sockets to wait on: run again at once while it has work ready,
+                                    // otherwise back off from 0.5 ms to 10 ms
+                                    $delay = \curl_multi_select(self::$curlMulti, 0) > 0 ? 0.0 : \min(0.01, \max(0.0005, $delay * 2));
+                                    \phasync::sleep($delay);
                                 }
                             } while ($active && \CURLM_OK === $status);
                         } finally {
