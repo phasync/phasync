@@ -64,15 +64,20 @@ test('memory leak detection', function () {
         });
     };
 
-    // The first burst grows the pools and caches (about 5 MB) that later bursts reuse
+    // The first bursts grow pools and caches that later bursts reuse; under the extension those grow
+    // in a few one-time steps (a few hundred KB), at a burst of their own. A leak grows memory with
+    // every burst, so the smallest growth of several bursts is what to bound.
     $burst();
-    \gc_collect_cycles();
-    $startMemory = \memory_get_usage();
+    $growth = [];
+    for ($i = 0; $i < 6; ++$i) {
+        \gc_collect_cycles();
+        $before = \memory_get_usage();
+        $burst();
+        \gc_collect_cycles();
+        $growth[] = \memory_get_usage() - $before;
+    }
 
-    $burst();
-    \gc_collect_cycles();
-
-    expect(\memory_get_usage() - $startMemory)->toBeLessThan(100000);
+    expect(\min($growth))->toBeLessThan(100000);
 });
 
 test('exception handling under high load', function () {

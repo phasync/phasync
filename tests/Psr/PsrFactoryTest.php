@@ -216,7 +216,7 @@ test('PsrFactory::createStreamFromFile() with write mode', function () {
     });
 });
 
-test('PsrFactory::createStreamFromResource() leaves the blocking mode of the resource alone', function () {
+test('PsrFactory::createStreamFromResource() switches the resource to non-blocking mode', function () {
     phasync::run(function () {
         [$fp] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
         expect(\stream_get_meta_data($fp)['blocked'])->toBeTrue();
@@ -224,7 +224,7 @@ test('PsrFactory::createStreamFromResource() leaves the blocking mode of the res
         $factory = new PsrFactory();
         $stream  = $factory->createStreamFromResource($fp);
 
-        expect(\stream_get_meta_data($fp)['blocked'])->toBeTrue();
+        expect(\stream_get_meta_data($fp)['blocked'])->toBeFalse();
     });
 });
 

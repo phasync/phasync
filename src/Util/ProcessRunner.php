@@ -60,6 +60,8 @@ final class ProcessRunner implements ProcessInterface
      */
     private ?array $status = null;
 
+    private bool $stopped = false;
+
     /**
      * Starts the process.
      *
@@ -369,7 +371,7 @@ final class ProcessRunner implements ProcessInterface
     {
         $this->poll();
 
-        return $this->status['stopped'];
+        return $this->stopped && $this->status['running'];
     }
 
     /**
@@ -397,6 +399,9 @@ final class ProcessRunner implements ProcessInterface
     {
         if (!$this->isRunning()) {
             return false;
+        }
+        if ((\defined('SIGCONT') ? \SIGCONT : self::SIGCONT) === $signal) {
+            $this->stopped = false;
         }
 
         return \proc_terminate($this->process, $signal);
@@ -486,6 +491,11 @@ final class ProcessRunner implements ProcessInterface
             return;
         }
         $this->status = \proc_get_status($this->process);
+
+        // proc_get_status() reports a stop only once, so it is remembered until sigcont()
+        if ($this->status['stopped']) {
+            $this->stopped = true;
+        }
 
         // Free the resources
         if (!$this->status['running']) {

@@ -78,8 +78,14 @@ class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryIn
         return $this->createStreamFromResource($fp);
     }
 
+    /**
+     * Wraps `$resource` in a stream. The resource is switched to non-blocking mode, which
+     * phasync::readable() and writable() require so that a read or write never stalls the loop.
+     */
     public function createStreamFromResource($resource): StreamInterface
     {
+        \stream_set_blocking($resource, false);
+
         return new ResourceStream($resource);
     }
 

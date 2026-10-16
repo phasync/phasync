@@ -276,7 +276,7 @@ class ResourceStream implements StreamInterface
         if (!$this->isWritable()) {
             throw new \RuntimeException('Stream is not writable');
         }
-        $result = \fwrite(\phasync::writable($this->resource), $string);
+        $result = \fwrite($this->isSeekable() ? $this->resource : \phasync::writable($this->resource), $string);
         if (false === $result) {
             throw new \RuntimeException('Failed writing to stream');
         }
@@ -320,7 +320,7 @@ class ResourceStream implements StreamInterface
         if (!$this->isReadable()) {
             throw new \RuntimeException('Stream is not writable');
         }
-        $result = \fread(\phasync::readable($this->resource), $length);
+        $result = \fread($this->isSeekable() ? $this->resource : \phasync::readable($this->resource), $length);
         if (false === $result) {
             throw new \RuntimeException('Failed writing to stream');
         }

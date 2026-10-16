@@ -628,11 +628,6 @@ final class EventLoop implements \Countable
             foreach ($this->deadlines as $frame) {
                 $maxSleepTime = \min($maxSleepTime, \max(0.0, $frame->deadline - $now));
             }
-
-            // If work was added, cancel the sleep
-            if ($this->queue->count() > 0) {
-                $maxSleepTime = 0;
-            }
         } else {
             // Ensure non-negative sleep time
             $maxSleepTime = 0;
@@ -1343,18 +1338,14 @@ final class EventLoop implements \Countable
             throw new \InvalidArgumentException("A fiber can't block itself");
         }
 
+        // The graph holds only fibers (see enqueueFlag()), so the walk ends at an unblocked one
         $current = $fiber;
-        do {
-            if (!isset($this->flagGraph[$current])) {
-                // The fiber is not blocked
-                return false;
-            }
+        while (isset($this->flagGraph[$current])) {
             $current = $this->flagGraph[$current];
             if ($current === $flag) {
-                // The fiber is blocked by the flag
                 return true;
             }
-        } while ($current instanceof \Fiber);
+        }
 
         return false;
     }

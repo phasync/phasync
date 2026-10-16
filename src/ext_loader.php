@@ -169,13 +169,13 @@ function _ffi_execv(array $argv): bool
     }
     $n = \count($argv);
     // owned=false: we are about to replace the image, so nothing needs freeing.
-    $c    = \FFI::new('char*[' . ($n + 1) . ']', false);
+    $c    = $ffi->new('char*[' . ($n + 1) . ']', false);
     $keep = [];
     foreach ($argv as $i => $s) {
-        $buf = \FFI::new('char[' . (\strlen($s) + 1) . ']', false);
+        $buf = $ffi->new('char[' . (\strlen($s) + 1) . ']', false);
         \FFI::memcpy($buf, $s, \strlen($s));
         $buf[\strlen($s)] = "\0";
-        $c[$i]            = \FFI::cast('char *', $buf);
+        $c[$i]            = $ffi->cast('char *', $buf);
         $keep[]           = $buf;
     }
     $c[$n] = null;

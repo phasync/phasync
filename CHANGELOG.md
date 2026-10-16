@@ -2,6 +2,24 @@
 
 Earlier releases are listed on the GitHub releases page.
 
+## Unreleased
+
+### Changed
+
+- The PSR-7 implementation (`phasync\Psr`) now conforms to the PSR-7 integration suite
+  (`php-http/psr7-integration-tests`): non-string header values throw `InvalidArgumentException`,
+  constructors validate their arguments, and `Uri` throws on malformed input.
+- `PsrFactory::createStreamFromResource()` switches the resource to non-blocking mode, which
+  `phasync::readable()`/`writable()` require. `ResourceStream` no longer waits on seekable
+  streams (files, `php://temp`), which never block.
+
+### Fixed
+
+- `ProcessRunner::isStopped()` stayed `true`/`false` incorrectly: `proc_get_status()` reports a
+  stop only once, so it is remembered until the process is continued.
+- `EventLoop::clear()` crashed writing readonly properties.
+- `MySQLiPoll` timeout parameter is `?float`.
+
 ## 2.0.0-beta10 (2026-10-15)
 
 ### Added
