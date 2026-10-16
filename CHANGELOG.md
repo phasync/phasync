@@ -21,6 +21,7 @@ Earlier releases are listed on the GitHub releases page.
 ### Removed
 
 - `phasync\Psr\StreamFactory`. Construct the stream explicitly.
+- `phasync\Psr\ReadChannelStream`, which nothing in phasync used. Wrap a channel in a stream of your own.
 
 ### Fixed
 
