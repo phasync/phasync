@@ -77,7 +77,7 @@ final class CurlMulti
                     \phasync::run(function () use ($ch) {
                         try {
                             self::$isRunning = true;
-                            $delay = 0.0;
+                            $delay           = 0.0;
                             do {
                                 $status = \curl_multi_exec(self::$curlMulti, $active);
                                 /*
