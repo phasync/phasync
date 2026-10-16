@@ -137,6 +137,7 @@ test('ResourceStream.seek on non-seekable stream throws', function () {
         }
 
         try {
+            \stream_set_blocking($pipes[0], false);
             $stream = new ResourceStream($pipes[0]);
 
             // For pipes, fseek should fail

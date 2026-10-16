@@ -43,7 +43,7 @@ class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryIn
             $headers['Host'] = $host . (null !== $uri->getPort() ? ':' . $uri->getPort() : '');
         }
 
-        $request = new ServerRequest($method, $requestTarget, '', $headers, null, $serverParams);
+        $request = new ServerRequest($method, $requestTarget, null, $headers, null, $serverParams);
 
         if ('' !== $uri->getScheme() || '' !== $host) {
             $request = $request->withUri($uri);
@@ -79,13 +79,12 @@ class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryIn
     }
 
     /**
-     * Wraps `$resource` in a stream. The resource is switched to non-blocking mode, which
-     * phasync::readable() and writable() require so that a read or write never stalls the loop.
+     * Wraps `$resource` in a stream without changing the resource.
+     *
+     * @throws \InvalidArgumentException if `$resource` is a non-seekable resource in blocking mode; call `stream_set_blocking($resource, false)` first
      */
     public function createStreamFromResource($resource): StreamInterface
     {
-        \stream_set_blocking($resource, false);
-
         return new ResourceStream($resource);
     }
 

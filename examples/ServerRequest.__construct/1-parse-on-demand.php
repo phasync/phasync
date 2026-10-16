@@ -1,11 +1,12 @@
 <?php
 
 use phasync\Psr\ServerRequest;
+use phasync\Psr\StringStream;
 
 $request = new ServerRequest(
     'POST',
     '/upload',
-    '{"title":"Holiday"}',
+    new StringStream('{"title":"Holiday"}'),
     ['Content-Type' => 'application/json'],
     parsedBody: function () use (&$request) {
         echo "(parsing the body now)\n";

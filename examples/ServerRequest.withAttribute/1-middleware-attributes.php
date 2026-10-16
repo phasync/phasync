@@ -2,7 +2,7 @@
 
 use phasync\Psr\ServerRequest;
 
-$request = new ServerRequest('GET', '/users/42', '');
+$request = new ServerRequest('GET', '/users/42', null);
 
 // A router adds what it matched; the handler reads it
 $routed = $request->withAttribute('route', 'user.show')->withAttribute('id', '42');

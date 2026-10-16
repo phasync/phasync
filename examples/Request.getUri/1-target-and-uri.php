@@ -3,7 +3,7 @@
 use phasync\Psr\Request;
 use phasync\Psr\Uri;
 
-$request = new Request('GET', '/status', '', ['Host' => 'example.com:8080']);
+$request = new Request('GET', '/status', null, ['Host' => 'example.com:8080']);
 echo $request->getUri(), "\n";                              // derived from the target and Host
 
 // withUri() sets the URI and, as PSR-7 says, the Host header; the request target stays

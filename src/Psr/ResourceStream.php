@@ -10,7 +10,8 @@ use Psr\Http\Message\StreamInterface;
  * A PSR-7 StreamInterface which maps directly to a PHP stream resource.
  * This implementation integrates with phasync for read and write
  * operations. A non-seekable resource is waited for with `phasync::readable()` and `writable()`, so it must
- * be in non-blocking mode; a seekable one (a file, `php://temp`) is read and written without waiting.
+ * be in non-blocking mode (`stream_set_blocking($resource, false)`); the constructor throws otherwise. A seekable
+ * one (a file, `php://temp`) is read and written without waiting. The resource is never modified.
  *
  * @internal not part of the public API; may change in any release
  */
@@ -47,6 +48,7 @@ class ResourceStream implements StreamInterface
      * @param resource|StreamInterface $resource
      * @param ?string                  $mode     If set will override the actual mode
      *
+     * @throws \InvalidArgumentException if `$resource` is not a stream resource, or is a non-seekable resource in blocking mode
      * @throws UsageError
      *
      * @return void
@@ -71,6 +73,10 @@ class ResourceStream implements StreamInterface
         }
         if (!\is_resource($resource) || 'stream' !== \get_resource_type($resource)) {
             throw new \InvalidArgumentException('Not a stream resource');
+        }
+        $meta = \stream_get_meta_data($resource);
+        if (!$meta['seekable'] && $meta['blocked']) {
+            throw new \InvalidArgumentException('The stream resource is in blocking mode and not seekable, so phasync::readable() and writable() cannot yield on it and a read would stall the whole event loop. Call stream_set_blocking($resource, false) before wrapping it.');
         }
         $this->closed   = false;
         $this->detached = false;

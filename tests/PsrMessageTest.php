@@ -31,7 +31,7 @@ test('a stream of a read channel reads the chunks written before the close, and 
         $write->write('Hello ');
         $write->write('World');
         $write->close();
-        $stream = phasync\Psr\StreamFactory::create($read);
+        $stream = new phasync\Psr\ReadChannelStream($read);
         expect($stream->isReadable())->toBeTrue();
         expect($stream->eof())->toBeFalse();
         expect($stream->getContents())->toBe('Hello World');
@@ -51,7 +51,7 @@ test('a stream of a read channel returns at most $length bytes, and the rest at 
             $write->write('ij');
             $write->close();
         });
-        $stream = phasync\Psr\StreamFactory::create($read);
+        $stream = new phasync\Psr\ReadChannelStream($read);
         expect($stream->read(3))->toBe('abc');
         expect($stream->read(100))->toBe('defgh');
         expect((string) $stream)->toBe('ij');

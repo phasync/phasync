@@ -1,11 +1,12 @@
 <?php
 
 use phasync\Psr\ServerRequest;
+use phasync\Psr\StringStream;
 
 $request = new ServerRequest(
     'POST',
     '/login?next=/home',
-    'user=ann&remember=1',
+    new StringStream('user=ann&remember=1'),
     ['Host' => 'example.com', 'Content-Type' => 'application/x-www-form-urlencoded', 'Cookie' => 'theme=dark'],
     serverParams: ['REMOTE_ADDR' => '203.0.113.7', 'HTTPS' => 'on'],
     cookieParams: ['theme' => 'dark'],

@@ -4,7 +4,7 @@ use phasync\Psr\PsrFactory;
 use phasync\Psr\Request;
 use phasync\Psr\Response;
 use phasync\Psr\ServerRequest;
-use phasync\Psr\StreamFactory;
+use phasync\Psr\StringStream;
 use phasync\Psr\Uri;
 
 /*
@@ -32,7 +32,7 @@ test('withHeader/withAddedHeader/withoutHeader/withBody/withProtocolVersion retu
     expect($r3->hasHeader('X-A'))->toBeTrue();
     expect($r4->hasHeader('X-A'))->toBeFalse();
 
-    $body = StreamFactory::create('hello');
+    $body = new StringStream('hello');
     $r5   = $r->withBody($body);
     expect($r5)->not->toBe($r);
     expect((string) $r->getBody())->toBe('');
@@ -45,7 +45,7 @@ test('withHeader/withAddedHeader/withoutHeader/withBody/withProtocolVersion retu
 });
 
 test('with*() shares the same body stream instance across the returned message (phasync#63; swerve streams a response as it is produced)', function () {
-    $body = StreamFactory::create('hello');
+    $body = new StringStream('hello');
     $r    = (new Response(200, [], $body))->withHeader('X-A', '1')->withStatus(201);
     expect($r->getBody())->toBe($body);
 
@@ -176,27 +176,27 @@ test('withUri() updates the Host header by default, and leaves it alone with pre
 // --- ServerRequest ---
 
 test('ServerRequest exposes server params, and derives an https:// URI from the HTTPS server param', function () {
-    $sr = (new ServerRequest('GET', '/x', '', ['Host' => 'example.com'], null, ['HTTPS' => 'on']));
+    $sr = (new ServerRequest('GET', '/x', null, ['Host' => 'example.com'], null, ['HTTPS' => 'on']));
     expect((string) $sr->getUri())->toBe('https://example.com/x');
 });
 
 test('ServerRequest::withUploadedFiles() accepts a nested tree, and rejects non-UploadedFileInterface leaves', function () {
-    $file = (new PsrFactory())->createUploadedFile(StreamFactory::create('x'), 1);
-    $sr   = new ServerRequest('GET', '/', '');
+    $file = (new PsrFactory())->createUploadedFile(new StringStream('x'), 1);
+    $sr   = new ServerRequest('GET', '/', null);
     $sr2  = $sr->withUploadedFiles(['avatar' => $file, 'gallery' => [$file, $file]]);
     expect($sr2->getUploadedFiles()['gallery'])->toHaveCount(2);
     expect(fn () => $sr->withUploadedFiles(['bad' => 'not-a-file']))->toThrow(InvalidArgumentException::class);
 });
 
 test('ServerRequest::withParsedBody() rejects scalars', function () {
-    $sr = new ServerRequest('GET', '/', '');
+    $sr = new ServerRequest('GET', '/', null);
     expect(fn () => $sr->withParsedBody('scalar'))->toThrow(InvalidArgumentException::class);
     expect($sr->withParsedBody(['a' => 1])->getParsedBody())->toBe(['a' => 1]);
     expect($sr->withParsedBody(null)->getParsedBody())->toBeNull();
 });
 
 test('ServerRequest attributes: getAttribute() default, withAttribute(), withoutAttribute()', function () {
-    $sr = new ServerRequest('GET', '/', '');
+    $sr = new ServerRequest('GET', '/', null);
     expect($sr->getAttribute('missing', 'fallback'))->toBe('fallback');
     $sr2 = $sr->withAttribute('k', 'v');
     expect($sr2->getAttribute('k'))->toBe('v');
@@ -226,7 +226,7 @@ test('a PsrFactory response has an empty, but non-null, body (phasync#49 regress
 // --- Stream contracts (StringStream, used for string bodies) ---
 
 test('a string-backed stream is seekable, readable, and not writable', function () {
-    $s = StreamFactory::create('hello world');
+    $s = new StringStream('hello world');
     expect($s->isReadable())->toBeTrue();
     expect($s->isWritable())->toBeFalse();
     expect($s->isSeekable())->toBeTrue();
@@ -245,15 +245,10 @@ test('a string-backed stream is seekable, readable, and not writable', function 
     expect(fn () => $s->write('x'))->toThrow(RuntimeException::class);
 });
 
-test('StreamFactory::create() is idempotent for an existing StreamInterface', function () {
-    $s = StreamFactory::create('x');
-    expect(StreamFactory::create($s))->toBe($s);
-});
-
 // --- UploadedFile ---
 
 test('UploadedFile::getStream()/moveTo() throw once an upload error is set', function () {
-    $file = new phasync\Psr\UploadedFile(StreamFactory::create(''), null, null, 0, \UPLOAD_ERR_NO_FILE);
+    $file = new phasync\Psr\UploadedFile(phasync\Psr\EmptyStream::create(), null, null, 0, \UPLOAD_ERR_NO_FILE);
     expect(fn () => $file->getStream())->toThrow(RuntimeException::class);
     expect(fn () => $file->moveTo('/tmp/x'))->toThrow(RuntimeException::class);
 });
@@ -261,7 +256,7 @@ test('UploadedFile::getStream()/moveTo() throw once an upload error is set', fun
 test('UploadedFile::moveTo() writes the stream contents to the target path and can only be called once', function () {
     $target = \tempnam(\sys_get_temp_dir(), 'phasync-upload-');
     \unlink($target);
-    $file = new phasync\Psr\UploadedFile(StreamFactory::create('the-contents'), 'a.txt', 'text/plain', 12, \UPLOAD_ERR_OK);
+    $file = new phasync\Psr\UploadedFile(new StringStream('the-contents'), 'a.txt', 'text/plain', 12, \UPLOAD_ERR_OK);
 
     $file->moveTo($target);
     expect(\file_get_contents($target))->toBe('the-contents');
@@ -282,14 +277,14 @@ test('UploadedFile::moveTo() with a stream replaces an existing target, as with 
     });
     try {
         \file_put_contents($target, 'old');
-        (new phasync\Psr\UploadedFile(StreamFactory::create('from a stream'), 'a.txt', 'text/plain', 13, \UPLOAD_ERR_OK))->moveTo($target);
+        (new phasync\Psr\UploadedFile(new StringStream('from a stream'), 'a.txt', 'text/plain', 13, \UPLOAD_ERR_OK))->moveTo($target);
         expect(\file_get_contents($target))->toBe('from a stream');
 
         \file_put_contents($source, 'from a path');
         (new phasync\Psr\UploadedFile($source, 'b.txt', 'text/plain', 11, \UPLOAD_ERR_OK))->moveTo($target);
         expect(\file_get_contents($target))->toBe('from a path');
 
-        $file = new phasync\Psr\UploadedFile(StreamFactory::create('x'), 'c.txt', 'text/plain', 1, \UPLOAD_ERR_OK);
+        $file = new phasync\Psr\UploadedFile(new StringStream('x'), 'c.txt', 'text/plain', 1, \UPLOAD_ERR_OK);
         expect(fn () => $file->moveTo($dir . '/no-such-dir/c.txt'))->toThrow(RuntimeException::class, 'No such file or directory');
     } finally {
         \restore_error_handler();

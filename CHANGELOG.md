@@ -9,9 +9,18 @@ Earlier releases are listed on the GitHub releases page.
 - The PSR-7 implementation (`phasync\Psr`) now conforms to the PSR-7 integration suite
   (`php-http/psr7-integration-tests`): non-string header values throw `InvalidArgumentException`,
   constructors validate their arguments, and `Uri` throws on malformed input.
-- `PsrFactory::createStreamFromResource()` switches the resource to non-blocking mode, which
-  `phasync::readable()`/`writable()` require. `ResourceStream` no longer waits on seekable
-  streams (files, `php://temp`), which never block.
+- Message bodies are explicit streams: `Request`, `Response` and `ServerRequest` take a
+  `StreamInterface` (or null for an empty body; `ServerRequest` also a Closure returning one), not a
+  string, resource or other value. Use `StringStream`, `ResourceStream` or `EmptyStream`.
+- `ResourceStream` throws `InvalidArgumentException` for a non-seekable resource in blocking mode,
+  since `phasync::readable()`/`writable()` cannot yield on it; call `stream_set_blocking($resource, false)`
+  first. It no longer waits on seekable streams (files, `php://temp`), which never block.
+- `PsrFactory::createStreamFromResource()` no longer changes the resource's blocking mode; it
+  inherits the `ResourceStream` exception.
+
+### Removed
+
+- `phasync\Psr\StreamFactory`. Construct the stream explicitly.
 
 ### Fixed
 

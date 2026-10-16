@@ -17,7 +17,7 @@ use Psr\Http\Message\UriInterface;
  * the application asks.
  *
  * ```php
- * $request = new ServerRequest('POST', '/login?next=/home', 'user=ann', ['Host' => 'example.com'], parsedBody: ['user' => 'ann']);
+ * $request = new ServerRequest('POST', '/login?next=/home', new StringStream('user=ann'), ['Host' => 'example.com'], parsedBody: ['user' => 'ann']);
  * $request->getQueryParams();   // ['next' => '/home']
  * $request->getParsedBody();    // ['user' => 'ann']
  * ```
@@ -46,7 +46,7 @@ class ServerRequest extends Request implements ServerRequestInterface
      *
      * @param string                           $method          case-sensitive HTTP method
      * @param string                           $requestTarget   request target, e.g. "/path?query=value"
-     * @param mixed                            $body            body, see {@see StreamFactory::create()}, or a Closure returning it
+     * @param StreamInterface|\Closure|null    $body            body; null is an empty stream; a Closure returning the stream
      * @param array                            $headers         array of header names => values
      * @param ?array                           $queryParams     query params override; null derives them from the request target
      * @param array                            $serverParams    server params, like $_SERVER
@@ -63,7 +63,7 @@ class ServerRequest extends Request implements ServerRequestInterface
     public function __construct(
         string $method,
         string $requestTarget,
-        mixed $body,
+        StreamInterface|\Closure|null $body,
         array $headers = [],
         ?array $queryParams = null,
         array $serverParams = [],

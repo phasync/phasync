@@ -1,8 +1,9 @@
 <?php
 
 use phasync\Psr\Request;
+use phasync\Psr\StringStream;
 
-$request = new Request('POST', '/search?q=phasync', '{"limit":10}', [
+$request = new Request('POST', '/search?q=phasync', new StringStream('{"limit":10}'), [
     'Host'         => 'example.com',
     'Content-Type' => 'application/json',
 ]);

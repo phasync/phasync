@@ -3,16 +3,17 @@
 namespace phasync\Psr;
 
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 
 /**
  * A PSR-7 response.
  *
  * Immutable, as PSR-7 requires: the `with...()` methods return a modified copy. The reason phrase
- * defaults to the standard one for the status code ({@see Response::PHRASES}). The body is made with
- * {@see StreamFactory::create()}.
+ * defaults to the standard one for the status code ({@see Response::PHRASES}). The body is a
+ * `StreamInterface`: {@see StringStream}, {@see ResourceStream} or {@see EmptyStream}.
  *
  * ```php
- * $response = new Response(404, ['Content-Type' => 'text/plain'], 'Not found');
+ * $response = new Response(404, ['Content-Type' => 'text/plain'], new StringStream('Not found'));
  * $response->getStatusCode();       // 404
  * $response->getReasonPhrase();     // "Not Found"
  * $stream = new UnbufferedStream();
@@ -49,17 +50,17 @@ class Response implements ResponseInterface
     /**
      * Creates a response.
      *
-     * @param int     $statusCode      HTTP status code
-     * @param array   $headers         array of header names => values
-     * @param mixed   $body            body, see {@see StreamFactory::create()}
-     * @param string  $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
-     * @param ?string $reasonPhrase    the HTTP reason phrase; null or '' gives the standard phrase for `$statusCode`, or '' when there is none
+     * @param int              $statusCode      HTTP status code
+     * @param array            $headers         array of header names => values
+     * @param ?StreamInterface $body            body; null is an empty stream
+     * @param string           $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     * @param ?string          $reasonPhrase    the HTTP reason phrase; null or '' gives the standard phrase for `$statusCode`, or '' when there is none
      *
      * @throws \InvalidArgumentException for a status code outside 100-599, a reason phrase with control characters, or an invalid header (a value that is not a string is rejected)
      *
      * @example examples/Response.__construct/1-invalid-arguments.php Invalid arguments throw
      */
-    public function __construct(int $statusCode = 200, array $headers = [], mixed $body = null, string $protocolVersion = '1.1', ?string $reasonPhrase = null)
+    public function __construct(int $statusCode = 200, array $headers = [], ?StreamInterface $body = null, string $protocolVersion = '1.1', ?string $reasonPhrase = null)
     {
         self::assertStatus($statusCode, $reasonPhrase);
         $this->statusCode   = $statusCode;

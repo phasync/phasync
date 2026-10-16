@@ -7,7 +7,7 @@ use Psr\Http\Message\StreamInterface;
 /**
  * A readable, seekable PSR-7 stream over a string that is known in full.
  *
- * Never blocks. {@see StreamFactory::create()} returns one for a string body.
+ * Never blocks.
  *
  * ```php
  * $stream = new StringStream('Hello');

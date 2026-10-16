@@ -18,7 +18,7 @@ test('ServerRequest constructor with queryParams set', function () {
         $request = new ServerRequest(
             'GET',
             '/test?page=1&sort=name',
-            '',
+            null,
             [],
             ['page' => '1', 'sort' => 'name']
         );
@@ -31,7 +31,7 @@ test('ServerRequest constructor with invalid uploadedFiles throws', function () 
         new ServerRequest(
             'POST',
             '/upload',
-            '',
+            null,
             [],
             null,
             [],
@@ -46,7 +46,7 @@ test('ServerRequest __clone with object parsedBody clones the object', function 
         $obj       = new stdClass();
         $obj->prop = 'value';
 
-        $request1 = new ServerRequest('POST', '/', '', [], null, [], [], [], $obj);
+        $request1 = new ServerRequest('POST', '/', null, [], null, [], [], [], $obj);
         $request2 = clone $request1;
 
         // Modify the cloned body
@@ -60,7 +60,7 @@ test('ServerRequest __clone with object parsedBody clones the object', function 
 
 test('ServerRequest getQueryParams parses query from requestTarget', function () {
     phasync::run(function () {
-        $request = new ServerRequest('GET', '/test?a=1&b=2', '');
+        $request = new ServerRequest('GET', '/test?a=1&b=2', null);
         $params  = $request->getQueryParams();
         expect($params)->toHaveKey('a');
         expect($params)->toHaveKey('b');
@@ -69,7 +69,7 @@ test('ServerRequest getQueryParams parses query from requestTarget', function ()
 
 test('ServerRequest getQueryParams with empty query returns empty array', function () {
     phasync::run(function () {
-        $request = new ServerRequest('GET', '/test', '');
+        $request = new ServerRequest('GET', '/test', null);
         expect($request->getQueryParams())->toBe([]);
     });
 });
@@ -80,7 +80,7 @@ test('ServerRequest fixQueryParams handles array conversion', function () {
         $request = new ServerRequest(
             'GET',
             '/test',
-            '',
+            null,
             [],
             ['arr' => ['a', 'b']]
         );
@@ -308,7 +308,7 @@ test('UploadedFile getSize from file path', function () {
 
 test('Response constructor with invalid reason phrase throws', function () {
     expect(function () {
-        new Response(200, [], '', '1.1', "Invalid\rReason");
+        new Response(200, [], null, '1.1', "Invalid\rReason");
     })->toThrow(InvalidArgumentException::class);
 });
 
@@ -325,7 +325,7 @@ test('Response reason phrase defaults correctly', function () {
 });
 
 test('Response reason phrase custom override', function () {
-    $response = new Response(200, [], '', '1.1', 'Custom');
+    $response = new Response(200, [], null, '1.1', 'Custom');
     expect($response->getReasonPhrase())->toBe('Custom');
 });
 
@@ -335,25 +335,25 @@ test('Response reason phrase custom override', function () {
 
 test('Message header with control character throws', function () {
     expect(function () {
-        new Request('GET', '/', '', ['X-Custom' => "Invalid\x0aHeader"]);
+        new Request('GET', '/', null, ['X-Custom' => "Invalid\x0aHeader"]);
     })->toThrow(InvalidArgumentException::class, 'control character');
 });
 
 test('Message header array with non-string value throws', function () {
     expect(function () {
-        new Request('GET', '/', '', ['X-Values' => ['valid', 123, 'string']]);
+        new Request('GET', '/', null, ['X-Values' => ['valid', 123, 'string']]);
     })->toThrow(InvalidArgumentException::class, 'must be a string');
 });
 
 test('Message header array with control character throws', function () {
     expect(function () {
-        new Request('GET', '/', '', ['X-Values' => ['good', "bad\r\n", 'good']]);
+        new Request('GET', '/', null, ['X-Values' => ['good', "bad\r\n", 'good']]);
     })->toThrow(InvalidArgumentException::class, 'control character');
 });
 
 test('Message withAddedHeader appends values', function () {
     phasync::run(function () {
-        $request  = new Request('GET', '/', '', ['Accept' => 'text/html']);
+        $request  = new Request('GET', '/', null, ['Accept' => 'text/html']);
         $request2 = $request->withAddedHeader('Accept', 'application/json');
         expect($request2->getHeader('Accept'))->toHaveCount(2);
     });
@@ -365,19 +365,19 @@ test('Message withAddedHeader appends values', function () {
 
 test('Request constructor with whitespace in target throws', function () {
     expect(function () {
-        new Request('GET', '/path with space', '');
+        new Request('GET', '/path with space', null);
     })->toThrow(InvalidArgumentException::class);
 });
 
 test('Request constructor with control character in target throws', function () {
     expect(function () {
-        new Request('GET', "/path\x00bad", '');
+        new Request('GET', "/path\x00bad", null);
     })->toThrow(InvalidArgumentException::class);
 });
 
 test('Request getQuery from uriOverride', function () {
     phasync::run(function () {
-        $request  = new Request('GET', '/test', '');
+        $request  = new Request('GET', '/test', null);
         $uri      = new phasync\Psr\Uri('http://example.com/path?key=value');
         $request2 = $request->withUri($uri);
 
@@ -387,21 +387,21 @@ test('Request getQuery from uriOverride', function () {
 
 test('Request getQuery extracts from requestTarget', function () {
     phasync::run(function () {
-        $request = new Request('GET', '/path?search=test&limit=10', '');
+        $request = new Request('GET', '/path?search=test&limit=10', null);
         expect($request->getQuery())->toBe('search=test&limit=10');
     });
 });
 
 test('Request getQuery empty when no query', function () {
     phasync::run(function () {
-        $request = new Request('GET', '/path', '');
+        $request = new Request('GET', '/path', null);
         expect($request->getQuery())->toBe('');
     });
 });
 
 test('Request withRequestTarget pins URI', function () {
     phasync::run(function () {
-        $request  = new Request('GET', '/original', '');
+        $request  = new Request('GET', '/original', null);
         $request2 = $request->withRequestTarget('/new');
         $uri      = new phasync\Psr\Uri('http://example.com/different');
         $request3 = $request2->withUri($uri);
@@ -582,7 +582,7 @@ test('Request withUri sets Host header correctly', function () {
 
 test('Request withUri preserves Host when flag is true', function () {
     phasync::run(function () {
-        $request  = new Request('GET', '/', '', ['Host' => 'original.com']);
+        $request  = new Request('GET', '/', null, ['Host' => 'original.com']);
         $uri      = new phasync\Psr\Uri('http://new.com/path');
         $request2 = $request->withUri($uri, true);
 
@@ -665,7 +665,7 @@ test('Response constructor with status above range throws', function () {
 });
 
 test('Response constructor with custom reason phrase', function () {
-    $response = new Response(200, [], '', '1.1', 'OK Custom');
+    $response = new Response(200, [], null, '1.1', 'OK Custom');
     expect($response->getReasonPhrase())->toBe('OK Custom');
 });
 
@@ -679,7 +679,7 @@ test('Message withProtocolVersion', function () {
 
 test('MessageTrait invalid header name throws', function () {
     expect(function () {
-        new Request('GET', '/', '', ['' => 'value']);
+        new Request('GET', '/', null, ['' => 'value']);
     })->toThrow(InvalidArgumentException::class);
 });
 

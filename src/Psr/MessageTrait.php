@@ -35,15 +35,15 @@ trait MessageTrait
     /**
      * Configure the message trait.
      *
-     * @param string|object|array|StreamInterface $body            Body
-     * @param string[][]                          $headers         Array of header names => values
-     * @param string                              $protocolVersion The HTTP protocol version, typically "1.1" or "1.0"
+     * @param ?StreamInterface $body            Body; null is an empty stream
+     * @param string[][]       $headers         Array of header names => values
+     * @param string           $protocolVersion The HTTP protocol version, typically "1.1" or "1.0"
      *
      * @throws \InvalidArgumentException for a name that is not an RFC 7230 token, or a value that is not a string or a non-empty list of strings, or contains a control character
      */
-    protected function MessageTrait(mixed $body, array $headers=[], string $protocolVersion='1.1')
+    protected function MessageTrait(?StreamInterface $body, array $headers=[], string $protocolVersion='1.1')
     {
-        $this->body            = StreamFactory::create($body);
+        $this->body            = $body ?? EmptyStream::create();
         $this->protocolVersion = $protocolVersion;
         foreach ($headers as $name => $values) {
             $name                    = (string) $name; // a numeric header name arrives as an int key

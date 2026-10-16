@@ -3,6 +3,7 @@
 namespace phasync\Psr;
 
 use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UriInterface;
 
 /**
@@ -13,7 +14,7 @@ use Psr\Http\Message\UriInterface;
  * was set with {@see Request::withUri()}.
  *
  * ```php
- * $request = new Request('POST', '/search?q=phasync', '{"limit":10}', [
+ * $request = new Request('POST', '/search?q=phasync', new StringStream('{"limit":10}'), [
  *     'Host'         => 'example.com',
  *     'Content-Type' => 'application/json',
  * ]);
@@ -41,15 +42,15 @@ class Request implements RequestInterface
     /**
      * Creates a request.
      *
-     * @param string $method          case-sensitive HTTP method
-     * @param string $requestTarget   request target, e.g. "/path?query=value"; '' becomes "/"
-     * @param mixed  $body            body, see {@see StreamFactory::create()}
-     * @param array  $headers         array of header names => values
-     * @param string $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     * @param string           $method          case-sensitive HTTP method
+     * @param string           $requestTarget   request target, e.g. "/path?query=value"; '' becomes "/"
+     * @param ?StreamInterface $body            body; null is an empty stream
+     * @param array            $headers         array of header names => values
+     * @param string           $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
      *
      * @throws \InvalidArgumentException for a method that is not an RFC 7230 token, a request target containing whitespace or control characters, or an invalid header (a value that is not a string is rejected)
      */
-    public function __construct(string $method, string $requestTarget, mixed $body = '', array $headers = [], string $protocolVersion = '1.1')
+    public function __construct(string $method, string $requestTarget, ?StreamInterface $body = null, array $headers = [], string $protocolVersion = '1.1')
     {
         self::assertMethod($method);
         self::assertRequestTarget($requestTarget);
@@ -90,7 +91,7 @@ class Request implements RequestInterface
             $headers['Host'] = $host . (null !== $uri->getPort() ? ':' . $uri->getPort() : '');
         }
 
-        $request = new static($method, $requestTarget, '', $headers);
+        $request = new static($method, $requestTarget, null, $headers);
 
         if ('' !== $uri->getScheme() || '' !== $host) {
             $request = $request->withUri($uri);
