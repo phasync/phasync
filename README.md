@@ -131,8 +131,10 @@ given a deadline, or given a handler for the failures nobody awaited:
 ```php
 phasync::run(function () {
     phasync::frame()->setTimeout(2.0);   // run() throws TimeoutException after 2 seconds
-    phasync::go(fn () => fetch('https://www.php.net/'));
-    phasync::go(fn () => fetch('https://getcomposer.org/'));
+    $a = phasync::go(fn () => fetch('https://www.php.net/'));
+    $b = phasync::go(fn () => fetch('https://getcomposer.org/'));
+
+    return [phasync::await($a), phasync::await($b)];
 });
 ```
 

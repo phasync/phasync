@@ -25,7 +25,6 @@ With `phasync`, you can begin processing the API responses immediately after the
 ```php
 <?php
 
-use phasync;
 use phasync\Services\CurlMulti;
 
 phasync::run(function () {
@@ -55,8 +54,6 @@ One of the main challenges with promise-based systems is managing exceptions and
 ```php
 <?php
 
-use phasync;
-
 phasync::run(function () {
     $coroutine = phasync::go(function () {
         throw new \Exception("Error inside coroutine");
@@ -84,8 +81,6 @@ Integrating `phasync` into your existing codebase is straightforward. Functions 
 
 ```php
 <?php
-
-use phasync;
 
 $fp = fopen('php://temp', 'w+');
 fwrite($fp, 'test data');

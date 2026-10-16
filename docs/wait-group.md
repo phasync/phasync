@@ -88,10 +88,11 @@ phasync::run(function() {
 #### `add`
 
 ```php
-public function add(): void
+public function add(int $delta = 1): void
 ```
 
-- **Description**: Increments the internal counter, indicating that a new task has started.
+- **Description**: Adds `$delta` to the internal counter of unfinished work. A negative delta marks work as done.
+- **Throws**: `LogicException` if the counter would become negative.
 
 #### `done`
 
@@ -99,60 +100,31 @@ public function add(): void
 public function done(): void
 ```
 
-- **Description**: Decrements the internal counter, indicating that a task has finished. Throws a `LogicException` if called when the counter is zero.
+- **Description**: Decrements the internal counter, indicating that a task has finished.
 - **Throws**: `LogicException` if `done` is called without a preceding `add`.
 
 #### `await`
 
 ```php
-public function await(): void
+public function await(float $timeout = \PHP_FLOAT_MAX): void
 ```
 
-- **Description**: Blocks the calling coroutine until the counter reaches zero, indicating that all tasks have completed.
+- **Description**: Blocks the calling coroutine until the counter reaches zero, indicating that all tasks have completed. Returns at once if it is zero already.
+- **Throws**: `TimeoutException` if the counter is not zero in time.
 
-### Selectable Interface
-
-The `WaitGroup` class implements the `SelectableInterface`, allowing it to be used with `phasync`'s selection mechanisms.
-
-#### `selectWillBlock`
+#### `isReady`
 
 ```php
-public function selectWillBlock(): bool
+public function isReady(): bool
 ```
 
-- **Description**: Returns `true` if selecting on the `WaitGroup` will block (i.e., if there are active tasks).
+- **Description**: Returns `true` when the counter is zero.
 
-#### `getSelectManager`
-
-```php
-public function getSelectManager(): SelectManager
-```
-
-- **Description**: Returns the `SelectManager` associated with the `WaitGroup`. This is used internally by `phasync`.
-
-### Deprecation Notice
-
-The `wait` method has been deprecated and renamed to `await` to harmonize with the `SelectableInterface` API.
+The `WaitGroup` class implements `SelectableInterface` (`await()` and `isReady()`).
 
 #### `wait`
 
-```php
-/**
- * This function was renamed to {@see WaitGroup::await()} to harmonize
- * with the SelectableInterface API.
- *
- * @see WaitGroup::await()
- * @deprecated
- * 
- * @throws \Throwable
- */
-public function wait(): void
-{
-    $this->await();
-}
-```
-
-- **Description**: Calls `await`. This method is deprecated and will be removed in future versions.
+Deprecated alias of `await()`.
 
 ## Conclusion
 

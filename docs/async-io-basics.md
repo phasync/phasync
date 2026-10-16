@@ -15,8 +15,6 @@ This function blocks the coroutine until the specified stream becomes readable. 
 ```php
 <?php
 
-use phasync;
-
 phasync::run(function () {
     $fp = fopen('php://temp', 'w+');
     fwrite($fp, 'test data');
@@ -42,8 +40,6 @@ This function blocks the coroutine until the specified stream becomes writable. 
 
 ```php
 <?php
-
-use phasync;
 
 phasync::run(function () {
     $fp = fopen('php://temp', 'w+');
@@ -130,8 +126,6 @@ To integrate `phasync` for asynchronous reading, simply replace the `fread` call
 ```php
 <?php
 
-use phasync;
-
 $fp = fopen('php://temp', 'w+');
 fwrite($fp, 'test data');
 rewind($fp);
@@ -166,8 +160,6 @@ To integrate `phasync` for asynchronous writing, replace the `fwrite` call with 
 
 ```php
 <?php
-
-use phasync;
 
 $fp = fopen('php://temp', 'w+');
 

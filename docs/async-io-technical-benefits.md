@@ -1,6 +1,6 @@
 # Technical Advantages of Asynchronous I/O with phasync
 
-[Back to README.md](../README.md) - [Back to benefits](/benefits.md)
+[Back to README.md](../README.md) - [Back to benefits](benefits.md)
 
 
 ## Introduction
@@ -42,7 +42,6 @@ By using `phasync` for asynchronous I/O, the application can continue executing 
 ```php
 <?php
 
-use phasync;
 use phasync\Services\CurlMulti;
 
 phasync::run(function () {
@@ -77,8 +76,6 @@ Using `phasync` coroutines simplifies the concurrency model compared to traditio
 
 ```php
 <?php
-
-use phasync;
 
 phasync::run(function () {
     $coroutine = phasync::go(function () {
@@ -117,8 +114,6 @@ One of the key advantages of `phasync` is its ability to integrate incrementally
 
 ```php
 <?php
-
-use phasync;
 
 $fp = fopen('php://temp', 'w+');
 fwrite($fp, 'test data');

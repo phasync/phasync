@@ -2,7 +2,7 @@
 
 Software you depend on for a decade should be software you can own.
 
-- **No external dependencies.** Beyond PHP itself and standard interfaces (PSR), phasync,
+- **No external dependencies.** Beyond PHP itself, standard interfaces (PSR) and `fiber-interop/scope`, phasync,
   phasync-ext, swerve, Tether, phasync/net and Mini depend only on each other (and swerve on
   charm/terminal, by the same author). There is no dependency tree to audit, no upstream to wait
   for, and no churn you did not choose.

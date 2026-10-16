@@ -3,12 +3,14 @@
 A coroutine's exception belongs to the coroutine. Whoever awaits it gets it:
 
 ```php
-$fiber = phasync::go(fn () => throw new RuntimeException('failed'));
-try {
-    phasync::await($fiber);
-} catch (RuntimeException $e) {
-    // handled
-}
+phasync::run(function () {
+    $fiber = phasync::go(fn () => throw new RuntimeException('failed'));
+    try {
+        phasync::await($fiber);
+    } catch (RuntimeException $e) {
+        // handled
+    }
+});
 ```
 
 ## A failure nobody awaits

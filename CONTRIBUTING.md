@@ -55,7 +55,7 @@ composer test
 
 ## ChatGPT assistance!
 
-By pasting the `[CHATBOT.txt](./CHATBOT.txt)` file into ChatGPT or your preferred chatbot, you can get assistance and ask questions about how to integrate `phasync` with your projects.
+By pasting the [`CHATBOT.txt`](./CHATBOT.txt) file into ChatGPT or your preferred chatbot, you can get assistance and ask questions about how to integrate `phasync` with your projects.
 
 ## Contributors
 

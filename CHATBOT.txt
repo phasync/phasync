@@ -4,7 +4,6 @@ Below I have provided a kitchen-sink demo app which should explain most of the l
 
 <?php
 
-use phasync\ChannelException;
 use phasync\Util\WaitGroup;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -17,86 +16,72 @@ try {
     phasync::run(function() {
 
         /**
-         * Make the stream resource non-blocking via a stream wrapper
-         * (does not work for server sockets)
-         */
-        $fp = phasync::io(fopen(__FILE__, 'r'));
-        if ($fp === false) {
-            echo "Failed opening\n";
-        }
-        phasync::go(function() use ($fp) {
-            echo elapsed()." Read " . \strlen(\fread($fp, 1024)) . " bytes\n";
-            fclose($fp);
-        });
-
-        /**
          * A wait group simplifies waiting for multiple coroutines to complete
          */
         $wg = new WaitGroup();
-        /**
-         * Create a publish-subscribe channel
-         */
-        phasync::publisher($subscriptions, $publisher);
-        echo "HER\n";
 
-        phasync::go(function() use ($subscriptions) {
-            foreach ($subscriptions as $chunk) {
-                echo elapsed() . "First subscriber got chunk: '".trim($chunk)."'\n";
+        /**
+         * Create a publish-subscribe channel. Every message written to $publisher is delivered,
+         * in order, to every subscription made before it was written.
+         */
+        phasync::publisher($subscribers, $publisher);
+
+        phasync::go(function() use ($subscribers) {
+            foreach ($subscribers as $chunk) {
+                echo elapsed() . "First subscriber got chunk: '$chunk'\n";
             }
             echo elapsed() . "First subscriber done\n";
         });
 
-        phasync::go(function() use ($subscriptions) {
+        phasync::go(function() use ($subscribers) {
             phasync::sleep(0.5);
-            foreach ($subscriptions as $chunk) {
-                echo elapsed() . " Delayed subscriber got chunk: '".trim($chunk)."'\n";
+            // Subscribing late: this subscriber only sees the chunks written from now on
+            foreach ($subscribers as $chunk) {
+                echo elapsed() . "Delayed subscriber got chunk: '$chunk'\n";
             }
             echo elapsed() . "Delayed subscriber done\n";
         });
 
-        try {
-            $publisher->write("First chunk for only the first subscriber");
-        } catch (ChannelException $e) {
-            echo elapsed() . " Can't activate the channel from within the same coroutine that created it\n";
-        }
-
         phasync::go(function() use ($publisher) {
-            $publisher->write("First chunk for only the first subscriber");
+            for ($i = 1; $i <= 3; $i++) {
+                $publisher->write("Chunk $i");
+                phasync::sleep(0.4);
+            }
+            $publisher->close();
         });
 
         /**
          * A channel provides a way for a coroutine to pass execution over to
          * another coroutine, optionally containing a message. With buffering,
-         * execution won't be handed over until the buffer is full.
+         * the writer is not suspended until the buffer is full.
          */
         phasync::channel($reader, $writer, 4); // Buffer up to 4 messages
-        
+
         /**
-         * `phasync::idle()` allows you to perform blocking tasks when the event
-         * loop is about to wait for IO or timers. It is an opportunity to perform
-         * blocking operations, such as calling the {@see \glob()} function or use
-         * other potentially blocking functions with minimal disruption.
+         * `phasync::idle()` suspends the coroutine until the event loop has had nothing
+         * else to run for the given number of seconds. It is an opportunity to do work
+         * that is better done when the other coroutines are waiting for IO or timers.
          */
         phasync::go(function() {
             echo elapsed() . "Idle work: Started idle work coroutine\n";
-            for ($i = 0; $i < 10; $i++) {
-                phasync::idle(0.1); // Wait until the event loop is waiting for IO, or at most 0.1 seconds. Useful before running costly functions.
-                $fib32 = fibonacci(32);
-                echo elapsed() . "Idle work: Fib 32 = $fib32\n";
+            for ($i = 0; $i < 3; $i++) {
+                phasync::idle(0.1);
+                $fib27 = fibonacci(27);
+                echo elapsed() . "Idle work: Fib 27 = $fib27\n";
             }
         });
 
         /**
          * `WriteChannel::write()` Writing to a channel will either immediately buffer the message,
          * or the coroutine is suspended if no buffer space is available.
-         * The reading coroutine (if any) is immediately resumed.
+         * The reading coroutine (if any) is resumed.
          */
         phasync::go(function() use ($wg, $writer) {
             echo elapsed() . "Channel writer: Started counter coroutine\n";
             $wg->add();
-            for ($i = 0; $i < 10; $i++) {
+            for ($i = 0; $i < 5; $i++) {
                 echo elapsed() . "Channel writer: Will write " . ($i + 1) . " to channel\n";
-                $writer->write("Count: " . ($i + 1) . " / 10"); // This function may block the event loop
+                $writer->write("Count: " . ($i + 1) . " / 5"); // Suspends only if the buffer is full
                 echo elapsed() . "Channel writer: Wrote to channel\n";
                 phasync::sleep(0.1); // Pause the coroutine for 0.1 seconds and let other coroutines do some work
             }
@@ -106,9 +91,9 @@ try {
         });
 
         /**
-         * `phasync::sleep(float $time=0)` yields execution until the
-         * next iteration of the event loop or until a number of seconds
-         * have passed.
+         * `phasync::sleep(float $time=0)` pauses only the current coroutine for a number
+         * of seconds. Without an argument, other coroutines get a turn and this one resumes
+         * as soon as possible.
          */
         $future = phasync::go(function() use ($wg) {
             echo elapsed() . "Sleep: Started sleep coroutine\n";
@@ -121,67 +106,64 @@ try {
         });
 
         /**
-         * `phasync::preempt()` is a function that checks if the coroutine has
-         * run for more than 20 ms (configurable) without suspending. If it
-         * has, the coroutine is suspended until the next tick.
+         * A coroutine that computes without waiting keeps the others from running, so
+         * a long loop should give them a turn now and then with `phasync::sleep()`.
          */
         phasync::go(function() use ($wg) {
-            echo elapsed() . "100 million: Started busy loop coroutine\n";
+            echo elapsed() . "Busy loop: Started busy loop coroutine\n";
             $wg->add();
-            for ($i = 0; $i < 100000000; $i++) {
-                if ($i % 7738991 == 0) {
-                    echo elapsed() . "100 million: Counter at $i, may preempt\n";
-                    phasync::preempt(); // Provides an opportunity to switch to another coroutine.
-                }             
+            for ($i = 0; $i < 30000000; $i++) {
+                if ($i % 10000000 == 0) {
+                    echo elapsed() . "Busy loop: Counter at $i, giving the others a turn\n";
+                    phasync::sleep();
+                }
             }
-            echo elapsed() . "100 million: Counter at $i. Wait group done\n";
+            echo elapsed() . "Busy loop: Counter at $i. Wait group done\n";
             $wg->done();
         });
 
         /**
-         * `phasync::run()` can be used to create a nested coroutine context.
-         * Coroutines that are already running in the parent context will
-         * continue to run, but this blocks the current coroutine until the
-         * nested context is finished.
-         * 
-         * `ReadChannel::read()` will immediately return the next buffered
-         * message available in the channel. If no message is available, the
-         * coroutine will be paused and execution will immediately be passed
-         * to the suspended writer (if any).
+         * `phasync::run()` inside a coroutine runs the function in that coroutine, in a
+         * new frame, and returns when the coroutines started inside it have ended. The
+         * other coroutines keep running meanwhile.
+         *
+         * `ReadChannel::read()` returns the next buffered message available in the
+         * channel. If no message is available, the coroutine is paused until a message
+         * is written. It returns null when the channel is closed and empty.
          */
         phasync::go(function() use ($reader) {
             // Not using wait group here, since this coroutine will finish naturally
             // from the channel closing.
             echo elapsed() . "Channel reader: Starting channel reader coroutine\n";
             phasync::run(function() {
-                echo elapsed() . "Channel reader: Starting nested context\n";
-                phasync::sleep(0.5);                
-                echo elapsed() . "Channel reader: Nested context complete\n";
+                echo elapsed() . "Channel reader: Starting nested run\n";
+                phasync::sleep(0.5);
+                echo elapsed() . "Channel reader: Nested run complete\n";
             });
-            while ($message = $reader->read()) {
+            while (null !== ($message = $reader->read())) {
                 echo elapsed() . "Channel reader: Received message '$message'\n";
             }
             echo elapsed() . "Channel reader: Received null, so channel closed\n";
         });
 
         /**
-         * `WaitGroup::wait()` will wait until an equal number of `WaitGroup::add()`
+         * `WaitGroup::await()` waits until an equal number of `WaitGroup::add()`
          * and `WaitGroup::done()` calls have been performed. While waiting, all
-         * other coroutines will be allowed to continue their work.
+         * other coroutines continue their work.
          */
         phasync::go(function() use ($wg) {
             echo elapsed() . "Wait group waiting: Started coroutine that waits for the wait group\n";
-            $wg->wait();
+            $wg->await();
             echo elapsed() . "Wait group waiting: Wait group finished, throwing exception\n";
             throw new Exception("Demo that this exception will be thrown from the top run() statement");
         });
 
         /**
-         * `phasync::await(Fiber $future)` will block the current coroutine until
-         * the other coroutine (created with {@see phasync::go()}) completes and
-         * either throws an exception or returns a value.
+         * `phasync::await(Fiber $future)` suspends the current coroutine until the other
+         * coroutine (created with {@see phasync::go()}) ends, and either throws its
+         * exception or returns its value.
          */
-        phasync::go(function() use ($wg, $future) {
+        phasync::go(function() use ($future) {
             echo elapsed() . "Future awaits: Started coroutine awaiting exception\n";
             try {
                 phasync::await($future);
@@ -189,34 +171,34 @@ try {
                 echo elapsed() . "Future awaits: Caught '" . $e->getMessage() . "' exception\n";
             }
         });
-                
-        echo elapsed() . "Main run context: Waiting for wait group\n";
+
+        echo elapsed() . "Main run: Waiting for wait group\n";
         /**
-         * Calling `WaitGroup::wait()` in the main coroutine will still allow all
+         * Calling `WaitGroup::await()` in the main coroutine still allows all
          * coroutines that have already started to continue their work. When all
          * added coroutines have called `WaitGroup::done()` the main coroutine will
          * resume.
          */
-        $wg->wait();
+        $wg->await();
         echo elapsed() . "----\n";
-        echo elapsed() . "Main run context: Wait group finished\n";
+        echo elapsed() . "Main run: Wait group finished\n";
 
         try {
-            echo elapsed() . "Main run context: Wait group finished, awaiting future\n";
+            echo elapsed() . "Main run: Wait group finished, awaiting future\n";
             /**
-             * If you await the result of a future multiple places, the same exception
-             * will be thrown all those places.
+             * If you await the result of a coroutine in multiple places, the same exception
+             * will be thrown in all those places.
              */
             $result = phasync::await($future);
         } catch (Exception $e) {
-            echo elapsed() . "Main run context: Caught exception: " . $e->getMessage() . "\n";
+            echo elapsed() . "Main run: Caught exception: " . $e->getMessage() . "\n";
         }
     });
 } catch (Exception $e) {
     /**
-     * Exceptions that are not handled within a `phasync::run()` context will be thrown
-     * by the run context wherein they were thrown. This also applies to nested run 
-     * contexts.
+     * A failure that nobody awaited does not stop the other coroutines. When all coroutines
+     * of a `phasync::run()` have ended, it throws the failures: one as it is, several in a
+     * `phasync\AggregateException`. A failure that was awaited counts as handled.
      */
     echo "Outside caught: ".$e->getMessage()."\n";
 }
@@ -238,8 +220,9 @@ function fibonacci(int $n) {
 function async_read_file(string $filename): string {
     $buffer = '';
     $fp = fopen($filename, 'r');
+    stream_set_blocking($fp, false);
     while (!feof($fp)) {
-        phasync::readable($fp); // pauses the fiber until stream_select determines reading won't block (use phasync::writable($resource) for writes)
+        phasync::readable($fp); // pauses the coroutine until stream_select determines reading won't block (use phasync::writable($resource) for writes)
         $chunk = fread($fp, 32768);
         if (!is_string($chunk)) break;
         $buffer .= $chunk;

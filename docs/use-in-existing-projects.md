@@ -24,7 +24,7 @@ Since coroutines look completely like ordinary code, without any promises and `-
  * Whenever you wish to write to a stream resource / file, you should call `phasync::writable($stream)`. This will pause the coroutine until the `$stream` resource will accept a write operation without blocking the entire application.
  * Whenever you need to wait for something, perhaps because you check the database or are waiting for some file to appear, you should use `phasync::sleep()` instead of `usleep()` or `sleep()` between every check.
  
- These functions ensures that other coroutines are allowed to perform some work, instead of having the server kernel pause your entire application. The functions have no return value, and they work both inside **phasync** and outside of phasync. You can safely update your codebase and put `phasync::readable($fp)` before any call to `fread()` or similar. This ensures that if a coroutine is calling some functionality in your application codebase, the coroutine will take advantage of phasync to allow other coroutines to work.
+ These functions ensures that other coroutines are allowed to perform some work, instead of having the server kernel pause your entire application. The functions return the stream, so they can wrap it in the call (`fread(phasync::readable($fp), 4096)`), and they work both inside **phasync** and outside of phasync. You can safely update your codebase and put `phasync::readable($fp)` before any call to `fread()` or similar. This ensures that if a coroutine is calling some functionality in your application codebase, the coroutine will take advantage of phasync to allow other coroutines to work.
 
 ### `phasync::readable(resource $stream)`
 
@@ -40,6 +40,7 @@ function get_countries(): array {
         $countries[] = fgetcsv($fp);
     }
     fclose($fp);
+    return $countries;
 }
 ```
 

@@ -2,7 +2,10 @@
 
 Earlier releases are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.0-rc1 (2026-10-16)
+
+The first release candidate.
+The release packages bundle phasync-ext 0.5.0-beta7, unchanged since 2.0.0-beta10.
 
 ### Changed
 
@@ -22,9 +25,11 @@ Earlier releases are listed on the GitHub releases page.
 
 - `phasync\Psr\StreamFactory`. Construct the stream explicitly.
 - `phasync\Psr\ReadChannelStream`, which nothing in phasync used. Wrap a channel in a stream of your own.
+- `stubs.php.md` and `docs/basic-example.md`, which described the 1.x API. The API reference is `docs/API.md` and the docblocks.
 
 ### Fixed
 
+- Documentation examples (README, `docs/`, `CHATBOT.txt`) that used removed API or would not run, and SECURITY.md now lists 2.x as supported.
 - `ProcessRunner::isStopped()` stayed `true`/`false` incorrectly: `proc_get_status()` reports a
   stop only once, so it is remembered until the process is continued.
 - `EventLoop::clear()` crashed writing readonly properties.

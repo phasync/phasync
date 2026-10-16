@@ -44,9 +44,11 @@ phasync::run(function () {
     $frame = phasync::frame();
     $frame->setTimeout(2.0);    // cancels the frame after 2 seconds; run() throws TimeoutException
     $frame->setExceptionHandler(fn (Throwable $e) => error_log($e->getMessage()));
-    phasync::go(fn () => fetch('a'));
-    phasync::go(fn () => fetch('b'));
+    $a = phasync::go(fn () => fetch('a'));
+    $b = phasync::go(fn () => fetch('b'));
     // $frame->cancel() cancels every coroutine of the frame and of the frames nested in it
+
+    return [phasync::await($a), phasync::await($b)];
 });
 ```
 

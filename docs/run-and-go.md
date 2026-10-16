@@ -74,10 +74,10 @@ To finish off, here is an example where you get a real benefit from `phasync`. L
 function read_countries_csv(): array {
     $result = [];
     $fp = fopen('countries.csv', 'r');    
-    while (($data = fgetcsv($handle, 1000, ",")) !== false) {
+    while (($data = fgetcsv($fp, 1000, ",")) !== false) {
         $result[] = $data;
     }
-    fclose($handle);
+    fclose($fp);
     return $result;
 }
 ```
@@ -113,11 +113,11 @@ function read_countries_csv(): array {
     $fp = fopen('countries.csv', 'r');    
     \stream_set_blocking($fp, false);
     phasync::readable($fp);
-    while (($data = fgetcsv($handle, 1000, ",")) !== false) {
+    while (($data = fgetcsv($fp, 1000, ",")) !== false) {
         $result[] = $data;
         phasync::readable($fp);
     }
-    fclose($handle);
+    fclose($fp);
     return $result;
 }
 ```

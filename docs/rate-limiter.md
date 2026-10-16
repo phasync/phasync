@@ -49,26 +49,19 @@ phasync::run(function() {
 #### `await`
 
 ```php
-public function await(): void
+public function await(float $timeout = \PHP_FLOAT_MAX): void
 ```
 
-- **Description**: Blocks the current coroutine until the rate limiter allows the next event. This method is used internally by `wait`.
+- **Description**: Blocks the current coroutine until the rate limiter allows the next event. This method is used by `wait`.
+- **Throws**: `TimeoutException` if no permit came in time.
 
-#### `getSelectManager`
+#### `isReady`
 
 ```php
-public function getSelectManager(): SelectManager
+public function isReady(): bool
 ```
 
-- **Description**: Returns the `SelectManager` associated with the rate limiter's read channel. This is used internally for selecting on multiple channels.
-
-#### `selectWillBlock`
-
-```php
-public function selectWillBlock(): bool
-```
-
-- **Description**: Returns `true` if selecting on the rate limiter's read channel would block. This is used internally for checking if a select operation will block.
+- **Description**: Returns `true` if a permit is available. The `RateLimiter` implements `SelectableInterface` (`await()` and `isReady()`).
 
 #### `wait`
 
@@ -80,7 +73,7 @@ public function wait(): void
 
 ### Error Handling
 
-The `RateLimiter` constructor throws an `InvalidArgumentException` if the `eventsPerSecond` parameter is less than or equal to 0.
+The `RateLimiter` constructor throws an `InvalidArgumentException` if the `eventsPerSecond` parameter is less than or equal to 0, and a `LogicException` outside a coroutine.
 
 ### Example with Burst
 
