@@ -21,8 +21,10 @@ test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine end
     $growth = phasync::run(static function () {
         $before = \memory_get_usage();
         $until  = \microtime(true) + 1.0;
+        $cycles = 0;
         while (\microtime(true) < $until) {
             for ($i = 0; $i < 1000; ++$i) {
+                ++$cycles;
                 $a    = new stdClass();
                 $b    = new stdClass();
                 $a->b = $b;
@@ -33,11 +35,13 @@ test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine end
         phasync::sleep(0.1); // the loop counts the possible cycles every 50 ms,
         phasync::sleep();    // by the time a tick starts, so one more tick after the wait
 
-        return \memory_get_usage() - $before;
+        return [\memory_get_usage() - $before, $cycles];
     });
-    // Uncollected, a second of this is about 200 MB. A loop this busy keeps its garbage for up to
-    // GC_MAX_INTERVAL (0.5 s), so PHP's root buffer grows to hold that much and stays that size.
-    expect($growth)->toBeLessThan(32 << 20);
+    // Uncollected, each cycle keeps about 700 bytes. A loop this busy keeps its garbage for up to
+    // GC_MAX_INTERVAL (0.5 s), so PHP's root buffer grows to hold that much and stays that size:
+    // about 20 bytes per cycle made here, whatever the machine's speed (the budget is 128).
+    [$growth, $cycles] = $growth;
+    expect($growth)->toBeLessThan($cycles * 128);
 })->skip(fn () => gcGraceActive(), 'the extension\'s gc grace (phasync.virtualize=1) leaves young cycles for later');
 
 // RT-1: garbage collection state

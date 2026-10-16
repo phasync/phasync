@@ -9,13 +9,9 @@
  */
 
 $extSo = static function (): ?string {
-    foreach ([\getenv('PHASYNC_EXT_SO'), '/home/frode/dev/phasync-ext/modules/phasync.so'] as $candidate) {
-        if (\is_string($candidate) && '' !== $candidate && \is_file($candidate)) {
-            return $candidate;
-        }
-    }
+    $so = \getenv('PHASYNC_EXT_SO');
 
-    return null;
+    return \is_string($so) && \is_file($so) ? $so : null;
 };
 
 /**
@@ -124,7 +120,7 @@ test('ensure_loaded() refuses to re-exec twice: a child that was already re-exec
     expect($exit)->toBe(0);
     expect($output)->toContain('re-exec did not load the phasync extension');
     expect($output)->toContain(\phasync\ext\_abi_key());
-});
+})->skip(\PHP_VERSION_ID < 80300, 'ensure_loaded() stops at its PHP 8.3 check on older PHP');
 
 test('ensure_loaded() throws instructively when no binary can be found: explicit path, PHASYNC_EXT_SO, or nothing', function () use ($runChild, $ensure) {
     $dir = \sys_get_temp_dir() . '/phasync-loader-missing-' . \bin2hex(\random_bytes(4));
@@ -137,7 +133,7 @@ test('ensure_loaded() throws instructively when no binary can be found: explicit
         expect($output)->toContain('no phasync binary found for this platform (' . \phasync\ext\_abi_key() . ')');
         expect($output)->toContain('Set PHASYNC_EXT_SO');
     }
-});
+})->skip(\PHP_VERSION_ID < 80300, 'ensure_loaded() stops at its PHP 8.3 check on older PHP');
 
 test('an explicit path wins over PHASYNC_EXT_SO: only the explicit one is looked for', function () use ($runChild, $ensure) {
     $present = \tempnam(\sys_get_temp_dir(), 'phasync-loader-so-');
@@ -155,7 +151,7 @@ test('an explicit path wins over PHASYNC_EXT_SO: only the explicit one is looked
 
     expect($output)->toContain('cannot re-exec to load the extension');
     expect($output)->toContain($present);
-});
+})->skip(\PHP_VERSION_ID < 80300, 'ensure_loaded() stops at its PHP 8.3 check on older PHP');
 
 test('without pcntl_exec() and FFI the loader says how to start PHP with the extension, and has marked the environment for the loop guard', function () use ($runChild) {
     $present = \tempnam(\sys_get_temp_dir(), 'phasync-loader-so-');
@@ -173,7 +169,7 @@ test('without pcntl_exec() and FFI the loader says how to start PHP with the ext
     expect($output)->toContain('neither pcntl_exec() nor FFI execv() is available');
     expect($output)->toContain('php -d extension=' . $present);
     expect($output)->toEndWith('|1');
-});
+})->skip(\PHP_VERSION_ID < 80300, 'ensure_loaded() stops at its PHP 8.3 check on older PHP');
 
 test('with FFI present but disabled, _ffi_execv() reports false and the loader falls through to its error', function () use ($runChild) {
     [$probe] = $runChild('exit(extension_loaded("ffi") ? 0 : 1);', ['-d', 'extension=ffi']);
@@ -207,7 +203,7 @@ test('ensure_loaded() re-executes through pcntl_exec(), keeping the interpreter 
 
     expect($exit)->toBe(0);
     expect(\json_decode($output, true))->toBe([true, '77M', '1', ['one', 'two words']]);
-});
+})->skip(\PHP_VERSION_ID < 80300, 'ensure_loaded() stops at its PHP 8.3 check on older PHP');
 
 test('ensure_loaded() re-executes through FFI execv() when pcntl_exec() is unavailable', function () use ($runChild, $extSo) {
     $so      = $extSo();
@@ -227,4 +223,4 @@ test('ensure_loaded() re-executes through FFI execv() when pcntl_exec() is unava
 
     expect($exit)->toBe(0);
     expect(\json_decode($output, true))->toBe([true, '1', ['a b', 'c']]);
-});
+})->skip(\PHP_VERSION_ID < 80300, 'ensure_loaded() stops at its PHP 8.3 check on older PHP');
