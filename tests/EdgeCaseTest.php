@@ -52,20 +52,27 @@ test('deadlock detection', function () {
 });
 
 test('memory leak detection', function () {
+    $burst = function () {
+        phasync::run(function () {
+            for ($i = 0; $i < 10000; ++$i) {
+                phasync::go(function () {
+                    phasync::sleep(0.01);
+
+                    return 'data';
+                });
+            }
+        });
+    };
+
+    // The first burst grows the pools and caches (about 5 MB) that later bursts reuse
+    $burst();
+    \gc_collect_cycles();
     $startMemory = \memory_get_usage();
 
-    phasync::run(function () {
-        for ($i = 0; $i < 10000; ++$i) {
-            phasync::go(function () {
-                phasync::sleep(0.01);
+    $burst();
+    \gc_collect_cycles();
 
-                return 'data';
-            });
-        }
-    });
-
-    $endMemory = \memory_get_usage();
-    expect($endMemory - $startMemory)->toBeLessThan(5000000); // Example threshold
+    expect(\memory_get_usage() - $startMemory)->toBeLessThan(100000);
 });
 
 test('exception handling under high load', function () {

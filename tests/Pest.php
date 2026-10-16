@@ -76,3 +76,8 @@ uses()->beforeEach(function () {
 })->afterEach(function () {
     phasyncResetProcessState();
 })->in('Characterization');
+
+// php-http/psr7-integration-tests builds URIs, streams and uploaded files through these PSR-17 factories
+\defined('URI_FACTORY') || \define('URI_FACTORY', phasync\Psr\PsrFactory::class);
+\defined('STREAM_FACTORY') || \define('STREAM_FACTORY', phasync\Psr\PsrFactory::class);
+\defined('UPLOADED_FILE_FACTORY') || \define('UPLOADED_FILE_FACTORY', phasync\Psr\PsrFactory::class);

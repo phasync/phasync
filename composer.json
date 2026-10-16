@@ -19,7 +19,8 @@
     },
     "require-dev": {
         "pestphp/pest": "^2.34 || ^3.0",
-        "friendsofphp/php-cs-fixer": "^3.58"
+        "friendsofphp/php-cs-fixer": "^3.58",
+        "php-http/psr7-integration-tests": "^1.5"
     },
     "provide": {
         "psr/http-factory-implementation": "1.1"
