@@ -55,7 +55,9 @@ class Response implements ResponseInterface
      * @param string  $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
      * @param ?string $reasonPhrase    the HTTP reason phrase; null or '' gives the standard phrase for `$statusCode`, or '' when there is none
      *
-     * @throws \InvalidArgumentException for a status code outside 100-599, a reason phrase with control characters, or an invalid header
+     * @throws \InvalidArgumentException for a status code outside 100-599, a reason phrase with control characters, or an invalid header (a value that is not a string is rejected)
+     *
+     * @example examples/Response.__construct/1-invalid-arguments.php Invalid arguments throw
      */
     public function __construct(int $statusCode = 200, array $headers = [], mixed $body = null, string $protocolVersion = '1.1', ?string $reasonPhrase = null)
     {

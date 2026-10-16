@@ -70,7 +70,9 @@ class Uri implements UriInterface
      *
      * @param string|UriInterface $uri an absolute URL, or a relative reference
      *
-     * @throws \InvalidArgumentException when `$uri` cannot be parsed
+     * @throws \InvalidArgumentException when `$uri` cannot be parsed, e.g. 'http:///x' or a port above 65535
+     *
+     * @example examples/Uri.__construct/1-malformed-input.php Malformed input throws
      */
     public function __construct(string|UriInterface $uri)
     {
@@ -248,6 +250,8 @@ class Uri implements UriInterface
     /**
      * Returns a copy of the URI with the scheme replaced.
      *
+     * @throws \InvalidArgumentException when the scheme does not start with a letter or has characters other than letters, digits, '+', '-' and '.'
+     *
      * @see Psr\Http\Message\UriInterface::withScheme()
      */
     public function withScheme($scheme): UriInterface
@@ -261,6 +265,8 @@ class Uri implements UriInterface
     /**
      * Returns a copy of the URI with the user and password replaced.
      *
+     * @throws \InvalidArgumentException when the URI has no host and `$user` is not ''
+     *
      * @see Psr\Http\Message\UriInterface::withUserInfo()
      */
     public function withUserInfo($user, $password = null): UriInterface
@@ -272,7 +278,9 @@ class Uri implements UriInterface
     }
 
     /**
-     * Returns a copy of the URI with the host replaced.
+     * Returns a copy of the URI with the host replaced; '' removes it.
+     *
+     * @throws \InvalidArgumentException when `$host` is not a string, or not a host name or IP address
      *
      * @see Psr\Http\Message\UriInterface::withHost()
      */
@@ -290,6 +298,8 @@ class Uri implements UriInterface
 
     /**
      * Returns a copy of the URI with the port replaced; null removes it.
+     *
+     * @throws \InvalidArgumentException for a port outside 1-65535, or a port on a URI without a host
      *
      * @see Psr\Http\Message\UriInterface::withPort()
      */

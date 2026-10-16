@@ -39,7 +39,7 @@ trait MessageTrait
      * @param string[][]                          $headers         Array of header names => values
      * @param string                              $protocolVersion The HTTP protocol version, typically "1.1" or "1.0"
      *
-     * @throws \InvalidArgumentException for an invalid header name or value
+     * @throws \InvalidArgumentException for a name that is not an RFC 7230 token, or a value that is not a string or a non-empty list of strings, or contains a control character
      */
     protected function MessageTrait(mixed $body, array $headers=[], string $protocolVersion='1.1')
     {
@@ -209,7 +209,7 @@ trait MessageTrait
      * @param string          $name  case-insensitive header field name
      * @param string|string[] $value header value(s)
      *
-     * @throws \InvalidArgumentException for invalid header names or values
+     * @throws \InvalidArgumentException for a name that is not an RFC 7230 token, or a value that is not a string or a non-empty list of strings, or contains a control character
      *
      * @return static
      */
@@ -238,8 +238,7 @@ trait MessageTrait
      * @param string          $name  case-insensitive header field name to add
      * @param string|string[] $value header value(s)
      *
-     * @throws \InvalidArgumentException for invalid header names
-     * @throws \InvalidArgumentException for invalid header values
+     * @throws \InvalidArgumentException for a name that is not an RFC 7230 token, or a value that is not a string or a non-empty list of strings, or contains a control character
      *
      * @return static
      */

@@ -573,7 +573,7 @@ test('ResourceStream.read throws when the stream is not readable', function () {
 
         try {
             expect(fn () => $stream->read(10))
-                ->toThrow(RuntimeException::class, 'not writable');
+                ->toThrow(RuntimeException::class, 'Stream is not readable');
         } finally {
             $stream->close();
             \unlink($path);
@@ -591,7 +591,7 @@ test('ResourceStream.read throws when the underlying read fails', function () {
             expect($stream->isReadable())->toBeTrue();
 
             expect(fn () => psrGapsQuietly(fn () => $stream->read(10)))
-                ->toThrow(RuntimeException::class, 'Failed writing to stream');
+                ->toThrow(RuntimeException::class, 'Failed reading from stream');
         } finally {
             \unlink($path);
         }
@@ -707,5 +707,22 @@ test('BufferedStream writers wait for each other when the file backend is locked
 
         expect($order)->toHaveCount(2);
         expect($stream->getContents())->toBe('0123456789' . $order[0] . $order[1]);
+    });
+});
+
+test('BufferedStream.detach returns null the second time', function () {
+    phasync::run(function () {
+        $stream = new BufferedStream();
+
+        phasync::go(function () use ($stream) {
+            $stream->append('abc');
+            $stream->end();
+        });
+
+        $detached = $stream->detach();
+        expect(\is_resource($detached))->toBeTrue();
+        expect($stream->detach())->toBeNull();
+
+        \fclose($detached);
     });
 });

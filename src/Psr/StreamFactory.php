@@ -28,7 +28,8 @@ final class StreamFactory
      * Returns a stream for `$source`.
      *
      * A string becomes a `StringStream` (an empty stream for ''), null an empty stream, and a stream
-     * resource a stream that reads it with `phasync::readable()`, so the coroutine yields while it waits. A
+     * resource a stream that reads it with `phasync::readable()`, so the coroutine yields while it waits; the resource must be in non-blocking mode
+     * (`stream_set_blocking($resource, false)`), unless it is seekable (a file, `php://temp`), which is never waited for. A
      * `ReadChannelInterface` becomes a stream that reads the channel. A `Stringable` is converted with
      * `(string)`, and a `JsonSerializable` with `json_encode()`. A `StreamInterface` is returned as it is.
      *

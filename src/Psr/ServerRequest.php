@@ -56,7 +56,7 @@ class ServerRequest extends Request implements ServerRequestInterface
      * @param array                            $attributes      attributes derived from the request
      * @param string                           $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
      *
-     * @throws \InvalidArgumentException when `$uploadedFiles` is not a tree of `UploadedFileInterface`
+     * @throws \InvalidArgumentException for a method that is not an RFC 7230 token, a request target containing whitespace or control characters, an invalid header (a value that is not a string is rejected), or `$uploadedFiles` that is not a tree of `UploadedFileInterface`
      *
      * @example examples/ServerRequest.__construct/1-parse-on-demand.php Parse the body when the application asks
      */

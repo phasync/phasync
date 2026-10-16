@@ -22,6 +22,7 @@ Earlier releases are listed on the GitHub releases page.
 - `Uri` parsed every query string to `[]` when mbstring was not loaded (#129).
 - `StringBuffer::writeToResource()` died on a partial write once the buffer had ended (#130); it
   now finishes the chunk in a write loop.
+- `ResourceStream::read()` reported write errors for read failures, and a second `BufferedStream::detach()` returned a new file instead of null (#131).
 - Removed dead code in `CurlMulti` and `ExceptionTool`.
 
 ## 2.0.0-beta10 (2026-10-15)

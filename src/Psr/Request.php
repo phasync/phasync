@@ -47,7 +47,7 @@ class Request implements RequestInterface
      * @param array  $headers         array of header names => values
      * @param string $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
      *
-     * @throws \InvalidArgumentException for a method that is not an RFC 7230 token, a request target containing whitespace or control characters, or an invalid header
+     * @throws \InvalidArgumentException for a method that is not an RFC 7230 token, a request target containing whitespace or control characters, or an invalid header (a value that is not a string is rejected)
      */
     public function __construct(string $method, string $requestTarget, mixed $body = '', array $headers = [], string $protocolVersion = '1.1')
     {

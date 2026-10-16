@@ -9,7 +9,8 @@ use Psr\Http\Message\StreamInterface;
 /**
  * A PSR-7 StreamInterface which maps directly to a PHP stream resource.
  * This implementation integrates with phasync for read and write
- * operations
+ * operations. A non-seekable resource is waited for with `phasync::readable()` and `writable()`, so it must
+ * be in non-blocking mode; a seekable one (a file, `php://temp`) is read and written without waiting.
  *
  * @internal not part of the public API; may change in any release
  */
@@ -318,11 +319,11 @@ class ResourceStream implements StreamInterface
             throw new \RuntimeException("Can't read a negative amount");
         }
         if (!$this->isReadable()) {
-            throw new \RuntimeException('Stream is not writable');
+            throw new \RuntimeException('Stream is not readable');
         }
         $result = \fread($this->isSeekable() ? $this->resource : \phasync::readable($this->resource), $length);
         if (false === $result) {
-            throw new \RuntimeException('Failed writing to stream');
+            throw new \RuntimeException('Failed reading from stream');
         }
 
         return $result;

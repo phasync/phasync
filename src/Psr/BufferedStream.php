@@ -81,6 +81,11 @@ class BufferedStream implements StreamInterface
         }
     }
 
+    /**
+     * Waits for `end()`, then closes the stream.
+     *
+     * @throws TimeoutException when `end()` is not called within `$deadlockTimeout` seconds
+     */
     public function close(): void
     {
         // Can't actually close this until the writer has ended
@@ -93,8 +98,21 @@ class BufferedStream implements StreamInterface
         $this->closed = true;
     }
 
+    /**
+     * Waits for `end()`, then returns the content as a file resource and marks the stream detached.
+     *
+     * Reading a detached stream throws a `RuntimeException`.
+     *
+     * @throws TimeoutException when `end()` is not called within `$deadlockTimeout` seconds
+     *
+     * @return resource|null null when the stream was already detached
+     */
     public function detach()
     {
+        if ($this->detached) {
+            return null;
+        }
+
         // Can't actually detach until the writer has ended
         $this->blockUntilEnded();
 
@@ -186,6 +204,12 @@ class BufferedStream implements StreamInterface
         return !$this->closed && !$this->detached;
     }
 
+    /**
+     * Returns up to `$length` bytes, waiting while the content is not yet appended and the stream has not ended.
+     *
+     * @throws TimeoutException  when nothing is appended and `end()` is not called within `$deadlockTimeout` seconds
+     * @throws \RuntimeException when the stream is detached or closed
+     */
     public function read($length): string
     {
         if ($this->detached) {
@@ -223,6 +247,11 @@ class BufferedStream implements StreamInterface
         }
     }
 
+    /**
+     * Waits for `end()`, then returns the remaining content.
+     *
+     * @throws TimeoutException when `end()` is not called within `$deadlockTimeout` seconds
+     */
     public function getContents(): string
     {
         $this->blockUntilEnded();
