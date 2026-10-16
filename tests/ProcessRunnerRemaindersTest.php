@@ -51,7 +51,7 @@ test('proc_open failing on a file the kernel cannot execute is reported as a sta
 test('a missing working directory is reported as a start failure', function () {
     expect(fn () => new ProcessRunner(['true'], '/nonexistent/working/dir'))
         ->toThrow(RuntimeException::class, 'Process could not be started');
-});
+})->skip(\PHP_VERSION_ID < 80300, 'proc_open() reports this at start only from PHP 8.3');
 
 test('the error handler used around proc_open is removed again after a failure', function () {
     $seen = [];
@@ -145,7 +145,7 @@ test('stop escalates to SIGKILL when the process does not end within a second of
         expect(\microtime(true) - $start)->toBeGreaterThanOrEqual(1.0);
         expect($process->isRunning())->toBeFalse();
     });
-});
+})->skip(\PHP_VERSION_ID < 80300, 'proc_open() starts the child the other way before PHP 8.3');
 
 test('the pipes of a process are closed once it is found to have ended', function () {
     phasync::run(function () {
