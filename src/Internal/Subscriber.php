@@ -16,7 +16,6 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
     private int $id;
     private ?Subscribers $publisher;
     private ?ChannelMessage $currentMessage;
-    private bool $closed = false;
 
     public function __construct(Subscribers $publisher)
     {
@@ -45,9 +44,6 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
 
     public function isReady(): bool
     {
-        if ($this->closed) {
-            return true;
-        }
         if (!$this->publisher) {
             return true;
         }

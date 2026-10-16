@@ -21,6 +21,12 @@ use Psr\Http\Message\StreamInterface;
  */
 trait MessageTrait
 {
+    /** RFC 7230 token characters: what a header field name or an HTTP method may consist of. */
+    private const TOKEN_CHARS = '!#$%&\'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+    /** Control characters a header field value or reason phrase must not contain (HTAB is allowed). */
+    private const CONTROL_CHARS = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
+
     protected string $protocolVersion;
     protected StreamInterface $body;
     protected array $headers     = [];
@@ -32,20 +38,54 @@ trait MessageTrait
      * @param string|object|array|StreamInterface $body            Body
      * @param string[][]                          $headers         Array of header names => values
      * @param string                              $protocolVersion The HTTP protocol version, typically "1.1" or "1.0"
+     *
+     * @throws \InvalidArgumentException for an invalid header name or value
      */
     protected function MessageTrait(mixed $body, array $headers=[], string $protocolVersion='1.1')
     {
         $this->body            = StreamFactory::create($body);
         $this->protocolVersion = $protocolVersion;
         foreach ($headers as $name => $values) {
+            $name                    = (string) $name; // a numeric header name arrives as an int key
+            $list                    = self::headerValues($name, $values);
             $key                     = \strtolower($name);
             $this->headerCases[$key] = $name;
-            if (\is_string($values)) {
-                $this->headers[$key] = [$values];
-            } else {
-                $this->headers[$key] = \array_is_list($values) ? $values : [...$values];
-            }
+            $this->headers[$key]     = $list;
         }
+    }
+
+    /**
+     * Validates a header name and its value(s) per RFC 7230, and returns the values as a list.
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function headerValues(mixed $name, mixed $value): array
+    {
+        if (!\is_string($name) || '' === $name || \strlen($name) !== \strspn($name, self::TOKEN_CHARS)) {
+            throw new \InvalidArgumentException('Invalid header name ' . (\is_string($name) ? \var_export($name, true) : '(' . \get_debug_type($name) . ')') . ': it must be a non-empty string of RFC 7230 token characters (letters, digits and !#$%&\'*+-.^_`|~)');
+        }
+        if (\is_string($value)) {
+            if (\strlen($value) !== \strcspn($value, self::CONTROL_CHARS)) {
+                throw new \InvalidArgumentException("Invalid value for header '$name': it contains a control character (CR, LF, NUL ...), which would allow header injection");
+            }
+
+            return [$value];
+        }
+        if (!\is_array($value) || [] === $value) {
+            throw new \InvalidArgumentException("Invalid value for header '$name': expected a string or a non-empty list of strings, got " . (\is_array($value) ? 'an empty array' : \get_debug_type($value)) . '; cast scalars with (string)');
+        }
+        $list = [];
+        foreach ($value as $v) {
+            if (!\is_string($v)) {
+                throw new \InvalidArgumentException("Invalid value for header '$name': every value must be a string, got " . \get_debug_type($v) . '; cast scalars with (string)');
+            }
+            if (\strlen($v) !== \strcspn($v, self::CONTROL_CHARS)) {
+                throw new \InvalidArgumentException("Invalid value for header '$name': it contains a control character (CR, LF, NUL ...), which would allow header injection");
+            }
+            $list[] = $v;
+        }
+
+        return $list;
     }
 
     /**
@@ -175,13 +215,10 @@ trait MessageTrait
      */
     public function withHeader($name, $value): MessageInterface
     {
-        $c   = clone $this;
-        $key = \strtolower($name);
-        if (!\is_array($value)) {
-            $c->headers[$key] = [(string) $value];
-        } else {
-            $c->headers[$key] = [...$value];
-        }
+        $list                 = self::headerValues($name, $value);
+        $c                    = clone $this;
+        $key                  = \strtolower($name);
+        $c->headers[$key]     = $list;
         $c->headerCases[$key] = $name;
 
         return $c;
@@ -208,14 +245,11 @@ trait MessageTrait
      */
     public function withAddedHeader($name, $value): MessageInterface
     {
-        $c   = clone $this;
-        $key = \strtolower($name);
-        if (\is_string($value)) {
-            $c->headers[$key][] = $value;
-        } else {
-            $c->headers[$key] = [...($c->headers[$key] ?? []), ...$value];
-        }
-        $c->headerCases[$key] = $name;
+        $list                 = self::headerValues($name, $value);
+        $c                    = clone $this;
+        $key                  = \strtolower($name);
+        $c->headers[$key]     = [...($c->headers[$key] ?? []), ...$list];
+        $c->headerCases[$key] ??= $name;
 
         return $c;
     }

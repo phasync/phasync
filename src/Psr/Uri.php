@@ -52,27 +52,62 @@ class Uri implements UriInterface
         'rtmp'    => 1935,
     ];
 
+    /** Characters RFC 3986 does not allow in a path (anything but pchar and "/"), and a "%" not followed by two hex digits. */
+    private const PATH_UNSAFE = '/[^a-zA-Z0-9_\-.~!$&\'()*+,;=:@\/%]++|%(?![0-9a-fA-F]{2})/';
+
+    /** The same for a query or fragment, which also allow "?". */
+    private const QUERY_UNSAFE = '/[^a-zA-Z0-9_\-.~!$&\'()*+,;=:@\/?%]++|%(?![0-9a-fA-F]{2})/';
+
+    /** The same for user info, where ":" separates user and password and so is not allowed within either. */
+    private const USERINFO_UNSAFE = '/[^a-zA-Z0-9_\-.~!$&\'()*+,;=%]++|%(?![0-9a-fA-F]{2})/';
+
     /**
      * Creates a URI from `$uri`.
      *
-     * The string form is normalised as the getters are: the scheme and host in lower case, and no port when it is the scheme's default.
+     * The string form is normalised as the getters are: the scheme and host in lower case, no port when it is the
+     * scheme's default, and characters RFC 3986 does not allow percent-encoded (an existing "%xx" is never encoded twice).
+     * A URI that is already normal is kept exactly as given.
      *
      * @param string|UriInterface $uri an absolute URL, or a relative reference
+     *
+     * @throws \InvalidArgumentException when `$uri` cannot be parsed
      */
     public function __construct(string|UriInterface $uri)
     {
         $this->uri = (string) $uri;
         $parsed    = \parse_url($this->uri);
-        if (false === $parsed || !isset($parsed['scheme'], $parsed['host'])) {
-            return; // a relative reference, or not parseable: kept as given
+        if (false === $parsed) {
+            throw new \InvalidArgumentException("Unable to parse URI '{$this->uri}'");
         }
-        $scheme = \strtolower($parsed['scheme']);
-        $host   = \strtolower($parsed['host']);
-        if ($scheme !== $parsed['scheme'] || $host !== $parsed['host'] || (isset($parsed['port']) && (self::SCHEME_PORTS[$scheme] ?? null) === $parsed['port'])) {
-            $parsed['scheme'] = $scheme;
-            $parsed['host']   = $host;
-            $this->uri        = static::buildUriString($parsed);
+        $changed = false;
+        foreach (['scheme' => null, 'host' => null, 'user' => self::USERINFO_UNSAFE, 'pass' => self::USERINFO_UNSAFE, 'path' => self::PATH_UNSAFE, 'query' => self::QUERY_UNSAFE, 'fragment' => self::QUERY_UNSAFE] as $part => $unsafe) {
+            if (!isset($parsed[$part])) {
+                continue;
+            }
+            $value = null === $unsafe ? \strtolower($parsed[$part]) : static::encode($parsed[$part], $unsafe);
+            if ($value !== $parsed[$part]) {
+                $parsed[$part] = $value;
+                $changed       = true;
+            }
         }
+        if (isset($parsed['port'], $parsed['scheme']) && (self::SCHEME_PORTS[$parsed['scheme']] ?? null) === $parsed['port']) {
+            $changed = true;
+        }
+        if ($changed) {
+            $this->uri = static::buildUriString($parsed);
+        }
+    }
+
+    /**
+     * Percent-encodes the characters matched by `$unsafe`.
+     */
+    protected static function encode(string $value, string $unsafe): string
+    {
+        if (!\preg_match($unsafe, $value)) {
+            return $value;
+        }
+
+        return \preg_replace_callback($unsafe, static fn (array $m): string => \rawurlencode($m[0]), $value);
     }
 
     /**
@@ -133,12 +168,11 @@ class Uri implements UriInterface
      */
     public function getAuthority(): string
     {
-        $parsed    = \parse_url($this->uri);
         $authority = $this->getHost();
-        if (!$authority) {
+        if ('' === $authority) {
             return '';
         }
-        if ($userInfo = $this->getUserInfo()) {
+        if ('' !== ($userInfo = $this->getUserInfo())) {
             $authority = $userInfo . '@' . $authority;
         }
         if (null !== ($port = $this->getPort())) {
@@ -153,15 +187,13 @@ class Uri implements UriInterface
      */
     public function getUserInfo(): string
     {
-        if ($user = $this->getUser()) {
-            if ($pass = $this->getPassword()) {
-                return $user . ':' . $pass;
-            }
-
-            return $user;
+        $user = $this->getUser();
+        if ('' === $user) {
+            return '';
         }
+        $pass = $this->getPassword();
 
-        return '';
+        return null === $pass || '' === $pass ? $user : $user . ':' . $pass;
     }
 
     /**
@@ -184,7 +216,13 @@ class Uri implements UriInterface
      */
     public function getPath(): string
     {
-        return \parse_url($this->uri, \PHP_URL_PATH) ?? '';
+        $path = \parse_url($this->uri, \PHP_URL_PATH) ?? '';
+        // Several leading slashes would make the path look like an authority when used on its own
+        if (isset($path[1]) && '/' === $path[0] && '/' === $path[1]) {
+            return '/' . \ltrim($path, '/');
+        }
+
+        return $path;
     }
 
     /**
@@ -240,8 +278,8 @@ class Uri implements UriInterface
      */
     public function withHost($host): UriInterface
     {
-        if (false !== \strpos($host, '/') || \filter_var('http://' . $host, \FILTER_VALIDATE_URL) !== 'http://' . $host) {
-            throw new \InvalidArgumentException('Invalid host name');
+        if (!\is_string($host) || ('' !== $host && (false !== \strpos($host, '/') || \filter_var('http://' . $host, \FILTER_VALIDATE_URL) !== 'http://' . $host))) {
+            throw new \InvalidArgumentException('Invalid host ' . (\is_string($host) ? \var_export($host, true) : '(' . \get_debug_type($host) . ')') . ': expected a host name or IP address, or "" to remove the host');
         }
 
         $c = clone $this;
@@ -347,9 +385,9 @@ class Uri implements UriInterface
      */
     protected function setScheme(?string $scheme)
     {
-        $scheme = null !== $scheme ? \strtolower($scheme) : $scheme;
-        if ('' !== $scheme && '' !== \preg_replace('/^[a-z][a-z0-9:.-_]*[a-z0-9]/', '', (string) $scheme)) {
-            throw new \InvalidArgumentException("Invalid scheme '$scheme'");
+        $scheme = null !== $scheme ? \strtolower($scheme) : '';
+        if ('' !== $scheme && !\preg_match('/^[a-z][a-z0-9+.\-]*+$/D', $scheme)) {
+            throw new \InvalidArgumentException("Invalid scheme '$scheme': it must start with a letter and contain only letters, digits, '+', '-' and '.'");
         }
         $parsed           = \parse_url($this->uri);
         $parsed['scheme'] = $scheme;
@@ -367,12 +405,14 @@ class Uri implements UriInterface
     protected function setUserInfo(string $user, ?string $password=null)
     {
         $parsed = \parse_url($this->uri);
-        unset($parsed['user']);
-        unset($parsed['pass']);
+        unset($parsed['user'], $parsed['pass']);
         if ('' !== $user) {
-            $parsed['user'] = $user;
-            if (null !== $password) {
-                $parsed['pass'] = $password;
+            if (!isset($parsed['host'])) {
+                throw new \InvalidArgumentException('Cannot set user info on a URI without a host: call withHost() first');
+            }
+            $parsed['user'] = static::encode($user, self::USERINFO_UNSAFE);
+            if (null !== $password && '' !== $password) {
+                $parsed['pass'] = static::encode($password, self::USERINFO_UNSAFE);
             }
         }
         $this->uri = static::buildUriString($parsed);
@@ -383,16 +423,17 @@ class Uri implements UriInterface
     /**
      *	Set the port of the url (http/https/rtmp etc)
      *
-     * @param int|null $port
-     *
      * @return $this
      */
-    protected function setPort($port)
+    protected function setPort(?int $port)
     {
         if (null !== $port && ($port < 1 || $port > 65535)) {
             throw new \InvalidArgumentException("Invalid port '$port'. Must be between 1 and 65535 or null.");
         }
-        $parsed         = \parse_url($this->uri);
+        $parsed = \parse_url($this->uri);
+        if (null !== $port && !isset($parsed['host'])) {
+            throw new \InvalidArgumentException('Cannot set a port on a URI without a host: call withHost() first');
+        }
         $parsed['port'] = $port;
         $this->uri      = static::buildUriString($parsed);
 
@@ -406,34 +447,17 @@ class Uri implements UriInterface
      */
     protected function setPath(string $path)
     {
-        $parsed = \parse_url($this->uri);
-
-        if ('' === $path || '/' === $path) {
-            // this is a special case
-            $parsed['path'] = $path;
-        } elseif ('/' === $path[0]) {
-            // their path is an absolute path
-            $parsed['path'] = static::pathShorten($path);
-        } else {
-            $parsed['path'] = static::pathShorten(static::pathDirName($parsed['path'] ?? '/') . $path);
-        }
-
-        $this->uri = static::buildUriString($parsed);
+        $parsed         = \parse_url($this->uri);
+        $parsed['path'] = static::encode($path, self::PATH_UNSAFE);
+        $this->uri      = static::buildUriString($parsed);
 
         return $this;
     }
 
-    /**
-     *	Set the fragment part of the query (after the #)
-     *
-     * @param string $value A string
-     *
-     * @return $this
-     */
     protected function setFragment(string $value)
     {
         $parsed             = \parse_url($this->uri);
-        $parsed['fragment'] = $value;
+        $parsed['fragment'] = static::encode($value, self::QUERY_UNSAFE);
         $this->uri          = static::buildUriString($parsed);
 
         return $this;
@@ -463,7 +487,7 @@ class Uri implements UriInterface
     protected function setQuery($value)
     {
         $parsed          = \parse_url($this->uri);
-        $parsed['query'] = $value;
+        $parsed['query'] = static::encode($value, self::QUERY_UNSAFE);
         $this->uri       = static::buildUriString($parsed);
 
         return $this;
@@ -550,105 +574,45 @@ class Uri implements UriInterface
     }
 
     /**
-     * Builds a complete URL from a parsed URL, according to parse_url().
+     * Composes the URI string from `parse_url()` style components (RFC 3986 section 5.3).
+     *
+     * The authority is written only when there is a host, so the user info and port of a URI without
+     * a host are not kept; the port is left out when it is the scheme's default.
      */
     protected static function buildUriString(array $parsed): string
     {
-        if (empty($parsed['scheme'])) {
-            throw new \InvalidArgumentException('No scheme in URI');
-        }
-        if (empty($parsed['host'])) {
-            throw new \InvalidArgumentException('No host in URI');
-        }
+        $result = isset($parsed['scheme']) && '' !== $parsed['scheme'] ? $parsed['scheme'] . ':' : '';
+        $path   = $parsed['path'] ?? '';
 
-        $scheme = !empty($parsed['scheme']) ? $parsed['scheme'] . ':' : '';
-
-        $authority = $parsed['host'] ?? '';
-
-        if (!empty($parsed['user']) && !empty($parsed['pass'])) {
-            $authority = $parsed['user'] . ':' . $parsed['pass'] . '@' . $authority;
-        } elseif (!empty($parsed['user'])) {
-            $authority = $parsed['user'] . '@' . $authority;
-        }
-
-        if (!empty($parsed['port'])) {
-            if ((self::SCHEME_PORTS[$parsed['scheme']] ?? null) !== $parsed['port']) {
-                $authority .= ':' . $parsed['port'];
-            }
-        }
-
-        if ('' !== $authority) {
-            $authority = '//' . $authority;
-        }
-
-        $path = !empty($parsed['path']) ? $parsed['path'] : '';
-        if ('' !== $path) {
-            if ('' !== $authority) {
-                if ('/' !== $path[0]) {
-                    $path = '/' . $path;
+        if (isset($parsed['host']) && '' !== $parsed['host']) {
+            $result .= '//';
+            if (isset($parsed['user']) && '' !== $parsed['user']) {
+                $result .= $parsed['user'];
+                if (isset($parsed['pass']) && '' !== $parsed['pass']) {
+                    $result .= ':' . $parsed['pass'];
                 }
-            } else {
-                if ('/' === $path[0]) {
-                    $path = '/' . \ltrim($path, '/');
-                }
+                $result .= '@';
             }
-        }
-        $query    = !empty($parsed['query']) ? '?' . $parsed['query'] : '';
-        $fragment = !empty($parsed['fragment']) ? '#' . $parsed['fragment'] : '';
-
-        return $scheme . $authority . $path . $query . $fragment;
-    }
-
-    /**
-     * Dirname part of the path
-     */
-    protected static function pathDirName(string $path): string
-    {
-        return \preg_replace('/[^\/]+$/', '', $path);
-    }
-
-    /**
-     * Remove any /./ and resolve any /../ components of a path.
-     */
-    protected static function pathShorten(string $path): string
-    {
-        if ('' === $path) {
-            return $path;
-        }
-
-        if ('/' !== $path[0]) {
-            throw new \InvalidArgumentException("Invalid path '$path'. Path must be absolute.");
-        }
-
-        // remove leading / and any double slashes in the path
-        $path   = \preg_replace('/^\/+|(?<=\/)\/+/', '', $path);
-        $parts  = \explode('/', $path);
-        $result = [];
-        $length = \count($parts);
-        for ($i = 0; $i < $length; ++$i) {
-            switch ($parts[$i]) {
-                case '':
-                    if ($i === $length - 1) {
-                        $result[] = '';
-                    }
-                    break;
-                case '.':
-                    if ($i === $length - 1) {
-                        $result[] = '';
-                    }
-                    break;
-                case '..':
-                    \array_pop($result);
-                    if ($i === $length - 1) {
-                        $result[] = '';
-                    }
-                    break;
-                default:
-                    $result[] = $parts[$i];
-                    break;
+            $result .= $parsed['host'];
+            if (isset($parsed['port']) && (self::SCHEME_PORTS[$parsed['scheme'] ?? ''] ?? null) !== $parsed['port']) {
+                $result .= ':' . $parsed['port'];
             }
+            if ('' !== $path && '/' !== $path[0]) {
+                $path = '/' . $path;
+            }
+        } elseif (isset($path[1]) && '/' === $path[0] && '/' === $path[1]) {
+            // without an authority, "//" would start one
+            $path = '/' . \ltrim($path, '/');
         }
 
-        return '/' . \implode('/', $result);
+        $result .= $path;
+        if (isset($parsed['query']) && '' !== $parsed['query']) {
+            $result .= '?' . $parsed['query'];
+        }
+        if (isset($parsed['fragment']) && '' !== $parsed['fragment']) {
+            $result .= '#' . $parsed['fragment'];
+        }
+
+        return $result;
     }
 }

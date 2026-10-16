@@ -41,16 +41,16 @@ final class MySQLiPoll
     /**
      * Polls the provided MySQLi connection asynchronously.
      *
-     * @param \mysqli  $connection the MySQLi connection to be polled
-     * @param int|null $timeout    The maximum time to wait for the query to complete, in seconds.
-     *                             If null, waits indefinitely.
+     * @param \mysqli    $connection the MySQLi connection to be polled
+     * @param float|null $timeout    The maximum time to wait for the query to complete, in seconds.
+     *                               If null, waits indefinitely.
      *
      * @throws \LogicException   if the same MySQLi connection is polled by multiple coroutines
      * @throws \RuntimeException if an error occurs during polling
      *
      * @return \mysqli returns the MySQLi connection upon completion
      */
-    public static function poll(\mysqli $connection, ?int $timeout = null): \mysqli
+    public static function poll(\mysqli $connection, ?float $timeout = null): \mysqli
     {
         $connectionId = \spl_object_id($connection);
         if (isset(self::$connections[$connectionId])) {

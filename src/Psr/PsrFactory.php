@@ -80,8 +80,6 @@ class PsrFactory implements UploadedFileFactoryInterface, ServerRequestFactoryIn
 
     public function createStreamFromResource($resource): StreamInterface
     {
-        \stream_set_blocking($resource, false);
-
         return new ResourceStream($resource);
     }
 

@@ -108,9 +108,9 @@ class BufferedStream implements StreamInterface
             }
         }
 
-        $result       = $this->file;
-        $this->file   = null;
-        $this->closed = true;
+        $result         = $this->file;
+        $this->file     = null;
+        $this->detached = true;
 
         return $result;
     }
@@ -388,7 +388,7 @@ class BufferedStream implements StreamInterface
         try {
             \phasync::awaitFlag($this, $this->deadlockTimeout);
         } catch (TimeoutException) {
-            throw ExceptionTool::popTrace(new \RuntimeException('Possible deadlock detected, no update in ' . $this->deadlockTimeout . ' seconds'), __FILE__);
+            throw ExceptionTool::popTrace(new TimeoutException('Possible deadlock detected, no update in ' . $this->deadlockTimeout . ' seconds'), __FILE__);
         }
     }
 }

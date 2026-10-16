@@ -54,12 +54,25 @@ class Response implements ResponseInterface
      * @param mixed   $body            body, see {@see StreamFactory::create()}
      * @param string  $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
      * @param ?string $reasonPhrase    the HTTP reason phrase; null or '' gives the standard phrase for `$statusCode`, or '' when there is none
+     *
+     * @throws \InvalidArgumentException for a status code outside 100-599, a reason phrase with control characters, or an invalid header
      */
     public function __construct(int $statusCode = 200, array $headers = [], mixed $body = null, string $protocolVersion = '1.1', ?string $reasonPhrase = null)
     {
+        self::assertStatus($statusCode, $reasonPhrase);
         $this->statusCode   = $statusCode;
         $this->reasonPhrase = null !== $reasonPhrase && '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$statusCode] ?? '');
         $this->MessageTrait($body, $headers, $protocolVersion);
+    }
+
+    private static function assertStatus(mixed $code, mixed $reasonPhrase): void
+    {
+        if (!\is_int($code) || $code < 100 || $code > 599) {
+            throw new \InvalidArgumentException('Invalid HTTP status code ' . (\is_scalar($code) ? \var_export($code, true) : '(' . \get_debug_type($code) . ')') . ': it must be an integer from 100 to 599');
+        }
+        if (null !== $reasonPhrase && (!\is_string($reasonPhrase) || \strlen($reasonPhrase) !== \strcspn($reasonPhrase, self::CONTROL_CHARS))) {
+            throw new \InvalidArgumentException('Invalid reason phrase: it must be a string without control characters');
+        }
     }
 
     public function getStatusCode(): int
@@ -70,10 +83,13 @@ class Response implements ResponseInterface
     /**
      * Returns a copy with the status `$code`, and `$reasonPhrase`, or the standard phrase for the code when it is ''.
      *
+     * @throws \InvalidArgumentException for a status code that is not an integer from 100 to 599
+     *
      * @example examples/Response.withStatus/1-reason-phrases.php Standard and custom reason phrases
      */
     public function withStatus($code, $reasonPhrase = ''): ResponseInterface
     {
+        self::assertStatus($code, $reasonPhrase);
         $c               = clone $this;
         $c->statusCode   = $code;
         $c->reasonPhrase = '' !== $reasonPhrase ? $reasonPhrase : (self::PHRASES[$code] ?? '');

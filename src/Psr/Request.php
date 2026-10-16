@@ -35,6 +35,9 @@ class Request implements RequestInterface
     protected string $requestTarget;
     protected ?UriInterface $uriOverride = null;
 
+    /** True once the request target was set with withRequestTarget(): withUri() then leaves it alone. */
+    protected bool $requestTargetPinned = false;
+
     /**
      * Creates a request.
      *
@@ -43,9 +46,13 @@ class Request implements RequestInterface
      * @param mixed  $body            body, see {@see StreamFactory::create()}
      * @param array  $headers         array of header names => values
      * @param string $protocolVersion the HTTP protocol version, typically "1.1" or "1.0"
+     *
+     * @throws \InvalidArgumentException for a method that is not an RFC 7230 token, a request target containing whitespace or control characters, or an invalid header
      */
     public function __construct(string $method, string $requestTarget, mixed $body = '', array $headers = [], string $protocolVersion = '1.1')
     {
+        self::assertMethod($method);
+        self::assertRequestTarget($requestTarget);
         $this->method        = $method;
         $this->requestTarget = '' !== $requestTarget ? $requestTarget : '/';
         $this->MessageTrait($body, $headers, $protocolVersion);
@@ -76,10 +83,7 @@ class Request implements RequestInterface
             $uri = new Uri((string) $uri);
         }
 
-        $requestTarget = $uri->getPath() ?: '/';
-        if ('' !== ($query = $uri->getQuery())) {
-            $requestTarget .= '?' . $query;
-        }
+        $requestTarget = self::originForm($uri);
 
         $headers = [];
         if ('' !== ($host = $uri->getHost())) {
@@ -96,24 +100,60 @@ class Request implements RequestInterface
     }
 
     /**
+     * The origin-form request target (RFC 7230 section 5.3.1) of a URI: its path, "/" when empty, and its query.
+     */
+    private static function originForm(UriInterface $uri): string
+    {
+        $target = $uri->getPath();
+        if ('' === $target) {
+            $target = '/';
+        }
+        if ('' !== ($query = $uri->getQuery())) {
+            $target .= '?' . $query;
+        }
+
+        return $target;
+    }
+
+    private static function assertMethod(mixed $method): void
+    {
+        if (!\is_string($method) || '' === $method || \strlen($method) !== \strspn($method, self::TOKEN_CHARS)) {
+            throw new \InvalidArgumentException('Invalid HTTP method ' . (\is_string($method) ? \var_export($method, true) : '(' . \get_debug_type($method) . ')') . ': it must be a non-empty string of RFC 7230 token characters, e.g. "GET"');
+        }
+    }
+
+    private static function assertRequestTarget(mixed $requestTarget): void
+    {
+        if (!\is_string($requestTarget) || \strlen($requestTarget) !== \strcspn($requestTarget, " \t\r\n\v\f" . self::CONTROL_CHARS)) {
+            throw new \InvalidArgumentException('Invalid request target: it must be a string without whitespace or control characters');
+        }
+    }
+
+    /**
      * Returns the request target of the message.
      *
-     * The request target is stored directly and returned as it is; it is not constructed from the URI.
+     * Set with the constructor or {@see Request::withRequestTarget()}, it is returned as it is. {@see Request::withUri()}
+     * replaces it with the origin-form of the URI (path and query), unless it was set with `withRequestTarget()`.
      */
     public function getRequestTarget(): string
     {
         return $this->requestTarget;
     }
 
+    /**
+     * @throws \InvalidArgumentException when the target contains whitespace or control characters
+     */
     public function withRequestTarget($requestTarget): RequestInterface
     {
+        self::assertRequestTarget($requestTarget);
         $c = clone $this;
         // Freeze the URI before changing the request target: PSR-7 treats the URI
         // and the request-target as independent once either is set explicitly.
         if (null === $c->uriOverride) {
             $c->uriOverride = $this->getUri();
         }
-        $c->requestTarget = $requestTarget;
+        $c->requestTarget       = '' !== $requestTarget ? $requestTarget : '/';
+        $c->requestTargetPinned = true;
 
         return $c;
     }
@@ -123,8 +163,12 @@ class Request implements RequestInterface
         return $this->method;
     }
 
+    /**
+     * @throws \InvalidArgumentException when the method is not an RFC 7230 token
+     */
     public function withMethod($method): RequestInterface
     {
+        self::assertMethod($method);
         $c         = clone $this;
         $c->method = $method;
 
@@ -161,6 +205,9 @@ class Request implements RequestInterface
             $c    = $this->withHeader('Host', $host . (null !== $port ? ':' . $port : ''));
         }
         $c->uriOverride = clone $uri;
+        if (!$c->requestTargetPinned) {
+            $c->requestTarget = self::originForm($uri);
+        }
 
         return $c;
     }

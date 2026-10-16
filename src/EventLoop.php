@@ -449,6 +449,9 @@ final class EventLoop implements \Countable
                 fn () => $this->scopeProbe ?? (null !== ($c = $this->currentFiber) && $c !== \Fiber::getCurrent() ? $c : null)
             );
         }
+        $this->gcMinInterval      = \defined('PHASYNC_GC_MIN_INTERVAL') ? (float) PHASYNC_GC_MIN_INTERVAL : self::GC_MIN_INTERVAL;
+        $this->gcMaxInterval      = \defined('PHASYNC_GC_MAX_INTERVAL') ? (float) PHASYNC_GC_MAX_INTERVAL : self::GC_MAX_INTERVAL;
+        $this->preemptInterval    = \defined('PHASYNC_PREEMPT_INTERVAL') ? (float) PHASYNC_PREEMPT_INTERVAL : self::PREEMPT_INTERVAL;
         $this->clear();
     }
 
@@ -514,9 +517,6 @@ final class EventLoop implements \Countable
         // collected now, not counted toward the thresholds below.
         \gc_collect_cycles();
         $this->lastGarbageCollect = \microtime(true);
-        $this->gcMinInterval      = \defined('PHASYNC_GC_MIN_INTERVAL') ? (float) PHASYNC_GC_MIN_INTERVAL : self::GC_MIN_INTERVAL;
-        $this->gcMaxInterval      = \defined('PHASYNC_GC_MAX_INTERVAL') ? (float) PHASYNC_GC_MAX_INTERVAL : self::GC_MAX_INTERVAL;
-        $this->preemptInterval    = \defined('PHASYNC_PREEMPT_INTERVAL') ? (float) PHASYNC_PREEMPT_INTERVAL : self::PREEMPT_INTERVAL;
     }
 
     /**
@@ -1197,7 +1197,6 @@ final class EventLoop implements \Countable
      */
     public function enqueueKnownLive(\Fiber $fiber): void
     {
-        // FiberState::for($fiber)->log("enqueued");
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
         if ([] !== $this->timeoutSlots) {
             $this->removeTimeout($fiber);
@@ -1217,7 +1216,6 @@ final class EventLoop implements \Countable
         if ($fiber->isTerminated()) {
             throw new \LogicException("Can't enqueue a terminated fiber (" . Debug::getDebugInfo($fiber) . ')');
         }
-        // FiberState::for($fiber)->log("enqueued with " . \get_class($exception));
         $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
         $this->enqueue($fiber);
     }
@@ -1232,7 +1230,6 @@ final class EventLoop implements \Countable
         if (isset($this->pending[$fiber])) {
             throw new \LogicException('Fiber is already pending when scheduling with afterNext');
         }
-        // FiberState::for($fiber)->log("afterNext");
         $this->whenFlagged($this->afterNextFlag, \PHP_FLOAT_MAX, $fiber);
     }
 
@@ -1299,7 +1296,6 @@ final class EventLoop implements \Countable
             $this->flaggedFibers[$flag] = Flag::create($this, $isFiberFlag);
         }
 
-        // FiberState::for($fiber)->log("whenFlagged for " . Debug::getDebugInfo($flag));
         if ($isFiberFlag) {
             // The graph is only used to detect await cycles, which only follow fibers. It
             // must not hold ordinary flags, or a flag could never be garbage collected while
@@ -1909,7 +1905,6 @@ final class EventLoop implements \Countable
         if (isset($this->pending[$fiber])) {
             throw new \LogicException('Fiber is already pending in whenTimeElapsed');
         }
-        // FiberState::for($fiber)->log('whenTimeElapsed (seconds=' . $seconds . ')');
         if ($seconds > 0) {
             $this->pending[$fiber] = \PHP_FLOAT_MAX;
             $this->scheduler->schedule($seconds + \microtime(true), $fiber);
@@ -2093,8 +2088,6 @@ final class EventLoop implements \Countable
             return false;
         }
 
-        // FiberState::for($fiber)->log('discard');
-
         // Search for fibers waiting for IO
         if (!isset($this->pending[$fiber])) {
             return false;
@@ -2254,7 +2247,6 @@ final class EventLoop implements \Countable
             unset($this->timeoutSlots[$id]);
             $throwOnTimeout = !isset($this->timeoutNoThrow[$id]);
             unset($this->timeoutNoThrow[$id]);
-            // FiberState::for($fiber)->log("timeout");
             // One wait timed out: thrown once, not sticky as a cancellation
             if ($this->discard($fiber)) {
                 if ($throwOnTimeout) {
