@@ -2,6 +2,12 @@
 
 Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
+## Unreleased
+
+### Changed
+
+- `phasync\Services\CurlMulti` and `phasync\Services\MySQLiPoll` are public API, documented and with an example. They were marked `@internal` in 2.0.0-beta5 while the README and docs recommended them.
+
 ## 2.0.0-rc1 (2026-10-16)
 
 The first release candidate.

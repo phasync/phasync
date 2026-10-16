@@ -5,10 +5,22 @@ namespace phasync\Services;
 use mysqli;
 
 /**
- * Provides asynchronous running of MySQLi queries within the phasync framework.
- * To run a MySQLi query asynchronously, use `MySQLiPoll::poll($mysqli)` from inside a coroutine.
+ * Waits for a mysqli asynchronous query without blocking other coroutines.
  *
- * @internal not part of the public API; may change in any release
+ * Start the query with `MYSQLI_ASYNC`, then `MySQLiPoll::poll($mysqli)` suspends the calling coroutine
+ * until the result is ready. One coroutine may poll a connection at a time.
+ *
+ * ```php
+ * phasync::run(function () use ($mysqli) {
+ *     $mysqli->query('SELECT SLEEP(1)', MYSQLI_ASYNC);
+ *     MySQLiPoll::poll($mysqli);
+ *     $result = $mysqli->reap_async_query();
+ * });
+ * ```
+ *
+ * @see phasync::go Start the coroutines that query side by side
+ *
+ * @topic blocking-calls-and-the-extension
  */
 final class MySQLiPoll
 {
@@ -39,7 +51,7 @@ final class MySQLiPoll
     private static bool $running = false;
 
     /**
-     * Polls the provided MySQLi connection asynchronously.
+     * Suspends the calling coroutine until the connection's asynchronous query has finished.
      *
      * @param \mysqli    $connection the MySQLi connection to be polled
      * @param float|null $timeout    The maximum time to wait for the query to complete, in seconds.

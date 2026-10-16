@@ -5,11 +5,17 @@ namespace phasync\Services;
 use phasync;
 
 /**
- * Provides asynchronous running of curl_handles within phasync. To
- * run the curl handle, use `CurlMulti::await($curlHandle)` from inside
- * a coroutine.
+ * Runs cURL handles cooperatively, so other coroutines run while a request is in flight.
  *
- * @internal not part of the public API; may change in any release
+ * `curl_exec()` blocks the whole process; `CurlMulti::await()` suspends only the calling coroutine.
+ * Use it where the phasync extension is not loaded, or to be independent of it. All handles awaited
+ * in a process share one `curl_multi` handle, driven by whichever coroutine is waiting.
+ *
+ * @see phasync::go Start the coroutines that make requests side by side
+ *
+ * @topic blocking-calls-and-the-extension
+ *
+ * @example examples/CurlMulti.await/1-two-requests-at-once.php Two requests at once
  */
 final class CurlMulti
 {
@@ -22,6 +28,9 @@ final class CurlMulti
      */
     private static array $curlHandles           = [];
 
+    /**
+     * @internal use {@see CurlMulti::await()}, which registers the handle itself
+     */
     public static function register(\CurlHandle $ch): void
     {
         self::init();
@@ -33,6 +42,18 @@ final class CurlMulti
         self::$curlHandles[$curlHandleId] = $ch;
     }
 
+    /**
+     * Runs `$ch` to completion and returns its body, without blocking other coroutines.
+     *
+     * Returns the response body, set `CURLOPT_RETURNTRANSFER` to get one: without it curl writes the body
+     * to output and this returns `false`. A failed transfer does not throw and returns an empty string:
+     * check `curl_errno($ch)`. Must be called from a coroutine. A cancelled coroutine removes its handle
+     * from the multi handle.
+     *
+     * @param \CurlHandle $ch an initialized handle with its options set
+     *
+     * @throws \RuntimeException if the handle cannot be added to the multi handle
+     */
     public static function await(\CurlHandle $ch): mixed
     {
         self::init();
