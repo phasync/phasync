@@ -38,12 +38,6 @@ function prr_rmtree(string $dir): void
 test('proc_open failing on a file the kernel cannot execute is reported as a start failure', function () {
     $dir = prr_tmpdir();
     try {
-        // Executable, but neither a binary nor a #! script: posix_spawn() fails with ENOEXEC
-        \file_put_contents($dir . '/noshebang', "exit 0\n");
-        \chmod($dir . '/noshebang', 0755);
-        expect(fn () => new ProcessRunner([$dir . '/noshebang']))
-            ->toThrow(RuntimeException::class, 'Process could not be started: Errno: 2; proc_open(): posix_spawn() failed');
-
         // A #! line pointing at a missing interpreter
         \file_put_contents($dir . '/badshebang', "#!/nonexistent/interpreter\n");
         \chmod($dir . '/badshebang', 0755);

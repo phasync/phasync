@@ -129,7 +129,9 @@ test('ensure_loaded() throws instructively when no binary can be found: explicit
     [, $env]      = $runChild($ensure(), [], ['PHASYNC_EXT_SO' => $dir . '/env.so']);
     [, $empty]    = $runChild($ensure(), [], ['PHASYNC_EXT_SO' => '']);
 
-    foreach ([$explicit, $env, $empty] as $output) {
+    // a checkout with the release binaries bundled in ext/ finds one without PHASYNC_EXT_SO
+    $outputs = \is_file(\dirname(__DIR__) . '/ext/phasync-' . \phasync\ext\_abi_key() . '.so') ? [$explicit, $env] : [$explicit, $env, $empty];
+    foreach ($outputs as $output) {
         expect($output)->toContain('no phasync binary found for this platform (' . \phasync\ext\_abi_key() . ')');
         expect($output)->toContain('Set PHASYNC_EXT_SO');
     }
