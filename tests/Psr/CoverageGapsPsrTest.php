@@ -33,7 +33,7 @@ test('UploadedFile.moveTo with rename failure throws', function () {
     phasync::run(function () {
         $tmpfile = \tempnam(\sys_get_temp_dir(), 'upload_test');
         \file_put_contents($tmpfile, 'content');
-        $target = '/root/cannot_write_here_' . \uniqid() . '.txt';
+        $target = \sys_get_temp_dir() . '/no-such-dir-' . \uniqid() . '/cannot_write_here.txt';   // a missing parent directory fails for root too
 
         try {
             $file = new UploadedFile($tmpfile, 'file.txt', 'text/plain', 7, \UPLOAD_ERR_OK, true);
