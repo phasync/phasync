@@ -19,6 +19,10 @@ Earlier releases are listed on the GitHub releases page.
   stop only once, so it is remembered until the process is continued.
 - `EventLoop::clear()` crashed writing readonly properties.
 - `MySQLiPoll` timeout parameter is `?float`.
+- `Uri` parsed every query string to `[]` when mbstring was not loaded (#129).
+- `StringBuffer::writeToResource()` died on a partial write once the buffer had ended (#130); it
+  now finishes the chunk in a write loop.
+- Removed dead code in `CurlMulti` and `ExceptionTool`.
 
 ## 2.0.0-beta10 (2026-10-15)
 

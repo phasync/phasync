@@ -433,14 +433,15 @@ class StringBuffer implements SelectableInterface
             while (!$this->eof() && \is_resource($resource) && 'stream' === \get_resource_type($resource)) {
                 $chunk       = $this->read(65536);
                 $chunkLength = \strlen($chunk);
-                \phasync::writable($resource);
-                $written = \fwrite($resource, $chunk);
-                if (false === $written) {
-                    throw new \RuntimeException('Unable to write to resource');
-                }
-                if ($written < $chunkLength) {
-                    $this->unread(\substr($chunk, $written));
-                }
+                $written     = 0;
+                do {
+                    \phasync::writable($resource);
+                    $n = \fwrite($resource, 0 === $written ? $chunk : \substr($chunk, $written));
+                    if (false === $n) {
+                        throw new \RuntimeException('Unable to write to resource');
+                    }
+                    $written += $n;
+                } while ($written < $chunkLength);
                 $totalBytes += $written;
             }
 

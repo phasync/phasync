@@ -42,8 +42,6 @@ final class ExceptionTool
                 }
                 if ($found) {
                     $top = \array_shift($trace);
-                } elseif (false === $top) {
-                    return $exception;
                 }
             } while ($found);
         } else {

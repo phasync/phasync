@@ -22,13 +22,6 @@ final class CurlMulti
      */
     private static array $curlHandles           = [];
 
-    /**
-     * Stores any exception messages to be thrown when the handle is resumed.
-     *
-     * @var array<int,array{0: string, 1: int}>
-     */
-    private static array $curlHandleErrors      = [];
-
     public static function register(\CurlHandle $ch): void
     {
         self::init();
@@ -93,15 +86,10 @@ final class CurlMulti
                 // Start over if we are still monitoring
             } while (isset(self::$curlHandles[$curlHandleId]));
 
-            if (isset(self::$curlHandleErrors[$curlHandleId])) {
-                throw new \RuntimeException(self::$curlHandleErrors[$curlHandleId][0], self::$curlHandleErrors[$curlHandleId][1]);
-            }
-
             return \curl_multi_getcontent($ch) ?? false;
         } finally {
             // Ensure cleanup
             unset(self::$curlHandles[$curlHandleId]);
-            unset(self::$curlHandleErrors[$curlHandleId]);
             \curl_multi_remove_handle(self::$curlMulti, $ch);
         }
     }
@@ -109,9 +97,6 @@ final class CurlMulti
     private static function init(): void
     {
         if (null === self::$curlMulti) {
-            if (!\function_exists('curl_multi_init')) {
-                throw new \RuntimeException('curl_multi_init is required');
-            }
             self::$curlMulti = \curl_multi_init();
         }
     }

@@ -554,21 +554,9 @@ class Uri implements UriInterface
         return $this;
     }
 
-    /**
-     * Uses the multibyte parse_str version if it exists.
-     */
     protected static function parseQueryString(string $queryString): array
     {
-        $query = null;
-        if (\function_exists('mb_parse_str')) {
-            if (!\mb_parse_str($queryString, $query)) {
-                return [];
-            }
-        } else {
-            if (!\parse_str($queryString, $query)) {
-                return [];
-            }
-        }
+        \parse_str($queryString, $query);
 
         return $query;
     }
