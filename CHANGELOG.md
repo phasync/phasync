@@ -11,6 +11,13 @@ Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 ### Fixed
 
 - `MySQLiPoll::poll()` without a timeout threw `TypeError` (`phasync::awaitFlag(): Argument #2 ($timeout) must be of type float, null given`): 2.0.0-rc1 made the parameter `?float` and passed the null on. Every test named a timeout, so CI did not reach it. A null now means what the docblock says: wait for as long as the query takes.
+- `MySQLiPoll` slept 20 ms between looks at the connections, then blocked up to 20 ms more inside
+  `mysqli::poll()`: a query of 0.3 ms cost 20 ms, and one connection did 50 queries a second. It asks
+  again at once while queries land, and backs off from 0.5 ms to 10 ms while they do not. 20 sequential
+  `SELECT 1` went from 407 ms to 15 ms, and a `SELECT SLEEP(0.05)` from 60.6 ms to 56.8 ms, against
+  MariaDB on loopback. `poll()` waits for the state the service leaves behind rather than the flag
+  alone, since a service runs up to its first suspension as it is created and can settle the first
+  query of a process before its own coroutine waits - and a raised flag nobody waits on is forgotten.
 - `CurlMulti::await()` polled curl once every 20 ms, so a request chain ran at about 25 requests a second and every transfer was noticed late. It now runs curl again at once while there is work ready and backs off from 0.5 ms to 10 ms when idle: 50 sequential requests to a local server take 60 ms instead of 3 s (#133).
 
 ## 2.0.0-rc1 (2026-10-16)

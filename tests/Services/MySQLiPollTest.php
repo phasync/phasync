@@ -338,3 +338,60 @@ test('poll() with no timeout argument waits for the query instead of throwing Ty
         }
     });
 });
+
+test('a fast query costs its round trip, not a polling interval', function () {
+    if (!\getenv('PHASYNC_TEST_MYSQL')) {
+        $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
+    }
+
+    phasync::run(function () {
+        $mysqli = getMySQLiConnection();
+
+        try {
+            // 2.0.0-rc1 slept 20 ms between looks and then blocked inside mysqli::poll() for up to
+            // another 20, so every query paid about 20 ms however fast it was: a chain of them ran
+            // at 50 a second. The service now asks again at once while queries are landing.
+            $polled  = 20;
+            $started = \microtime(true);
+            for ($i = 0; $i < $polled; ++$i) {
+                $mysqli->query('SELECT 1 AS num', \MYSQLI_ASYNC);
+                MySQLiPoll::poll($mysqli);
+                $mysqli->reap_async_query();
+            }
+            $each = (\microtime(true) - $started) * 1000 / $polled;
+
+            expect($each)->toBeLessThan(8, \sprintf('%.1f ms per query, 20.4 ms before the fix', $each));
+        } finally {
+            $mysqli->close();
+        }
+    });
+});
+
+test('a query that finished before poll() was called needs no waiting', function () {
+    if (!\getenv('PHASYNC_TEST_MYSQL')) {
+        $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
+    }
+
+    phasync::run(function () {
+        $mysqli = getMySQLiConnection();
+
+        try {
+            $mysqli->query('SELECT SLEEP(0.05) AS slept', \MYSQLI_ASYNC);
+
+            // the answer is already in the socket when the wait starts: starting a service runs it
+            // up to its first suspension, so it settles the query before this coroutine gets to
+            // awaitFlag() - and a flag raised with nobody waiting on it is forgotten. The first
+            // service in a process is started this way, which is why this test needs no other.
+            phasync::sleep(0.1);
+
+            $started = \microtime(true);
+            expect(MySQLiPoll::poll($mysqli))->toBe($mysqli);
+            $each = (\microtime(true) - $started) * 1000;
+
+            expect($each)->toBeLessThan(10, \sprintf('%.1f ms, the wait was not skipped', $each));
+            expect($mysqli->reap_async_query()->fetch_assoc())->toBe(['slept' => '0']);
+        } finally {
+            $mysqli->close();
+        }
+    });
+});

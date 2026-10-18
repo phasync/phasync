@@ -44,6 +44,18 @@ final class MySQLiPoll
     private static array $errors = [];
 
     /**
+     * The connections the service is done with, each settled by a completed query or by a failure.
+     *
+     * What poll() waits for. The flag each coroutine waits on is only half of it: a service
+     * coroutine is run up to its first suspension when it is created (see EventLoop::create()), so
+     * the query of the coroutine that just started the service can finish before that coroutine got
+     * around to wait - and a flag raised with nobody waiting on it is forgotten, not remembered.
+     *
+     * @var array<int, true>
+     */
+    private static array $settled = [];
+
+    /**
      * Indicates if the service is currently running.
      */
     private static bool $running = false;
@@ -69,11 +81,16 @@ final class MySQLiPoll
             throw new \LogicException("Multiple coroutines can't poll the same mysqli connection");
         }
         self::$connections[$connectionId] = $connection;
+        unset(self::$settled[$connectionId], self::$errors[$connectionId]);
 
         self::runService();
 
         try {
-            \phasync::awaitFlag($connection, $timeout ?? self::NO_TIMEOUT);
+            // The query may be over before this coroutine waits for it, so it is the state the
+            // service leaves behind that is waited for and the flag only the way back in
+            while (!isset(self::$settled[$connectionId]) && !isset(self::$errors[$connectionId])) {
+                \phasync::awaitFlag($connection, $timeout ?? self::NO_TIMEOUT);
+            }
 
             if (isset(self::$errors[$connectionId])) {
                 throw new \RuntimeException(self::$errors[$connectionId][0], self::$errors[$connectionId][1]);
@@ -81,44 +98,85 @@ final class MySQLiPoll
 
             return $connection;
         } finally {
-            unset(self::$connections[$connectionId], self::$errors[$connectionId]);
+            unset(self::$connections[$connectionId], self::$errors[$connectionId], self::$settled[$connectionId]);
         }
     }
 
     /**
-     * Launches the service coroutine to handle MySQLi polling.
-     * Ensures that the polling continues while there are active connections.
+     * Starts the service coroutine that drives mysqli::poll(), unless one runs or is waiting to.
      */
     private static function runService(): void
     {
         if (self::$running) {
             return;
         }
-        \phasync::service(static function () {
-            try {
-                self::$running = true;
-                while (!empty(self::$connections)) {
-                    \phasync::sleep(0.02);
-                    $read   = $error = $reject = \array_values(self::$connections);
-                    $result = \mysqli::poll($read, $error, $reject, 0, 20000); // 20ms
-                    if (0 === $result || false === $result) {
-                        continue;
-                    }
-                    foreach ([...$read, ...$error, ...$reject] as $mysqli) {
-                        $connectionId = \spl_object_id($mysqli);
-                        if (isset(self::$connections[$connectionId])) {
-                            \phasync::raiseFlag($mysqli);
-                            unset(self::$connections[$connectionId]);
+        // before the service is created rather than as its first statement: creating a coroutine runs
+        // it up to its first suspension (EventLoop::create()), which for a service with one query
+        // already served is its end - and a flag set after that would never be cleared again
+        self::$running = true;
+
+        try {
+            \phasync::service(static function () {
+                $delay = 0.0;
+
+                try {
+                    while (!empty(self::$connections)) {
+                        if (0 === self::pollCompleted()) {
+                            // mysqli exposes no sockets for the loop to wait on, so it has to be asked:
+                            // back off from 0.5 ms to 10 ms while nothing completes, as CurlMulti does
+                            // (#133). A query that lands ends the backoff, so a busy connection is
+                            // asked again at once and the 10 ms only applies to a waiting one.
+                            $delay = \min(0.01, \max(0.0005, $delay * 2));
+                            \phasync::sleep($delay);
+                        } else {
+                            $delay = 0.0;
                         }
                     }
+                } finally {
+                    self::$running = false;
+                    foreach (self::$connections as $connectionId => $mysqli) {
+                        self::$errors[$connectionId]  = ['The MySQLiPoll service terminated without resolving the MySQLi handle', 1];
+                        self::$settled[$connectionId] = true;
+                        \phasync::raiseFlag($mysqli);
+                    }
                 }
-            } finally {
-                self::$running = false;
-                foreach (self::$connections as $connectionId => $mysqli) {
-                    self::$errors[$connectionId] = ['The MySQLiPoll service terminated without resolving the MySQLi handle', 1];
-                    \phasync::raiseFlag($mysqli);
-                }
+            });
+        } catch (\Throwable $failure) {
+            self::$running = false; // no service to run, and none would ever be started again
+
+            throw $failure;
+        }
+    }
+
+    /**
+     * Asks mysqli, without waiting, which of the polled connections have a query finished, and wakes
+     * the coroutine waiting on each. Returns how many it woke.
+     *
+     * The zero timeout is the point: a poll() that waited here would hold up the process, which is
+     * what this service exists to avoid. Asking costs a microsecond per connection.
+     */
+    private static function pollCompleted(): int
+    {
+        $read   = $error = $reject = \array_values(self::$connections);
+        $result = \mysqli::poll($read, $error, $reject, 0, 0);
+
+        if (empty($result)) {
+            // 0: no query has finished yet. false: poll() failed, which it does for a connection
+            // that is gone; its waiter's own timeout is the way out of that.
+            return 0;
+        }
+
+        $woke = 0;
+        foreach ([...$read, ...$error, ...$reject] as $mysqli) {
+            $connectionId = \spl_object_id($mysqli);
+            if (isset(self::$connections[$connectionId])) {
+                self::$settled[$connectionId] = true; // before the flag: see the property
+                \phasync::raiseFlag($mysqli);
+                unset(self::$connections[$connectionId]);
+                ++$woke;
             }
-        });
+        }
+
+        return $woke;
     }
 }
