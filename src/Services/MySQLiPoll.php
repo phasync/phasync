@@ -8,7 +8,9 @@ use mysqli;
  * Waits for a mysqli asynchronous query without blocking other coroutines.
  *
  * Start the query with `MYSQLI_ASYNC`, then `MySQLiPoll::poll($mysqli)` suspends the calling coroutine
- * until the result is ready. One coroutine may poll a connection at a time.
+ * until the result is ready, which the caller takes with `reap_async_query()`. Use it where the phasync
+ * extension is not loaded, or to be independent of it; with the extension, an ordinary blocking query
+ * waits the same way and this class is not needed.
  *
  * ```php
  * phasync::run(function () use ($mysqli) {
@@ -17,6 +19,26 @@ use mysqli;
  *     $result = $mysqli->reap_async_query();
  * });
  * ```
+ *
+ * One coroutine may poll a connection at a time, because mysqli keeps one result per connection: a
+ * second waiter gets a LogicException rather than the first one's result. Connections are pooled one
+ * coroutine at a time by {@see phasync\Util\Pool}, which is how a query that failed should be handed
+ * back.
+ *
+ * mysqli offers no sockets for the loop to wait on, so a service coroutine - one for the process, not
+ * one per connection - asks `mysqli::poll()` with a zero timeout, never holding up the process: again
+ * at once while queries are landing, backing off from 0.5 ms to 10 ms while they are not. A finished
+ * query is therefore waited for no longer than that delay, and one that lands in a busy moment is
+ * noticed on the spot.
+ *
+ * Must be called from a coroutine: unlike {@see CurlMulti::await()}, which starts one when it has to,
+ * there is nothing to start a query with here.
+ *
+ * **When the wait is cut short** - `TimeoutException`, or the coroutine being cancelled - the query is
+ * still in flight on the connection, and mysqli takes no second query before the first result is
+ * reaped. This is left as mysqli put it rather than discarded, so the caller may still wait that
+ * result out and reap it; otherwise the connection is spent, and should be closed or given to
+ * {@see phasync\Util\Pool::discard()}. Reaping it is enough to use the connection again.
  *
  * @see phasync::go Start the coroutines that query side by side
  *
@@ -63,14 +85,22 @@ final class MySQLiPoll
     /**
      * Suspends the calling coroutine until the connection's asynchronous query has finished.
      *
+     * The result is not taken here: `reap_async_query()` after this returns, as mysqli's own
+     * asynchronous API requires. What a query that fails throws is mysqli's decision, made there.
+     *
+     * See the class docblock for what one coroutine at a time means, and for a wait that ends early.
+     *
      * @param \mysqli    $connection the MySQLi connection to be polled
      * @param float|null $timeout    the most seconds to wait for the query to complete; null, the
      *                               default, waits for as long as it takes
      *
-     * @throws \LogicException   if the same MySQLi connection is polled by multiple coroutines
-     * @throws \RuntimeException if an error occurs during polling
+     * @throws \LogicException           outside a coroutine, or when another coroutine is polling this
+     *                                   connection already
+     * @throws \phasync\TimeoutException when `$timeout` runs out, leaving the query in flight
+     * @throws \RuntimeException         if the service waiting for the query ended without it, or the
+     *                                   connection was closed while it was waited for
      *
-     * @return \mysqli returns the MySQLi connection upon completion
+     * @return \mysqli the connection that has a result to reap
      */
     public static function poll(\mysqli $connection, ?float $timeout = null): \mysqli
     {
