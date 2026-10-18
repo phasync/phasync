@@ -25,6 +25,11 @@ use mysqli;
 final class MySQLiPoll
 {
     /**
+     * What awaitFlag() is given for a wait that does not run out.
+     */
+    private const NO_TIMEOUT = \PHP_FLOAT_MAX;
+
+    /**
      * MySQLi connections
      *
      * @var array<int,\mysqli>
@@ -47,8 +52,8 @@ final class MySQLiPoll
      * Suspends the calling coroutine until the connection's asynchronous query has finished.
      *
      * @param \mysqli    $connection the MySQLi connection to be polled
-     * @param float|null $timeout    The maximum time to wait for the query to complete, in seconds.
-     *                               If null, waits indefinitely.
+     * @param float|null $timeout    the most seconds to wait for the query to complete; null, the
+     *                               default, waits for as long as it takes
      *
      * @throws \LogicException   if the same MySQLi connection is polled by multiple coroutines
      * @throws \RuntimeException if an error occurs during polling
@@ -68,7 +73,7 @@ final class MySQLiPoll
         self::runService();
 
         try {
-            \phasync::awaitFlag($connection, $timeout);
+            \phasync::awaitFlag($connection, $timeout ?? self::NO_TIMEOUT);
 
             if (isset(self::$errors[$connectionId])) {
                 throw new \RuntimeException(self::$errors[$connectionId][0], self::$errors[$connectionId][1]);

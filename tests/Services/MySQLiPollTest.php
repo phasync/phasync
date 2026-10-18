@@ -313,3 +313,28 @@ test('query error from MySQL is properly reported', function () {
         }
     });
 });
+
+test('poll() with no timeout argument waits for the query instead of throwing TypeError', function () {
+    if (!\getenv('PHASYNC_TEST_MYSQL')) {
+        $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
+    }
+
+    phasync::run(function () {
+        $mysqli = getMySQLiConnection();
+
+        try {
+            // 2.0.0-rc1 passed the null default straight to phasync::awaitFlag(), which takes a
+            // float: every poll() that did not name a timeout threw TypeError.
+            $mysqli->query('SELECT SLEEP(0.05) AS slept', \MYSQLI_ASYNC);
+            expect(MySQLiPoll::poll($mysqli))->toBe($mysqli);
+            expect($mysqli->reap_async_query()->fetch_assoc())->toBe(['slept' => '0']);
+
+            // an explicit null means the same thing
+            $mysqli->query('SELECT 1 AS num', \MYSQLI_ASYNC);
+            expect(MySQLiPoll::poll($mysqli, null))->toBe($mysqli);
+            expect($mysqli->reap_async_query()->fetch_assoc())->toBe(['num' => '1']);
+        } finally {
+            $mysqli->close();
+        }
+    });
+});
