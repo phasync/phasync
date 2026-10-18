@@ -158,7 +158,11 @@ final class MySQLiPoll
     private static function pollCompleted(): int
     {
         $read   = $error = $reject = \array_values(self::$connections);
-        $result = \mysqli::poll($read, $error, $reject, 0, 0);
+        try {
+            $result = \mysqli::poll($read, $error, $reject, 0, 0);
+        } catch (\Throwable $failure) {
+            return self::reportClosed($failure);
+        }
 
         if (empty($result)) {
             // 0: no query has finished yet. false: poll() failed, which it does for a connection
@@ -178,5 +182,49 @@ final class MySQLiPoll
         }
 
         return $woke;
+    }
+
+    /**
+     * mysqli::poll() threw, which it does for a connection the application closed while this service
+     * was watching it - and it throws for the whole call, not only for that connection, so the
+     * connections beside it would go unserved and their waiters be told the service had ended.
+     * Report to the waiters of the connections that are gone and go on watching the rest.
+     *
+     * @throws \Throwable itself when no connection turns out to be closed, for the service to end on
+     */
+    private static function reportClosed(\Throwable $failure): int
+    {
+        $reported = 0;
+
+        foreach (self::$connections as $connectionId => $connection) {
+            if (!self::isClosed($connection)) {
+                continue;
+            }
+            self::$errors[$connectionId]  = ['The mysqli connection was closed while a coroutine waited for its query', 1];
+            self::$settled[$connectionId] = true;
+            unset(self::$connections[$connectionId]);
+            \phasync::raiseFlag($connection);
+            ++$reported;
+        }
+
+        if (0 === $reported) {
+            throw $failure;
+        }
+
+        return $reported;
+    }
+
+    /**
+     * Whether a connection is closed: mysqli has no way to ask, it throws from every call instead.
+     */
+    private static function isClosed(\mysqli $connection): bool
+    {
+        try {
+            $connection->thread_id;
+
+            return false;
+        } catch (\Throwable) {
+            return true;
+        }
     }
 }

@@ -395,3 +395,56 @@ test('a query that finished before poll() was called needs no waiting', function
         }
     });
 });
+
+test('a connection closed under its waiter is reported to that waiter alone', function () {
+    if (!\getenv('PHASYNC_TEST_MYSQL')) {
+        $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
+    }
+
+    phasync::run(function () {
+        $doomed   = getMySQLiConnection();
+        $innocent = getMySQLiConnection();
+        $closed   = false;
+
+        try {
+            $doomed->query('SELECT SLEEP(0.3)', \MYSQLI_ASYNC);
+            $innocent->query('SELECT SLEEP(0.3)', \MYSQLI_ASYNC);
+
+            // Code that is not the waiter closes a connection. mysqli::poll() then throws for the
+            // whole call it is making for the service, the connections beside it included, which
+            // used to end the service: its waiters were all told the service had terminated, and
+            // their own completed queries were left sitting there unreaped.
+            $closer = phasync::go(static function () use ($doomed, &$closed): void {
+                phasync::sleep(0.05);
+                $doomed->close();
+                $closed = true;
+            });
+
+            $waiter = phasync::go(static function () use ($doomed): string {
+                try {
+                    MySQLiPoll::poll($doomed, 5);
+
+                    return 'the waiter was woken as if its query had finished';
+                } catch (RuntimeException $e) {
+                    return $e->getMessage();
+                }
+            });
+
+            MySQLiPoll::poll($innocent, 5);
+            expect($innocent->reap_async_query()->fetch_assoc())->toBe(['SLEEP(0.3)' => '0']);
+
+            expect(phasync::await($waiter))->toContain('was closed while a coroutine waited');
+            phasync::await($closer);
+
+            // and the service is still running for the next query on the connection that survived
+            $innocent->query('SELECT 42 AS num', \MYSQLI_ASYNC);
+            MySQLiPoll::poll($innocent, 5);
+            expect($innocent->reap_async_query()->fetch_assoc())->toBe(['num' => '42']);
+        } finally {
+            $innocent->close();
+            if (!$closed) {
+                $doomed->close();
+            }
+        }
+    });
+});

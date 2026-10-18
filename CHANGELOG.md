@@ -18,6 +18,11 @@ Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
   MariaDB on loopback. `poll()` waits for the state the service leaves behind rather than the flag
   alone, since a service runs up to its first suspension as it is created and can settle the first
   query of a process before its own coroutine waits - and a raised flag nobody waits on is forgotten.
+- A mysqli connection closed by the application while a coroutine waited for its query ended the
+  `MySQLiPoll` service: `mysqli::poll()` throws for the whole call it is making, not only for that
+  connection, so every other waiter was told "the service terminated without resolving the MySQLi
+  handle" and their own completed queries were left unreaped. The closed connection is now reported
+  to its own waiter, and the rest of them keep being polled.
 - `CurlMulti::await()` polled curl once every 20 ms, so a request chain ran at about 25 requests a second and every transfer was noticed late. It now runs curl again at once while there is work ready and backs off from 0.5 ms to 10 ms when idle: 50 sequential requests to a local server take 60 ms instead of 3 s (#133).
 
 ## 2.0.0-rc1 (2026-10-16)
