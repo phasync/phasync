@@ -32,13 +32,6 @@ final class MySQLiPoll
     private static array $connections = [];
 
     /**
-     * Fibers associated with the MySQLi connections
-     *
-     * @var array<int,\Fiber>
-     */
-    private static array $fibers = [];
-
-    /**
      * Errors or exceptions associated with the connection.
      *
      * @var array<int, array{0: string, 1: int}>
@@ -64,14 +57,13 @@ final class MySQLiPoll
      */
     public static function poll(\mysqli $connection, ?float $timeout = null): \mysqli
     {
+        \phasync::getFiber(); // a coroutine to wait in: this throws a LogicException outside one
+
         $connectionId = \spl_object_id($connection);
         if (isset(self::$connections[$connectionId])) {
             throw new \LogicException("Multiple coroutines can't poll the same mysqli connection");
         }
-        $fiber = \phasync::getFiber();
-
         self::$connections[$connectionId] = $connection;
-        self::$fibers[$connectionId]      = $fiber;
 
         self::runService();
 
@@ -84,9 +76,7 @@ final class MySQLiPoll
 
             return $connection;
         } finally {
-            unset(self::$connections[$connectionId]);
-            unset(self::$fibers[$connectionId]);
-            unset(self::$errors[$connectionId]);
+            unset(self::$connections[$connectionId], self::$errors[$connectionId]);
         }
     }
 
