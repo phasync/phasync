@@ -27,8 +27,6 @@ Three ways to load it:
 - `phasync\ext\ensure_loaded()` — call once, early, in a CLI script; it may re-exec the process.
 - `pie install phasync/ext-phasync` — installs it into `php.ini` for any SAPI (including FPM).
 
-The extension is now MIT-licensed, with no `virtualize()` and no free-tier limit.
-
 ## The `phasync` facade: `run()` / `go()` / `service()`
 
 Contexts are gone. Identity is now `\Scope` (from `fiber-interop/scope`); lifetime is

@@ -403,4 +403,4 @@ test('DLK-5: a writer end in a reference cycle is released by idle-time GC befor
     });
 
     expect($outcome)->toBe('ok');
-})->skip(fn () => gcGraceActive(), 'the extension\'s gc grace (phasync.virtualize=1) leaves young cycles for later');
+});
