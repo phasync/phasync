@@ -79,10 +79,7 @@ jobs:
         if: matrix.php != '8.2'   # the extension needs PHP 8.3 or later
         uses: actions/checkout@v7
         with:
-          # the private source repository while phasync/ext-phasync is not public yet
-          repository: ${{ secrets.EXT_SRC_DEPLOY_KEY && 'phasync/phasync-ext-src' || 'phasync/ext-phasync' }}
-          ref: ${{ secrets.EXT_SRC_DEPLOY_KEY && 'open-core' || 'main' }}
-          ssh-key: ${{ secrets.EXT_SRC_DEPLOY_KEY }}
+          repository: phasync/ext-phasync
           path: ext-phasync
 
       - name: 🛠 Build the extension
