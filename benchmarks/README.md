@@ -20,7 +20,7 @@ the working tree is faster).
 
 ```bash
 php benchmarks/ab.php                          # working tree vs HEAD
-php benchmarks/ab.php 2.0.0-alpha19 --rounds=9 --only=switch,flag
+php benchmarks/ab.php v1.1.0 --rounds=9 --only=switch,flag
 ```
 
 With the tracing JIT, some scenarios run at one of two speeds depending on which code got hot

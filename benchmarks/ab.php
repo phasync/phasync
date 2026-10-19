@@ -4,7 +4,7 @@
  * A quick A/B benchmark: the working tree against a git ref, in about half a minute.
  *
  *   php benchmarks/ab.php                 # working tree vs HEAD
- *   php benchmarks/ab.php v2.0.0-alpha19  # vs a tag or commit
+ *   php benchmarks/ab.php v1.1.0          # vs a tag or commit
  *   php benchmarks/ab.php HEAD --rounds=9 --only=switch,flag
  *
  * Each scenario runs for a fixed time in a fresh process, the two sides alternating round by
