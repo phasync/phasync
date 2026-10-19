@@ -155,7 +155,6 @@ test('sequential requests are not paced by a polling interval (#133)', function 
         return \microtime(true) - $start;
     });
 
-    // 50 requests used to take 3 s: every curl round trip waited 20 ms
     expect($elapsed)->toBeLessThan(1.0);
 });
 

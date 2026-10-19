@@ -666,9 +666,9 @@ test('BUF-1: write($chunk, 0) with $maxSize set never blocks and writes past the
     });
 });
 
-test('BUF-1: readFromResource()\'s own backpressure no longer busy-loops past 1 MB with a slow reader (found building $maxSize)', function () {
-    // Runs in a subprocess with a wall-clock limit: before the fix this spun the CPU
-    // forever instead of yielding, so a hang here (not a clean "done") is the failure.
+test('BUF-1: readFromResource()\'s own backpressure does not busy-loop past 1 MB with a slow reader', function () {
+    // Runs in a subprocess with a wall-clock limit: spinning the CPU instead of yielding
+    // shows up as a hang here (not a clean "done"), which is the failure this guards against.
     $result = bufchar_child(<<<'PHP'
         phasync::run(function () {
             [$source, $peer] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);

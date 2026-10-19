@@ -1,7 +1,7 @@
 <?php
 
 /*
- * phasync/phasync#88 and phasync/phasync-ext-src#83: a Fiber a coroutine runs itself (Drupal's
+ * phasync/phasync#88: a Fiber a coroutine runs itself (Drupal's
  * renderer) belongs to that coroutine's code, which resumes it. A wait there runs the event loop
  * in place until it is over: other coroutines run meanwhile, and the Fiber is never suspended
  * back to the code running it.

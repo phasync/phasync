@@ -313,9 +313,9 @@ test('IO-8: readable() and writable() leave a stream in the blocking mode it had
 
 /* ------------------------------------------------------------------ IO-7 */
 
-// IO-7: on a stock POSIX build, stream_select() fails outright (and used to fail *silently*, see
-// docs/SEMANTICS.md) once any watched resource's real file descriptor number reaches FD_SETSIZE
-// (1024). These tests open comfortably more than 1024 real streams rather than trying to detect
+// IO-7: on a stock POSIX build, stream_select() fails outright once any watched resource's real
+// file descriptor number reaches FD_SETSIZE (1024), reported loudly per docs/SEMANTICS.md. These
+// tests open comfortably more than 1024 real streams rather than trying to detect
 // the exact boundary: (int) casting a stream resource gives PHP's own resource-id counter, not
 // the kernel fd, and the two are not guaranteed to stay in lockstep (verified: they can already
 // differ by dozens once phasync's own autoloader has opened a few files first), so a wide margin
@@ -349,7 +349,7 @@ test('IO-7: a stream past FD_SETSIZE makes readable() throw IOException naming t
     });
 
     expect($result[0])->toBe(IOException::class);
-    // Loud and fast: nowhere near the 3 s timeout it used to silently wait out.
+    // Loud and fast: nowhere near the 3 s timeout passed to readable().
     expect($result[1])->toBeLessThan(1.0);
 })->group('divergence')->skip(\extension_loaded('phasync'), 'the phasync extension has no FD_SETSIZE limit');
 

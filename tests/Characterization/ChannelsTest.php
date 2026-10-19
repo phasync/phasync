@@ -555,14 +555,11 @@ test('CHN-9: scalars, arrays, null and Serializable objects pass through unchang
     expect($out[5])->toBeInstanceOf(ArrayObject::class);
 });
 
-test('CHN-9: any value -- including a non-Serializable object, a Closure and a resource -- round-trips through a channel unchanged (D2, 2.0.0)', function () {
-    // Was CHN-9's divergence test: these four used to throw TypeError on write(). Fixed per
-    // D2 (docs/roadmap-2.0.md's clustering section) -- a channel is single-process, in-memory
-    // communication between coroutines, so there was never a serialization step to justify the
-    // restriction; cross-process transport is a separate, later concern. Reads interleaved with
-    // writes (capacity 1) rather than writing all four first: unlike the old TypeError-per-write
-    // version of this test, every write here actually succeeds and occupies the one buffer slot,
-    // so a second write before the matching read would block forever with nothing to drain it.
+test('CHN-9: any value -- including a non-Serializable object, a Closure and a resource -- round-trips through a channel unchanged', function () {
+    // A channel is single-process, in-memory communication between coroutines, so there is no
+    // serialization step to justify restricting the value type. Reads are interleaved with
+    // writes (capacity 1) rather than writing all four first, since a second write before the
+    // matching read would block forever with nothing to drain it.
     $out = phasync::run(function () {
         phasync::channel($r, $w, 1);
         $c = phasync::go(function () use ($r, $w) {

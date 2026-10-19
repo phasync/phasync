@@ -170,9 +170,7 @@ test('RL-1: run() finishes normally when the limiter is dropped after its last t
 });
 
 test('RL-1: dropping a limiter that still holds an untaken token lets run() finish normally', function () {
-    // Was a [SURPRISE]: an uncaught ChannelException used to escape run() just from
-    // dropping an unused RateLimiter. Fixed as a side effect of CHN-1: the token
-    // generator's write() now genuinely blocks until a reader consumes it (so it is
+    // The token generator's write() genuinely blocks until a reader consumes it (so it is
     // actually blocked in write(), not mid-cycle, when the read end is dropped); write()
     // woken by the channel closing returns normally rather than throwing (see Channel::
     // write()'s unbuffered branch -- it returns unconditionally once awaitWritable()

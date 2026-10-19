@@ -4,9 +4,8 @@
  * Characterization tests for docs/SEMANTICS.md section 3 (SCO-1..7). These pin how
  * phasync behaves TODAY. See tests/Characterization/README.md before changing any of them.
  *
- * Rewritten for phasync 2.x's Scope + Frame redesign (owner's decision, 2026-10-13): the
- * context argument and getContext() are gone; run() creates a Frame (lifetime), the ambient
- * Scope (fiber-interop/scope) is the identity, and a failure no longer cancels the frame.
+ * run() creates a Frame (lifetime); the ambient Scope (fiber-interop/scope) is the identity.
+ * A failure nobody awaits does not cancel the frame.
  */
 
 use phasync\Frame;

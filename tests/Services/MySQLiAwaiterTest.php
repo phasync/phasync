@@ -323,8 +323,6 @@ test('await() with no timeout argument waits for the query instead of throwing T
         $mysqli = getMySQLiConnection();
 
         try {
-            // 2.0.0-rc1 passed the null default straight to phasync::awaitFlag(), which takes a
-            // float: every await() that did not name a timeout threw TypeError.
             $mysqli->query('SELECT SLEEP(0.05) AS slept', \MYSQLI_ASYNC);
             expect(MySQLiAwaiter::await($mysqli))->toBe($mysqli);
             expect($mysqli->reap_async_query()->fetch_assoc())->toBe(['slept' => '0']);
@@ -348,9 +346,8 @@ test('a fast query costs its round trip, not a polling interval', function () {
         $mysqli = getMySQLiConnection();
 
         try {
-            // 2.0.0-rc1 slept 20 ms between looks and then blocked inside mysqli::poll() for up to
-            // another 20, so every query paid about 20 ms however fast it was: a chain of them ran
-            // at 50 a second. The service now asks again at once while queries are landing.
+            // The service asks again at once while queries are landing, instead of paying a fixed
+            // polling interval per query.
             $polled  = 20;
             $started = \microtime(true);
             for ($i = 0; $i < $polled; ++$i) {
@@ -360,7 +357,7 @@ test('a fast query costs its round trip, not a polling interval', function () {
             }
             $each = (\microtime(true) - $started) * 1000 / $polled;
 
-            expect($each)->toBeLessThan(8, \sprintf('%.1f ms per query, 20.4 ms before the fix', $each));
+            expect($each)->toBeLessThan(8, \sprintf('%.1f ms per query', $each));
         } finally {
             $mysqli->close();
         }
@@ -411,9 +408,8 @@ test('a connection closed under its waiter is reported to that waiter alone', fu
             $innocent->query('SELECT SLEEP(0.3)', \MYSQLI_ASYNC);
 
             // Code that is not the waiter closes a connection. mysqli::poll() then throws for the
-            // whole call it is making for the service, the connections beside it included, which
-            // used to end the service: its waiters were all told the service had terminated, and
-            // their own completed queries were left sitting there unreaped.
+            // whole call it is making for the service, the connections beside it included. The
+            // closed connection is reported to its own waiter, and the rest keep being polled.
             $closer = phasync::go(static function () use ($doomed, &$closed): void {
                 phasync::sleep(0.05);
                 $doomed->close();
