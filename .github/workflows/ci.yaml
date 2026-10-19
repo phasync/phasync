@@ -35,7 +35,7 @@ jobs:
       PHASYNC_TEST_MYSQL: 127.0.0.1:3306:root:test
 
     # phasync must behave the same with and without the extension, so the suite runs both ways:
-    # the second time with the extension binary bundled in the newest release tag (main has none)
+    # the second time with the extension built from phasync/phasync-ext main
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v7
@@ -48,6 +48,7 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: mysqli
+          tools: phpize
           coverage: pcov   # unlike xdebug it loads alongside the phasync extension, whose run is measured too
 
       - name: ✅ Validate composer.json and composer.lock
@@ -74,35 +75,24 @@ jobs:
       - name: 🔗 Every allowed major version of the PSR packages
         run: php tests/psr-versions.php
 
-      - name: 📥 Fetch the extension binary from the newest release tag
+      - name: 🛠 Build the extension from phasync/phasync-ext main
         id: ext
         if: matrix.php != '8.2'   # the extension needs PHP 8.3 or later
         run: |
-          git fetch --tags --force
-          for tag in $(git tag --sort=-v:refname); do
-            if [ -n "$(git ls-tree --name-only "$tag" ext/)" ]; then
-              git checkout "$tag" -- ext
-              echo "so=ext/phasync-${{ matrix.php }}-nts-x86_64-glibc.so" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done
-          echo "::notice::No release tag bundles ext/ yet, skipping the extension tests"
+          sudo apt-get install -y -q --no-install-recommends libxml2-dev libsqlite3-dev >/dev/null
+          git clone -q --depth 1 https://github.com/phasync/phasync-ext.git "$RUNNER_TEMP/phasync-ext"
+          cd "$RUNNER_TEMP/phasync-ext"
+          phpize >/dev/null && ./configure -q --enable-phasync && make -s -j"$(nproc)" >/dev/null
+          echo "so=$RUNNER_TEMP/phasync-ext/modules/phasync.so" >> "$GITHUB_OUTPUT"
 
       - name: ✅ Tests with the phasync extension
         if: steps.ext.outputs.so
-        env:
-          PHASYNC_CI_LICENSE: ${{ secrets.PHASYNC_CI_LICENSE }}
         run: |
-          # without the secret the extension runs on its free tier
-          if [ -n "$PHASYNC_CI_LICENSE" ]; then
-            printf '%s' "$PHASYNC_CI_LICENSE" > "$RUNNER_TEMP/phasync.license"
-            export PHASYNC_LICENSE_FILE="$RUNNER_TEMP/phasync.license"
-          fi
           # bin/phasync loads it through PHP_INI_SCAN_DIR, so the PHP processes the tests start load it too
           # one job also measures this run: Codecov merges it with the one without the extension
           COVERAGE=""
           if [ "${{ matrix.php }}" = "8.5" ]; then COVERAGE="--coverage-clover clover-ext.xml"; fi
-          PHASYNC_EXT_SO="$PWD/${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect $COVERAGE
+          PHASYNC_EXT_SO="${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect $COVERAGE
 
       - name: 📤 Upload coverage to Codecov
         uses: codecov/codecov-action@v7
