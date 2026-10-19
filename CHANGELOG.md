@@ -2,6 +2,12 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## 2.0.3 (2026-10-19)
+
+Bundles ext-phasync 2.0.1: the Linux glibc binaries need at most glibc 2.34, so they load on
+Debian 12, Ubuntu 22.04 and RHEL 9; `curl_exec()` in a coroutine resumes after
+`curl_pause(CURLPAUSE_CONT)`.
+
 ## 2.0.2 (2026-10-19)
 
 Documentation corrections.
