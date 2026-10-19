@@ -25,6 +25,10 @@ if (!\extension_loaded('phasync')) {
             . "Install it with `pie install phasync/ext-phasync`, or set PHASYNC_EXT_SO to a matching binary.\n");
         exit(1);
     }
+    if (!\is_file($so)) {
+        \fwrite(\STDERR, "phasync: PHASYNC_EXT_SO names $so, which does not exist.\n");
+        exit(1);
+    }
 
     // php.ini files expand ${VAR}; an empty entry in PHP_INI_SCAN_DIR keeps PHP's own scan directory.
     \putenv('PHASYNC_EXT_SO=' . $so);
