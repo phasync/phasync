@@ -11,34 +11,35 @@ declare(strict_types=1);
 
 require __DIR__ . '/../src/ext_loader.php';
 
-if (\extension_loaded('phasync')) {
-    \fwrite(\STDERR, "phasync: the phasync extension is already loaded by this PHP's configuration; run php directly.\n");
-    exit(1);
+// Already loaded by PHP's configuration (PIE, php.ini): run PHP as it is
+if (!\extension_loaded('phasync')) {
+    if (\PHP_VERSION_ID < 80300) {
+        \fwrite(\STDERR, 'phasync: ' . phasync\ext\_needs_php83() . " Run php directly.\n");
+        exit(1);
+    }
+
+    $so = phasync\ext\_resolve_so();
+    if (null === $so) {
+        \fwrite(\STDERR, 'phasync: no phasync binary for this platform (' . phasync\ext\_abi_key() . ").\n"
+            . "Release packages of phasync/phasync bundle them in ext/; a development checkout has none.\n"
+            . "Install it with `pie install phasync/phasync-ext`, or set PHASYNC_EXT_SO to a matching binary.\n");
+        exit(1);
+    }
+
+    // php.ini files expand ${VAR}; an empty entry in PHP_INI_SCAN_DIR keeps PHP's own scan directory.
+    \putenv('PHASYNC_EXT_SO=' . $so);
+    \putenv('PHP_INI_SCAN_DIR=' . (\getenv('PHP_INI_SCAN_DIR') ?: '') . \PATH_SEPARATOR . \dirname(__DIR__) . '/ext/ini');
 }
 
-if (\PHP_VERSION_ID < 80300) {
-    \fwrite(\STDERR, 'phasync: ' . phasync\ext\_needs_php83() . " Run php directly.\n");
-    exit(1);
-}
-
-$so = phasync\ext\_resolve_so();
-if (null === $so) {
-    \fwrite(\STDERR, 'phasync: no phasync binary for this platform (' . phasync\ext\_abi_key() . ").\n"
-        . "Release packages of phasync/phasync bundle them in ext/; a development checkout has none.\n"
-        . "Set PHASYNC_EXT_SO to a matching binary.\n");
-    exit(1);
-}
-
-// php.ini files expand ${VAR}; an empty entry in PHP_INI_SCAN_DIR keeps PHP's own scan directory.
-\putenv('PHASYNC_EXT_SO=' . $so);
-\putenv('PHP_INI_SCAN_DIR=' . (\getenv('PHP_INI_SCAN_DIR') ?: '') . \PATH_SEPARATOR . \dirname(__DIR__) . '/ext/ini');
-
-$args = \array_slice($_SERVER['argv'], 1);
+// Keep the flags this PHP was started with (php -d ... vendor/bin/phasync ...): they come before this script
+$own  = phasync\ext\_original_args();
+$at   = \array_search($_SERVER['argv'][0], $own, true);
+$args = [...(false === $at ? [] : \array_slice($own, 0, $at)), ...\array_slice($_SERVER['argv'], 1)];
 
 if (\function_exists('pcntl_exec')) {
     \pcntl_exec(\PHP_BINARY, $args);
 }
-if (\class_exists(\FFI::class)) {
+if (\class_exists(FFI::class)) {
     phasync\ext\_ffi_execv(\array_merge([\PHP_BINARY], $args));
 }
 
