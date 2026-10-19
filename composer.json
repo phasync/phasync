@@ -38,8 +38,7 @@
         "files": [
             "src/async_interfaces.php",
             "src/functions.php",
-            "src/ext_loader.php",
-            "src/ext.php"
+            "src/ext_loader.php"
         ]
     },
     "extra": {

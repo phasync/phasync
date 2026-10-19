@@ -145,13 +145,6 @@ final class EventLoop implements \Countable
      */
     private \WeakMap $held;
 
-    /**
-     * Whether phasync\ext\current_fiber() is the extension's (see wait()).
-     *
-     * @internal
-     */
-    public static bool $extFiber = false;
-
     /** How many scopes are frozen: 0 keeps every check off the loop's path. */
     private int $preempted = 0;
 
@@ -471,7 +464,9 @@ final class EventLoop implements \Countable
         $this->shielded          = new \WeakMap();
         $this->issued            = new \WeakMap();
         $this->deadlines         = [];
-        self::$extFiber          = \extension_loaded('phasync') && (new \ReflectionFunction('phasync\ext\current_fiber'))->isInternal();
+        if (\extension_loaded('phasync')) {
+            \phasync\ext\_check_version();
+        }
         if ($fiber = $this->getCurrentFiber()) {
             // The current fiber stays, alone in its frame
             $frame                     = $this->currentFrame;
@@ -1362,9 +1357,8 @@ final class EventLoop implements \Countable
     /**
      * Wait in a Fiber the running coroutine runs itself (Drupal's renderer), after registering what
      * the coroutine waits for; the callers suspend the coroutine's own Fiber directly when
-     * Fiber::getCurrent() is the coroutine, and come here otherwise (with phasync-ext, also from a
-     * virtualize() request's root coroutine, where Fiber::getCurrent() is null). Fiber::suspend() would return to the coroutine's own code, which does not
-     * expect it: here the loop runs in place instead,
+     * Fiber::getCurrent() is the coroutine, and come here otherwise. Fiber::suspend() would return
+     * to the coroutine's own code, which does not expect it: here the loop runs in place instead,
      * tick after tick, until it would resume the coroutine. Other coroutines run meanwhile, resumed
      * from that Fiber and suspending back to it; the Fiber stays where it is.
      *
@@ -1378,13 +1372,7 @@ final class EventLoop implements \Countable
      */
     public function wait(): void
     {
-        $fiber = $this->currentFiber;
-        if (self::$extFiber && \phasync\ext\current_fiber() === $fiber) {
-            $this->suspending($fiber);
-            \Fiber::suspend(); // a virtualize() request's root coroutine, where Fiber::getCurrent() is null
-
-            return;
-        }
+        $fiber             = $this->currentFiber;
         $frame             = $this->currentFrame;
         $scope             = $this->fiberScopes[$fiber] = \Scope::getCurrent();
         $id                = \spl_object_id($fiber);

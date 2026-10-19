@@ -16,10 +16,8 @@ namespace phasync\ext;
 
 if (!\function_exists('phasync\\ext\\current_fiber')) {
     /**
-     * The running Fiber: Fiber::getCurrent() without the extension. phasync calls this, never
-     * Fiber::getCurrent(): inside a virtualize() request the extension makes Fiber::getCurrent()
-     * null in the request's root coroutine, as under php-fpm, and its current_fiber() returns
-     * that coroutine.
+     * The running Fiber: Fiber::getCurrent() without the extension, whose own current_fiber()
+     * phasync calls instead of Fiber::getCurrent().
      */
     function current_fiber(): ?\Fiber
     {
@@ -46,7 +44,9 @@ if (!\function_exists('phasync\\ext\\current_fiber')) {
 function ensure_loaded(?string $soPath = null): void
 {
     if (\extension_loaded('phasync')) {
-        return;   // already active (extension= / a prior re-exec)
+        _check_version();
+
+        return;   // already active (PIE, extension= / a prior re-exec)
     }
     if (\PHP_VERSION_ID < 80300) {
         throw new \RuntimeException(_needs_php83());
@@ -87,6 +87,46 @@ function ensure_loaded(?string $soPath = null): void
     }
 
     throw new \RuntimeException('phasync\\ext\\ensure_loaded(): cannot re-exec to load the extension (neither pcntl_exec() nor FFI execv() is available). Run with "php -d extension=' . $so . ' …" instead.');
+}
+
+/**
+ * The extension versions this phasync works with: the same major version, from this one on.
+ *
+ * @internal
+ */
+const MIN_EXT_VERSION = '2.0.0-dev';
+
+/**
+ * Throws when the loaded extension is a version this phasync does not work with: an extension
+ * installed with PIE is updated apart from phasync, which composer updates.
+ *
+ * @internal
+ *
+ * @throws \RuntimeException naming both versions and what to update
+ */
+function _check_version(): void
+{
+    if (null !== $problem = _version_problem((string) \phpversion('phasync'))) {
+        throw new \RuntimeException($problem);
+    }
+}
+
+/**
+ * What is wrong with extension version $version for this phasync, or null when nothing is.
+ *
+ * @internal
+ */
+function _version_problem(string $version): ?string
+{
+    $major = (int) MIN_EXT_VERSION;
+    if ((int) $version > $major) {
+        return "The loaded phasync extension is version $version, newer than this phasync works with ($major.x). Update phasync (composer update phasync/phasync), or install phasync-ext $major.x.";
+    }
+    if ((int) $version < $major || \version_compare($version, MIN_EXT_VERSION, '<')) {
+        return "The loaded phasync extension is version $version; this phasync needs $major.x from " . MIN_EXT_VERSION . ' on. Update it (pie install phasync/phasync-ext), or remove it from php.ini to use the binary that comes with phasync (vendor/bin/phasync).';
+    }
+
+    return null;
 }
 
 /**

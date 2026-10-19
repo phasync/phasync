@@ -6,10 +6,16 @@ Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
 ### Changed
 
+- phasync checks the version of a loaded phasync extension when its event loop starts and in `phasync\ext\ensure_loaded()`: it works with extension 2.x from 2.0.0-dev on, and otherwise throws a `RuntimeException` naming both versions and what to update. An extension installed with PIE is updated apart from phasync.
+- The extension is open source (MIT) and its binaries in release packages carry that licence. It has no `virtualize()` and no free-tier limit; phasync no longer looks for the extension's own `current_fiber()`.
 - `vendor/bin/phasync` runs PHP as it is when the extension is already loaded (PIE, `php.ini`) instead of refusing, and the PHP it starts keeps the flags it was started with (`php -d memory_limit=1G vendor/bin/phasync app.php`). Without a binary for the platform it points to `pie install phasync/phasync-ext`.
 - phasync no longer declares `"replace": {"phasync/phasync-ext": "*"}`: `phasync/phasync-ext` is the extension's PIE package again.
 - `phasync\Services\CurlMulti` and `phasync\Services\MySQLiPoll` are public API, documented and with an example. They were marked `@internal` in 2.0.0-beta5 while the README and docs recommended them.
 - They are renamed `phasync\Services\CurlAwaiter` and `phasync\Services\MySQLiAwaiter`, and both are awaited with `await()`: phasync's `await()` suspends the calling coroutine until something is ready, while `poll()` is what the event loop does to its streams, which is not what `MySQLiPoll::poll()` did. The names also no longer say how the wait is done, which the phasync extension replaces. The old classes remain as `@deprecated` classes that call the new ones (`CurlMulti::await()`, `MySQLiPoll::poll()`), and go in 3.0.
+
+### Removed
+
+- `phasync\ext_enabled()`, `phasync\try_enable_ext()` and the `"extra": {"phasync": {"ext": true}}` setting they read: load the extension with `vendor/bin/phasync`, `phasync\ext\ensure_loaded()` or `pie install phasync/phasync-ext`, and ask `extension_loaded('phasync')` / `phpversion('phasync')` whether and which one is loaded.
 
 ### Fixed
 

@@ -42,7 +42,7 @@ ordinary function (below); nothing else in the application changes.
 - **Legacy code joins in.** With the phasync extension loaded, the code you already have (MySQL through PDO or
   mysqli, curl and Guzzle, `file_get_contents()`, `http://` streams, DNS lookups, `sleep()`) waits
   cooperatively inside coroutines instead of blocking the process. No rewrite.
-- **Yours to own.** MIT (the optional extension binaries have their own licence), and no dependencies beyond PHP, PSR interfaces and `fiber-interop/scope`: small enough for you,
+- **Yours to own.** MIT, the extension included, and no dependencies beyond PHP, PSR interfaces and `fiber-interop/scope`: small enough for you,
   or your coding agent, to read whole and maintain for a decade. See
   [the Ennerd philosophy](PHILOSOPHY.md).
 
@@ -170,27 +170,21 @@ included. That covers sockets and TLS, MySQL through mysqli or PDO, curl and Guz
 and child processes, `sleep()`, DNS lookups, files and filesystem calls, PostgreSQL and SQLite,
 and more. Clients with their own network code, such as phpredis, still block.
 
-There is nothing extra to install: release packages of `phasync/phasync` carry the prebuilt
-binaries under `ext/` (PHP 8.3 to 8.5 on Linux, x86-64 and ARM64, glibc and musl; macOS builds
-follow in a later release). They are closed source, free to use and redistribute under the licence
-in `ext/LICENSE`, and optional. Enable the extension in one of these ways:
+There is nothing extra to install: release packages of `phasync/phasync` carry prebuilt binaries
+under `ext/` (PHP 8.3 to 8.5; Linux x86-64 and ARM64 with glibc or musl, macOS). Load one:
 
-- In `composer.json` of your project: `"extra": {"phasync": {"ext": true}}`. phasync does not
-  act on it by itself; tools such as Swerve read it with `phasync\ext_enabled()` and load the
-  extension.
 - From the command line: `vendor/bin/phasync script.php` instead of `php script.php`. It takes the
   same arguments as `php`, and PHP processes the script starts load the extension too.
-- In a CLI script, as the first line: `phasync\try_enable_ext();` loads the bundled binary,
-  restarting the process once.
-- Under PHP-FPM, `extension=<path to ext/phasync-<php>-nts-<arch>-<libc>.so>` in `php.ini`.
+- In a CLI script, as the first line: `phasync\ext\ensure_loaded();` restarts the process once with
+  the extension.
+- For every SAPI, PHP-FPM included: `pie install phasync/phasync-ext` builds it and enables it in
+  `php.ini`. phasync then uses that one, and `vendor/bin/phasync` and `ensure_loaded()` leave it be.
 
-Without a licence file, the extension's free tier limits how often waits it took over from
-blocking calls resume: 100 a second, shared by every phasync process of a user on a machine, after
-an unthrottled first 10 minutes. Over the limit a waiting coroutine stays parked a little longer;
-nothing blocks or fails. phasync's own waits are never counted. A signed licence file lifts the
-limit. It is read from
-the ini setting `phasync.license`, the environment variable `PHASYNC_LICENSE_FILE`, or
-`./phasync.license`, and `phasync\ext\license()` shows what is in effect.
+The extension is [open source](https://github.com/phasync/phasync-ext) under the MIT licence, and
+versioned with phasync: phasync 2.x works with extension 2.x and throws a `RuntimeException` that
+says what to update when another version is loaded. It bundles
+[ext-scope](https://github.com/fiber-interop/ext-scope) for the `Scope` class, and uses an ext-scope
+or a PHP that already has `Scope` instead.
 
 The extension waits with `select()` and switches to epoll at 1024 watched descriptors, so a
 process can watch any number of sockets: without it, PHP's `stream_select()`
@@ -198,11 +192,6 @@ cannot use file descriptors numbered 1024 and up.
 
 phasync behaves the same with and without the extension. The extension only lets more code wait
 cooperatively and makes waiting cheaper.
-
-In a request the extension's `virtualize()` runs, `Fiber::getCurrent()` is null in the request's
-root coroutine, as under PHP-FPM, so applications that suspend any Fiber they find themselves in
-leave the request alone. Code that needs the coroutine calls `phasync\ext\current_fiber()`, as
-phasync does; without the extension, phasync defines it as `Fiber::getCurrent()`.
 
 ## Coordinating coroutines
 
@@ -316,5 +305,4 @@ today. Tests, documentation and bug reports are welcome.
 
 ## License
 
-*phasync* is open-sourced software licensed under the MIT license. The extension binaries in
-`ext/` of release packages are not part of that: they carry their own licence, in `ext/LICENSE`.
+*phasync* and its extension are open-sourced software licensed under the MIT license.

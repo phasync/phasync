@@ -129,34 +129,6 @@ test('a clock that jumps far ahead expires every timeout that fell in the gap, a
     expect($caught[2])->toBe('cancelled');
 });
 
-test('wait() under the extension\'s current_fiber() suspends the coroutine\'s own Fiber and is resumed by the flag', function () {
-    $previous            = EventLoop::$extFiber;
-    EventLoop::$extFiber = true;
-    try {
-        $order = phasync::run(function () {
-            $loop   = phasync::getLoop();
-            $flag   = new stdClass();
-            $order  = [];
-            $waiter = phasync::go(function () use ($loop, $flag, &$order) {
-                $order[] = 'waits';
-                $loop->whenFlagged($flag, \PHP_FLOAT_MAX, phasync::getFiber());
-                $loop->wait();
-                $order[] = 'resumed';
-            });
-            phasync::sleep(0.001);
-            $order[] = 'raises';
-            phasync::raiseFlag($flag);
-            phasync::await($waiter);
-
-            return $order;
-        });
-    } finally {
-        EventLoop::$extFiber = $previous;
-    }
-
-    expect($order)->toBe(['waits', 'raises', 'resumed']);
-});
-
 test('a service started in another scope than the creating one gets a Fiber of its own scope', function () use ($loopProperty) {
     $result = phasync::run(function () use ($loopProperty) {
         $loop     = phasync::getLoop();

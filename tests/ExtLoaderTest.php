@@ -226,3 +226,45 @@ test('ensure_loaded() re-executes through FFI execv() when pcntl_exec() is unava
     expect($exit)->toBe(0);
     expect(\json_decode($output, true))->toBe([true, '1', ['a b', 'c']]);
 })->skip(\PHP_VERSION_ID < 80300, 'ensure_loaded() stops at its PHP 8.3 check on older PHP');
+
+test('_abi_key has the form <major.minor>-<nts|zts>-<arch>-<glibc|musl|darwin>', function () {
+    expect(\phasync\ext\_abi_key())->toMatch('/^\d+\.\d+-(nts|zts)-[\w]+-(glibc|musl|darwin)$/');
+});
+
+test('_resolve_so prefers PHASYNC_EXT_SO, then ext/phasync-<abi>.so, else null', function () {
+    $env     = \getenv('PHASYNC_EXT_SO');
+    $so      = \dirname(__DIR__) . '/ext/phasync-' . \phasync\ext\_abi_key() . '.so';
+    $dir     = \dirname($so);
+    $madeDir = !\is_dir($dir);
+    $madeSo  = false;
+    try {
+        \putenv('PHASYNC_EXT_SO=/some/where.so');
+        expect(\phasync\ext\_resolve_so())->toBe('/some/where.so');
+
+        \putenv('PHASYNC_EXT_SO');
+        if (!\is_file($so)) {
+            expect(\phasync\ext\_resolve_so())->toBeNull();
+            $madeDir && \mkdir($dir);
+            \touch($so);
+            $madeSo = true;
+        }
+        expect(\phasync\ext\_resolve_so())->toBe($so);
+    } finally {
+        $madeSo && @\unlink($so);
+        $madeDir && @\rmdir($dir);
+        \putenv(false === $env ? 'PHASYNC_EXT_SO' : 'PHASYNC_EXT_SO=' . $env);
+    }
+});
+
+test('_version_problem() accepts an extension of the same major version, from the minimum on', function () {
+    foreach (['2.0.0-dev', '2.0.0-beta1', '2.0.0', '2.7.3'] as $v) {
+        expect(\phasync\ext\_version_problem($v))->toBeNull();
+    }
+});
+
+test('_version_problem() names both versions and the fix when the extension is too old or too new', function () {
+    expect(\phasync\ext\_version_problem('0.5.0-beta7'))
+        ->toContain('0.5.0-beta7')->toContain('pie install phasync/phasync-ext');
+    expect(\phasync\ext\_version_problem('3.0.0'))
+        ->toContain('3.0.0')->toContain('composer update phasync/phasync');
+});
