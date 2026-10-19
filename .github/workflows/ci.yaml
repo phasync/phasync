@@ -91,7 +91,10 @@ jobs:
         run: |
           sudo apt-get install -y -q --no-install-recommends libxml2-dev libsqlite3-dev >/dev/null
           cd ext-phasync
-          phpize >/dev/null && ./configure -q --enable-phasync && make -s -j"$(nproc)" >/dev/null
+          phpize >/dev/null
+          ./configure -q --enable-phasync
+          make -s -j"$(nproc)" >/dev/null
+          php -d extension="$PWD/modules/phasync.so" -r 'exit(extension_loaded("phasync") ? 0 : 1);'
           echo "so=$PWD/modules/phasync.so" >> "$GITHUB_OUTPUT"
 
       - name: ✅ Tests with the phasync extension
