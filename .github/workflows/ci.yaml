@@ -96,12 +96,13 @@ jobs:
 
       - name: ✅ Tests with the phasync extension
         if: steps.ext.outputs.so
+        timeout-minutes: 15
         run: |
           # bin/phasync loads it through PHP_INI_SCAN_DIR, so the PHP processes the tests start load it too
           # one job also measures this run: Codecov merges it with the one without the extension
           COVERAGE=""
           if [ "${{ matrix.php }}" = "8.5" ]; then COVERAGE="--coverage-clover clover-ext.xml"; fi
-          PHASYNC_EXT_SO="${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect $COVERAGE
+          PHASYNC_EXT_SO="${{ steps.ext.outputs.so }}" php bin/phasync vendor/bin/pest --stop-on-defect --debug $COVERAGE
 
       - name: 📤 Upload coverage to Codecov
         uses: codecov/codecov-action@v7
