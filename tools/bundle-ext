@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Creates the phasync release tag <phasync-version>: main plus ext/ with the binaries of the
+# ext-phasync GitHub Release <ext-version>, checked first. Run by a maintainer, on a clean main;
+# it pushes nothing, and prints the push command at the end.
+#
+#   tools/bundle-ext <phasync-version> <ext-version> [--repo owner/name]
+#
+# Needs gh (logged in) and sha256sum. The repository defaults to phasync/ext-phasync.
+set -euo pipefail
+
+usage() { echo "usage: tools/bundle-ext <phasync-version> <ext-version> [--repo owner/name]" >&2; exit 2; }
+[ $# -ge 2 ] || usage
+version=$1 ext=$2 repo=phasync/ext-phasync
+shift 2
+case "${1:-}" in --repo) [ -n "${2:-}" ] || usage; repo=$2;; "") ;; *) usage;; esac
+
+fail() { echo "bundle-ext: $*" >&2; exit 1; }
+
+cd "$(git rev-parse --show-toplevel)"
+[ "$(git branch --show-current)" = main ] || fail "check out main first"
+[ -z "$(git status --porcelain)" ] || fail "the working tree is not clean"
+git fetch -q --tags origin
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || fail "main is not origin/main"
+! git rev-parse -q --verify "refs/tags/$version" >/dev/null || fail "tag $version exists already"
+
+tmp=$(mktemp -d)
+trap 'git worktree remove --force "$tmp/tree" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+
+gh release download "$ext" -R "$repo" -D "$tmp/assets" || fail "cannot download release $ext of $repo"
+( cd "$tmp/assets" && sha256sum --quiet -c SHA256SUMS ) || fail "checksums do not match"
+n=$(ls "$tmp/assets"/*.so | wc -l)
+[ "$n" -eq 18 ] || fail "expected 18 binaries, got $n"
+for f in "$tmp/assets"/*.so; do
+    grep -aqF "$ext" "$f" || fail "$(basename "$f") does not carry version $ext"
+done
+if [ "$(gh repo view "$repo" --json visibility -q .visibility)" = PUBLIC ]; then
+    for f in "$tmp/assets"/*.so; do
+        gh attestation verify "$f" -R "$repo" >/dev/null || fail "$(basename "$f") has no build provenance from $repo"
+    done
+else
+    echo "bundle-ext: $repo is private: build provenance is not checked" >&2
+fi
+
+git worktree add -q --detach "$tmp/tree" HEAD
+mkdir -p "$tmp/tree/ext"
+cp "$tmp/assets"/*.so "$tmp/assets"/LICENSE "$tmp/assets"/LICENSE.php-src "$tmp/tree/ext/"
+git -C "$tmp/tree" add ext
+git -C "$tmp/tree" commit -q -m "Release $version: bundle ext-phasync $ext ($n binaries)
+
+ext/ carries the binaries of the ext-phasync release $ext. This commit lives only on the tag;
+main stays binary-free."
+git -C "$tmp/tree" tag -a "$version" -m "phasync $version"
+
+echo "Tagged $version. Check it, then publish it with:  git push origin $version"
