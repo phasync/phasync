@@ -2,6 +2,10 @@
 
 Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
+## 2.0.1
+
+phasync no longer declares fiber-interop's exception interfaces; the fiber-interop phasync adapter translates phasync's exceptions, as adapters do for every runtime. This also lets phasync load alongside TrueAsync, whose `Async\` namespace collides with the old `async\`.
+
 ## 2.0.0 (2026-10-19)
 
 The 2.0 release. Release packages bundle ext-phasync 2.0.0, now open source (MIT), with

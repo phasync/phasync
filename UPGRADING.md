@@ -228,8 +228,6 @@ already, unreferenced).
   nothing can ever wake them, instead of waiting forever.
 - New: `phasync\ShutdownException` (a `CancelledException`), thrown by the new
   `phasync::shutdown()`.
-- `phasync\TimeoutException` and `phasync\CancelledException` now implement
-  `async\TimeoutException` / `async\CancelledException` (fiber-interop/api).
 
 ## Removed, no direct replacement
 

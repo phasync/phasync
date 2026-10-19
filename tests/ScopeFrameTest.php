@@ -533,13 +533,6 @@ test('a Fiber phasync did not start drives the loop in place with tick(), and th
     });
 });
 
-// Exceptions
-
-test('phasync\'s TimeoutException and CancelledException implement the fiber-interop interfaces', function () {
-    expect(new TimeoutException())->toBeInstanceOf(async\TimeoutException::class);
-    expect(new CancelledException())->toBeInstanceOf(async\CancelledException::class);
-});
-
 // The api
 
 test('go() and run() take their arguments variadically', function () {
