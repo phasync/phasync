@@ -120,10 +120,10 @@ function _version_problem(string $version): ?string
 {
     $major = (int) MIN_EXT_VERSION;
     if ((int) $version > $major) {
-        return "The loaded phasync extension is version $version, newer than this phasync works with ($major.x). Update phasync (composer update phasync/phasync), or install phasync-ext $major.x.";
+        return "The loaded phasync extension is version $version, newer than this phasync works with ($major.x). Update phasync (composer update phasync/phasync), or install ext-phasync $major.x.";
     }
     if ((int) $version < $major || \version_compare($version, MIN_EXT_VERSION, '<')) {
-        return "The loaded phasync extension is version $version; this phasync needs $major.x from " . MIN_EXT_VERSION . ' on. Update it (pie install phasync/phasync-ext), or remove it from php.ini to use the binary that comes with phasync (vendor/bin/phasync).';
+        return "The loaded phasync extension is version $version; this phasync needs $major.x from " . MIN_EXT_VERSION . ' on. Update it (pie install phasync/ext-phasync), or remove it from php.ini to use the binary that comes with phasync (vendor/bin/phasync).';
     }
 
     return null;

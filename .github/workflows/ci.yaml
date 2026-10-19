@@ -35,7 +35,7 @@ jobs:
       PHASYNC_TEST_MYSQL: 127.0.0.1:3306:root:test
 
     # phasync must behave the same with and without the extension, so the suite runs both ways:
-    # the second time with the extension built from phasync/phasync-ext main
+    # the second time with the extension built from phasync/ext-phasync
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v7
@@ -75,15 +75,24 @@ jobs:
       - name: 🔗 Every allowed major version of the PSR packages
         run: php tests/psr-versions.php
 
-      - name: 🛠 Build the extension from phasync/phasync-ext main
-        id: ext
+      - name: 📥 Checkout the extension
         if: matrix.php != '8.2'   # the extension needs PHP 8.3 or later
+        uses: actions/checkout@v7
+        with:
+          # the private source repository while phasync/ext-phasync is not public yet
+          repository: ${{ secrets.EXT_SRC_DEPLOY_KEY && 'phasync/phasync-ext-src' || 'phasync/ext-phasync' }}
+          ref: ${{ secrets.EXT_SRC_DEPLOY_KEY && 'open-core' || 'main' }}
+          ssh-key: ${{ secrets.EXT_SRC_DEPLOY_KEY }}
+          path: ext-phasync
+
+      - name: 🛠 Build the extension
+        id: ext
+        if: matrix.php != '8.2'
         run: |
           sudo apt-get install -y -q --no-install-recommends libxml2-dev libsqlite3-dev >/dev/null
-          git clone -q --depth 1 https://github.com/phasync/phasync-ext.git "$RUNNER_TEMP/phasync-ext"
-          cd "$RUNNER_TEMP/phasync-ext"
+          cd ext-phasync
           phpize >/dev/null && ./configure -q --enable-phasync && make -s -j"$(nproc)" >/dev/null
-          echo "so=$RUNNER_TEMP/phasync-ext/modules/phasync.so" >> "$GITHUB_OUTPUT"
+          echo "so=$PWD/modules/phasync.so" >> "$GITHUB_OUTPUT"
 
       - name: ✅ Tests with the phasync extension
         if: steps.ext.outputs.so

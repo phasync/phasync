@@ -22,7 +22,7 @@ if (!\extension_loaded('phasync')) {
     if (null === $so) {
         \fwrite(\STDERR, 'phasync: no phasync binary for this platform (' . phasync\ext\_abi_key() . ").\n"
             . "Release packages of phasync/phasync bundle them in ext/; a development checkout has none.\n"
-            . "Install it with `pie install phasync/phasync-ext`, or set PHASYNC_EXT_SO to a matching binary.\n");
+            . "Install it with `pie install phasync/ext-phasync`, or set PHASYNC_EXT_SO to a matching binary.\n");
         exit(1);
     }
 

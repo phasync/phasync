@@ -177,10 +177,10 @@ under `ext/` (PHP 8.3 to 8.5; Linux x86-64 and ARM64 with glibc or musl, macOS).
   same arguments as `php`, and PHP processes the script starts load the extension too.
 - In a CLI script, as the first line: `phasync\ext\ensure_loaded();` restarts the process once with
   the extension.
-- For every SAPI, PHP-FPM included: `pie install phasync/phasync-ext` builds it and enables it in
+- For every SAPI, PHP-FPM included: `pie install phasync/ext-phasync` builds it and enables it in
   `php.ini`. phasync then uses that one, and `vendor/bin/phasync` and `ensure_loaded()` leave it be.
 
-The extension is [open source](https://github.com/phasync/phasync-ext) under the MIT licence, and
+The extension is [open source](https://github.com/phasync/ext-phasync) under the MIT licence, and
 versioned with phasync: phasync 2.x works with extension 2.x and throws a `RuntimeException` that
 says what to update when another version is loaded. It bundles
 [ext-scope](https://github.com/fiber-interop/ext-scope) for the `Scope` class, and uses an ext-scope

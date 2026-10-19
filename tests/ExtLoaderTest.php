@@ -264,7 +264,7 @@ test('_version_problem() accepts an extension of the same major version, from th
 
 test('_version_problem() names both versions and the fix when the extension is too old or too new', function () {
     expect(\phasync\ext\_version_problem('0.5.0-beta7'))
-        ->toContain('0.5.0-beta7')->toContain('pie install phasync/phasync-ext');
+        ->toContain('0.5.0-beta7')->toContain('pie install phasync/ext-phasync');
     expect(\phasync\ext\_version_problem('3.0.0'))
         ->toContain('3.0.0')->toContain('composer update phasync/phasync');
 });
