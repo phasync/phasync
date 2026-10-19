@@ -34,8 +34,17 @@ for f in "$tmp/assets"/*.so; do
     grep -aqF "$ext" "$f" || fail "$(basename "$f") does not carry version $ext"
 done
 if [ "$(gh repo view "$repo" --json visibility -q .visibility)" = PUBLIC ]; then
+    # GitHub's provenance record of each binary: made by release.yml of $repo, from the release
+    # tag's commit, for exactly this file and digest
+    commit=$(gh api "repos/$repo/commits/$ext" -q .sha)
     for f in "$tmp/assets"/*.so; do
-        gh attestation verify "$f" -R "$repo" >/dev/null || fail "$(basename "$f") has no build provenance from $repo"
+        name=$(basename "$f") digest=$(sha256sum "$f" | cut -d' ' -f1)
+        ok=$(gh api "repos/$repo/attestations/sha256:$digest" -q "[.attestations[].bundle.dsseEnvelope.payload | @base64d | fromjson
+            | select(.predicate.buildDefinition.externalParameters.workflow.repository == \"https://github.com/$repo\"
+                and .predicate.buildDefinition.externalParameters.workflow.path == \".github/workflows/release.yml\"
+                and any(.predicate.buildDefinition.resolvedDependencies[]; .digest.gitCommit == \"$commit\")
+                and any(.subject[]; .name == \"$name\" and .digest.sha256 == \"$digest\"))] | length" 2>/dev/null) || ok=0
+        [ "${ok:-0}" -gt 0 ] || fail "$name has no build provenance from $repo's release.yml at $ext"
     done
 else
     echo "bundle-ext: $repo is private: build provenance is not checked" >&2
