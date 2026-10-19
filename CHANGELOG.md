@@ -11,6 +11,8 @@ Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
 ### Fixed
 
+- A new query (or curl transfer) no longer waits out the sleep of the service that polls for it (#138). `MySQLiAwaiter` and `CurlAwaiter` back off to 10 ms while nothing completes, so a short query that started behind a long one could wait up to 10 ms for its first look; `await()` now ends the sleep, and the backoff starts over. The sleep is a coroutine of its own that raises a flag, because an `awaitFlag()` timeout shorter than 10 ms is only delivered in 10 ms steps.
+- `MySQLiAwaiter::await()` started the polling service outside its `try`, so a service that failed to start (a hook throwing from `onScopeChange()`) left the connection registered, and the next `await()` on it was refused as already awaited (#137).
 - `MySQLiPoll::poll()` without a timeout threw `TypeError` (`phasync::awaitFlag(): Argument #2 ($timeout) must be of type float, null given`): 2.0.0-rc1 made the parameter `?float` and passed the null on. Every test named a timeout, so CI did not reach it. A null now means what the docblock says: wait for as long as the query takes.
 - `MySQLiPoll` slept 20 ms between looks at the connections, then blocked up to 20 ms more inside
   `mysqli::poll()`: a query of 0.3 ms cost 20 ms, and one connection did 50 queries a second. It asks

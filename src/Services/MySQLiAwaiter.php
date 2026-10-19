@@ -83,6 +83,11 @@ final class MySQLiAwaiter
     private static bool $running = false;
 
     /**
+     * Raised by await() when it registers a connection while the service runs, to end the service's sleep.
+     */
+    private static ?\stdClass $wake = null;
+
+    /**
      * Suspends the calling coroutine until the connection's asynchronous query has finished.
      *
      * The result is not taken here: `reap_async_query()` after this returns, as mysqli's own
@@ -113,9 +118,9 @@ final class MySQLiAwaiter
         self::$connections[$connectionId] = $connection;
         unset(self::$settled[$connectionId], self::$errors[$connectionId]);
 
-        self::runService();
-
         try {
+            self::runService();
+
             // The query may be over before this coroutine waits for it, so it is the state the
             // service leaves behind that is waited for and the flag only the way back in
             while (!isset(self::$settled[$connectionId]) && !isset(self::$errors[$connectionId])) {
@@ -138,6 +143,11 @@ final class MySQLiAwaiter
     private static function runService(): void
     {
         if (self::$running) {
+            // asleep in its backoff, perhaps for 10 ms: the new query should not wait for that
+            if (null !== self::$wake) {
+                \phasync::raiseFlag(self::$wake);
+            }
+
             return;
         }
         // before the service is created rather than as its first statement: creating a coroutine runs
@@ -155,15 +165,30 @@ final class MySQLiAwaiter
                             // mysqli exposes no sockets for the loop to wait on, so it has to be asked:
                             // back off from 0.5 ms to 10 ms while nothing completes, as CurlAwaiter does
                             // (#133). A query that lands ends the backoff, so a busy connection is
-                            // asked again at once and the 10 ms only applies to a waiting one.
+                            // asked again at once and the 10 ms only applies to a waiting one. So does
+                            // a connection that starts being awaited: it is asked about at once.
                             $delay = \min(0.01, \max(0.0005, $delay * 2));
-                            \phasync::sleep($delay);
+                            // the sleep is a coroutine of its own that raises the flag when it ends, since
+                            // a flag timeout this short is only delivered in 10 ms steps; await() raises
+                            // the same flag to cut the sleep short
+                            $tick        = self::$wake = new \stdClass();
+                            $tick->slept = false;
+                            \phasync::service(static function () use ($delay, $tick) {
+                                \phasync::sleep($delay);
+                                $tick->slept = true;
+                                \phasync::raiseFlag($tick);
+                            });
+                            \phasync::awaitFlag($tick, self::NO_TIMEOUT);
+                            if (!$tick->slept) {
+                                $delay = 0.0; // cut short by a new query: start the backoff over
+                            }
                         } else {
                             $delay = 0.0;
                         }
                     }
                 } finally {
                     self::$running = false;
+                    self::$wake    = null;
                     foreach (self::$connections as $connectionId => $mysqli) {
                         self::$errors[$connectionId]  = ['The MySQLiAwaiter service terminated without resolving the MySQLi handle', 1];
                         self::$settled[$connectionId] = true;

@@ -22,6 +22,10 @@ final class CurlAwaiter
     private static ?\CurlMultiHandle $curlMulti = null;
     private static bool $isRunning              = false;
     /**
+     * Raised by await() when it adds a handle while the loop backs off, to end that sleep.
+     */
+    private static ?\stdClass $wake            = null;
+    /**
      * Stores all pending curl multi handles in case of error.
      *
      * @var \CurlHandle[]
@@ -62,6 +66,10 @@ final class CurlAwaiter
 
         if (!isset(self::$curlHandles[$curlHandleId])) {
             self::register($ch);
+            if (self::$isRunning && null !== self::$wake) {
+                // the loop may be asleep in its backoff, perhaps for 10 ms: the new transfer should not wait for that
+                \phasync::raiseFlag(self::$wake);
+            }
         }
 
         /*
@@ -98,11 +106,29 @@ final class CurlAwaiter
                                     // curl exposes no sockets to wait on: run again at once while it has work ready,
                                     // otherwise back off from 0.5 ms to 10 ms
                                     $delay = \curl_multi_select(self::$curlMulti, 0) > 0 ? 0.0 : \min(0.01, \max(0.0005, $delay * 2));
-                                    \phasync::sleep($delay);
+                                    if ($delay > 0.0) {
+                                        // the sleep is a coroutine of its own that raises the flag when it ends, since
+                                        // a flag timeout this short is only delivered in 10 ms steps; await() raises
+                                        // the same flag to cut the sleep short
+                                        $tick        = self::$wake = new \stdClass();
+                                        $tick->slept = false;
+                                        \phasync::service(static function () use ($delay, $tick) {
+                                            \phasync::sleep($delay);
+                                            $tick->slept = true;
+                                            \phasync::raiseFlag($tick);
+                                        });
+                                        \phasync::awaitFlag($tick, \PHP_FLOAT_MAX);
+                                        if (!$tick->slept) {
+                                            $delay = 0.0; // cut short by a new transfer: start the backoff over
+                                        }
+                                    } else {
+                                        \phasync::sleep();
+                                    }
                                 }
                             } while ($active && \CURLM_OK === $status);
                         } finally {
                             self::$isRunning = false;
+                            self::$wake      = null;
                             // Ensure that another await is able to continue the service
                             foreach (self::$curlHandles as $id => $handle) {
                                 \phasync::raiseFlag($handle);

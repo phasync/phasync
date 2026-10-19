@@ -448,3 +448,82 @@ test('a connection closed under its waiter is reported to that waiter alone', fu
         }
     });
 });
+
+test('a service that cannot be started leaves the connection free to be awaited again (#137)', function () {
+    if (!\getenv('PHASYNC_TEST_MYSQL')) {
+        $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
+    }
+
+    // a hook that throws while the service starts in the root scope: create() throws from service()
+    $thrown = 0;
+    phasync::onScopeChange(function (Scope $new) use (&$thrown) {
+        if ($new === Scope::getRootScope() && 0 === $thrown++) {
+            throw new RuntimeException('hook');
+        }
+    });
+
+    $mysqli = getMySQLiConnection();
+    $caught = null;
+    $second = null;
+    try {
+        phasync::run(function () use ($mysqli, &$caught, &$second) {
+            (new Scope())->run(function () use ($mysqli, &$caught, &$second) {
+                phasync::go(function () use ($mysqli, &$caught, &$second) {
+                    $mysqli->query('SELECT 1 AS num', \MYSQLI_ASYNC);
+                    try {
+                        MySQLiAwaiter::await($mysqli, 5);
+                    } catch (RuntimeException $e) {
+                        $caught = $e->getMessage();
+                    }
+                    // before the fix: LogicException, the failed call had left the connection registered
+                    $second = MySQLiAwaiter::await($mysqli, 5);
+                });
+            });
+        });
+    } finally {
+        $mysqli->close();
+    }
+
+    expect($caught)->toBe('hook');
+    expect($second)->toBe($mysqli);
+});
+
+test('a query that starts while the service backs off from a long one is noticed at once (#138)', function () {
+    if (!\getenv('PHASYNC_TEST_MYSQL')) {
+        $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
+    }
+
+    phasync::run(function () {
+        $long  = getMySQLiConnection();
+        $short = getMySQLiConnection();
+
+        try {
+            $waiting = phasync::go(function () use ($long) {
+                $long->query('SELECT SLEEP(1.5)', \MYSQLI_ASYNC);
+                MySQLiAwaiter::await($long);
+                $long->reap_async_query();
+            });
+
+            // A query that lands ends the backoff, so back to back queries hide the problem: each
+            // one finds the service at 0.5 ms. Space them out so the service is back at 10 ms.
+            $queries = 12;
+            $spent   = 0.0;
+            for ($i = 0; $i < $queries; ++$i) {
+                phasync::sleep(0.1);
+                $started = \microtime(true);
+                $short->query('SELECT 1 AS num', \MYSQLI_ASYNC);
+                MySQLiAwaiter::await($short);
+                $short->reap_async_query();
+                $spent += \microtime(true) - $started;
+            }
+            $each = $spent * 1000 / $queries;
+
+            phasync::await($waiting);
+
+            expect($each)->toBeLessThan(2.5, \sprintf('%.1f ms per query beside a long one, 5 ms or more before the fix', $each));
+        } finally {
+            $long->close();
+            $short->close();
+        }
+    });
+});

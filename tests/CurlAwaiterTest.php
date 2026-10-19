@@ -158,3 +158,50 @@ test('sequential requests are not paced by a polling interval (#133)', function 
     // 50 requests used to take 3 s: every curl round trip waited 20 ms
     expect($elapsed)->toBeLessThan(1.0);
 });
+
+test('a request that starts while the loop backs off from a slow one is not delayed (#138)', function () {
+    $server = \stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+    $name   = \stream_socket_get_name($server, false);
+    $port   = (int) \substr($name, \strrpos($name, ':') + 1);
+
+    $average = phasync::run(function () use ($server, $port) {
+        phasync::go(function () use ($server) {
+            for ($n = 0; $n < 13; ++$n) {
+                phasync::readable($server);
+                $client = \stream_socket_accept($server);
+                phasync::go(function () use ($client, $n) {
+                    phasync::readable($client);
+                    \fread($client, 8192);
+                    if (0 === $n) {
+                        phasync::sleep(1.5);
+                    }
+                    \fwrite($client, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+                    \fclose($client);
+                });
+            }
+        });
+        $request = static function () use ($port) {
+            $ch = \curl_init("http://127.0.0.1:$port/");
+            \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
+
+            return CurlAwaiter::await($ch);
+        };
+        $slow = phasync::go($request);
+        phasync::sleep(0.1);
+
+        $total = 0.0;
+        for ($i = 0; $i < 12; ++$i) {
+            $start = \microtime(true);
+            $request();
+            $total += \microtime(true) - $start;
+            phasync::sleep(0.1); // long enough for the loop to back off to its 10 ms again
+        }
+        phasync::await($slow);
+
+        return $total / 12;
+    });
+    \fclose($server);
+
+    // up to 10 ms each while the loop slept through its backoff
+    expect($average)->toBeLessThan(0.003);
+});
