@@ -227,7 +227,7 @@ test('DLK-3: a child process that writes later is no stall', function () {
     expect($r)->toBe(['running' => false, 'stdout' => "from child\nreturned\n"]);
 });
 
-test('DLK-3: blocking calls, which phasync-ext turns into waits on the loop, are no stall', function () {
+test('DLK-3: blocking calls, which ext-phasync turns into waits on the loop, are no stall', function () {
     $r = dlkChild(<<<'PHP'
         $flag = new stdClass();
         phasync::go(function () use ($flag) { phasync::awaitFlag($flag); echo "woken\n"; });

@@ -1,5 +1,7 @@
 # Roadmap: 2.0.0
 
+Research notes written before 2.0.0; what was released is described in the README, the CHANGELOG and [UPGRADING.md](../UPGRADING.md).
+
 This is where the research from the 1.1.0 cleanup cycle that doesn't belong in a patch release
 gets captured, so it survives past the conversation that produced it. 1.1.0 is the small,
 disciplined release: bug fixes, dead code removed, no new capability classes. 2.0.0 is where
@@ -14,7 +16,7 @@ throwaway script. That's no longer the situation. **A real, compiled PHP extensi
 `phasync-ext` -- now exists, implements almost everything directions A and B describe, and is
 tested**: 7 `.phpt` tests, run directly against the built module in this session (`php
 run-tests.php -d extension=.../modules/phasync.so tests/`), **all 7 pass**, not taken on the
-maintainer's word. It now ships as prebuilt, closed-source binaries (own licence) in phasync's release packages under `ext/`: **PHP 8.3+**
+maintainer's word. It now ships as the open-source (MIT) [ext-phasync](https://github.com/phasync/ext-phasync), with prebuilt binaries in phasync's release packages under `ext/`: **PHP 8.3+**
 (confirmed live in the `phpsrcstreamselect` chatter room by the session that published it, not
 just the local checkout at `/home/frode/dev/phasync-ext` this section was originally verified
 against) -- treat the bundled binaries as the canonical form going forward.

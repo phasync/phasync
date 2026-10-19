@@ -2,7 +2,7 @@
 
 /*
  * What the loop does with a preempted coroutine, driven by calling EventLoop::preempt() the way
- * phasync-ext does when a coroutine has run a whole interval in a PHP loop: the first call sees
+ * ext-phasync does when a coroutine has run a whole interval in a PHP loop: the first call sees
  * the coroutine, the second (still in the same tick) preempts it. The coroutine goes to the back
  * of the queue and its scope is frozen: the other coroutines of that scope are held until it
  * resumes, those of other scopes keep running. PreemptionTest.php covers the same with the real

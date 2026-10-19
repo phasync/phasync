@@ -102,7 +102,7 @@ test('_original_args() falls back to the script and its arguments where /proc is
     expect(\array_slice($args, 1))->toBe(['one', 'two words']);
 });
 
-test('current_fiber() is Fiber::getCurrent() without the extension\'s virtualize()', function () {
+test('current_fiber() is Fiber::getCurrent()', function () {
     expect(\phasync\ext\current_fiber())->toBeNull();
 
     $inside = null;

@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Preemption with phasync-ext (set_preempt_function()): a coroutine that runs a whole interval in a
+ * Preemption with ext-phasync (set_preempt_function()): a coroutine that runs a whole interval in a
  * PHP loop yields to the coroutines of other scopes (requests); its own scope stays frozen until it
  * resumes.
  * Without the extension these tests are skipped: scheduling is cooperative only.
@@ -9,7 +9,7 @@
 
 beforeEach(function () {
     if (!\function_exists('phasync\ext\set_preempt_function')) {
-        $this->markTestSkipped('needs phasync-ext with set_preempt_function()');
+        $this->markTestSkipped('needs ext-phasync with set_preempt_function()');
     }
 });
 

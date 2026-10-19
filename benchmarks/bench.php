@@ -534,7 +534,7 @@ function runChild(string $name, int $runs): void
 
 /**
  * The -d options this process was started with (php -d extension=... bench.php), for the child
- * processes: without them a benchmark "with phasync-ext" would measure without it.
+ * processes: without them a benchmark "with ext-phasync" would measure without it.
  *
  * @return list<string>
  */
@@ -666,9 +666,9 @@ foreach (scenarios() as $name => [$description]) {
 }
 \fwrite(\STDERR, \str_repeat(' ', 40) . "\r");
 
-echo \sprintf("phasync benchmarks, PHP %s, phasync-ext %s, %s, %d run(s) per scenario\n", $meta['php'], $meta['ext'] ?? 'not loaded', $cpu, $runs);
+echo \sprintf("phasync benchmarks, PHP %s, ext-phasync %s, %s, %d run(s) per scenario\n", $meta['php'], $meta['ext'] ?? 'not loaded', $cpu, $runs);
 if (null !== $baseline && \array_key_exists('ext', $baseline['meta']) && $baseline['meta']['ext'] !== $meta['ext']) {
-    echo 'NOTE: the baseline was recorded with phasync-ext ' . ($baseline['meta']['ext'] ?? 'not loaded') . ".\n";
+    echo 'NOTE: the baseline was recorded with ext-phasync ' . ($baseline['meta']['ext'] ?? 'not loaded') . ".\n";
 }
 if (null !== $baseline && ($baseline['meta']['cpu'] ?? null) !== $cpu) {
     echo "WARNING: baseline was recorded on a different CPU (" . ($baseline['meta']['cpu'] ?? '?') . "); ratios are not meaningful.\n";

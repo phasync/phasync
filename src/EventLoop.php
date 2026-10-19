@@ -129,7 +129,7 @@ final class EventLoop implements \Countable
     private int $failureSeq = 0;
 
     /**
-     * Preemption (with phasync-ext's set_preempt_function()): the scopes frozen because one of
+     * Preemption (with ext-phasync's set_preempt_function()): the scopes frozen because one of
      * their coroutines was preempted, each with that coroutine; none of a frozen scope's other
      * coroutines runs before it resumes.
      *
@@ -340,7 +340,7 @@ final class EventLoop implements \Countable
     /** How far collections that find almost no garbage stretch the intervals. */
     private const GC_MAX_SCALE = 8.0;
 
-    /** How long a coroutine runs in a PHP loop before it yields to other requests (phasync-ext). */
+    /** How long a coroutine runs in a PHP loop before it yields to other requests (ext-phasync). */
     public const PREEMPT_INTERVAL = 0.02;
 
     /** PREEMPT_INTERVAL, or the PHASYNC_PREEMPT_INTERVAL constant when defined (read once, when the loop is built). */
@@ -410,7 +410,7 @@ final class EventLoop implements \Countable
     public ?\Fiber $hookFiber = null;
 
     /**
-     * phasync-ext's poller when the extension is loaded (epoll, and its worker threads' waiters),
+     * ext-phasync's poller when the extension is loaded (epoll, and its worker threads' waiters),
      * else stream_select().
      */
     private PollerInterface|ext\Poller $poller;
@@ -436,8 +436,7 @@ final class EventLoop implements \Countable
             // The polyfill keys the current scope by execution unit. Ours is the coroutine: the one
             // whose scope the loop activates (switchScope()), else the running coroutine whenever
             // the code that runs is not its own Fiber: a Fiber it runs itself, which waits in
-            // place (#88, #108), or with phasync-ext a request's root coroutine, where
-            // Fiber::getCurrent() is null. Else (null) the polyfill uses Fiber::getCurrent().
+            // place (#88, #108). Else (null) the polyfill uses Fiber::getCurrent().
             \fiber_interop\scope\set_execution_key_provider(
                 fn () => $this->scopeProbe ?? (null !== ($c = $this->currentFiber) && $c !== \Fiber::getCurrent() ? $c : null)
             );
@@ -919,7 +918,7 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * phasync-ext's preempt function (set_preempt_function()): called between iterations of a
+     * ext-phasync's preempt function (set_preempt_function()): called between iterations of a
      * PHP loop, about every $preemptInterval seconds. The running coroutine yields when it has
      * run a whole interval and isn't in phasync's or swerve's own code, so that timers, I/O and
      * other requests get their turn (whether any is ready is only known after the loop has
@@ -1462,7 +1461,7 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * park() for a wait on the poller (a stream, or with phasync-ext any hooked blocking call):
+     * park() for a wait on the poller (a stream, or with ext-phasync any hooked blocking call):
      * counted, since such a wait can end by what another process does (DLK-3).
      *
      * @internal the pollers

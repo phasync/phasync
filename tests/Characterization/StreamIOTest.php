@@ -247,7 +247,7 @@ test('IO-2: readable() and writable() on something that is not an open stream th
 });
 
 test('IO-2: waiting on a php://memory stream throws ValueError in the waiting coroutine, as stream_select() does, with and without the extension (#77)', function () {
-    // stream_select() cannot wait on a stream without a file descriptor; phasync-ext's poller
+    // stream_select() cannot wait on a stream without a file descriptor; ext-phasync's poller
     // throws the same ValueError. The coroutine can catch it, and the loop goes on. Run in a child
     // process, so a driver that fails cannot leave the test process's loop half finished.
     foreach (['readable', 'writable'] as $function) {
@@ -290,7 +290,7 @@ test('IO-2: outside phasync::run() a non-blocking resource without data times ou
 /* ------------------------------------------------------------------ IO-8 */
 
 // IO-8: waiting on a stream never changes its blocking mode. The mode is the caller's, and it
-// decides what reads and writes do (PHP's own semantics, with or without phasync-ext): a
+// decides what reads and writes do (PHP's own semantics, with or without ext-phasync): a
 // blocking fgets() waits for a whole line, a non-blocking one returns what is there.
 
 test('IO-8: readable() and writable() leave a stream in the blocking mode it had', function () {
@@ -403,7 +403,7 @@ test('IO-7: with the phasync extension, a stream past FD_SETSIZE is waited on li
 
 test('IO-7: a signal arriving while the loop waits in stream_select() does not fail the waiting coroutines', function () {
     // stream_select() returns false when a signal interrupts it (EINTR), natively and with
-    // phasync-ext. That is not a failure: nothing was ready yet, so the waiters keep waiting.
+    // ext-phasync. That is not a failure: nothing was ready yet, so the waiters keep waiting.
     $signals = 0;
     \pcntl_async_signals(true);
     \pcntl_signal(\SIGUSR1, static function () use (&$signals) {

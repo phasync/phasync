@@ -1,10 +1,10 @@
 <?php
 
 /*
- * Integration tests for phasync-ext under phasync::run(), which puts the process under
+ * Integration tests for ext-phasync under phasync::run(), which puts the process under
  * phasync\ext\manage() when the extension is loaded. Load it with a full path:
  *
- *   php -d extension=/path/to/phasync-ext/modules/phasync.so vendor/bin/pest
+ *   php -d extension=/path/to/ext-phasync/modules/phasync.so vendor/bin/pest
  *
  * Skipped entirely if the extension isn't loaded.
  */
@@ -177,7 +177,7 @@ test('the sleep() hook routes through phasync::sleep(), not a real blocking slee
 test('a FIFO rendezvous through fopen() works via the extension\'s thread pool, without blocking the process', function () {
     // FIFO open() blocks in-kernel until the OTHER end is also opened -- there is no fd to
     // poll yet, so this is structurally unsolvable by cooperative/Fiber scheduling alone;
-    // it needs real OS thread concurrency (phasync-ext's thread pool). A naive/blocking
+    // it needs real OS thread concurrency (ext-phasync's thread pool). A naive/blocking
     // fallback would deadlock this test outright (the writer's go() would never get a
     // scheduler turn while the reader's fopen() blocks the single thread), so simply not
     // hanging is itself part of what this test proves -- the sibling-coroutine log below

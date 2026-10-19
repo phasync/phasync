@@ -82,7 +82,7 @@ timers. See section 9.
 
 **SCH-1. Cooperative.** A coroutine runs until it suspends. Suspension points are:
 `await`, `sleep`, `yield`, `awaitFlag`, `readable`/`writable`/`stream` and channel
-operations (with phasync-ext also blocking PHP functions). Code that never suspends blocks
+operations (with ext-phasync also blocking PHP functions). Code that never suspends blocks
 every other coroutine. ⚠️
 
 **SCH-2. `go()` runs the child immediately.** The child runs synchronously up to its
@@ -100,7 +100,7 @@ which they became runnable. ⚠️
 cooperative, a sequence of statements that does not suspend cannot be interleaved with
 another coroutine of its scope. Every rule below relies on this. ⚠️
 
-**SCH-6. Preemption (with phasync-ext) switches only between scopes, and only between
+**SCH-6. Preemption (with ext-phasync) switches only between scopes, and only between
 loop iterations.** A coroutine that runs a whole `EventLoop::PREEMPT_INTERVAL` (20 ms; the
 `PHASYNC_PREEMPT_INTERVAL` constant, defined before the loop starts, overrides it) in a PHP
 loop yields, so that timers, I/O and other requests get their turn. It is never preempted:
@@ -117,7 +117,7 @@ became ready meanwhile run right after it, unless it was preempted again. A coro
 before its first suspension returns control to the `go()` that started it; if that caller is of
 the same scope, it waits too, so `go()` returns once the scope thaws. Across scopes,
 a sequence of statements without a loop and without a suspension point is atomic: code can build
-its own atomic operations (test-and-set, compare-and-swap) in plain PHP. Without phasync-ext
+its own atomic operations (test-and-set, compare-and-swap) in plain PHP. Without ext-phasync
 there is no preemption. ✅ PreemptionTest
 
 **SCH-7. `idle($after)` wakes one waiter per idle moment, oldest first.** It suspends until
@@ -457,7 +457,7 @@ chain throws `LogicException`. ✅ EdgeCaseTest "circular dependency deadlock"
 
 **DLK-3. Global stall is detected exactly.** If no coroutine is runnable, no callback is
 queued, and no timer, timeout, `idle()` waiter, signal handler (phasync's or one installed with
-`pcntl_signal()`) or wait on the poller (a stream, or with phasync-ext any blocking call it turns into a wait)
+`pcntl_signal()`) or wait on the poller (a stream, or with ext-phasync any blocking call it turns into a wait)
 is pending, yet coroutines are still blocked, nothing can ever wake them. A wait on a stream always counts,
 since its other end may be in another process: a `stream_socket_pair()` deadlock is not
 detected. Before deciding, the loop collects cycles once, since a freed flag wakes its

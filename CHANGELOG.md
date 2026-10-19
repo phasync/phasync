@@ -2,10 +2,15 @@
 
 Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.0 (2026-10-19)
+
+The 2.0 release. Release packages bundle ext-phasync 2.0.0, now open source (MIT), with
+fiber-interop/ext-scope 0.3.0 inside it; `pie install phasync/ext-phasync` installs the same
+extension for every SAPI. Moving from 1.x: [UPGRADING.md](UPGRADING.md).
 
 ### Changed
 
+- phasync requires `fiber-interop/scope` ^0.3 (the Scope RFC's spec level with secondary votes A and B), the version of the Scope class ext-phasync 2.0.0 bundles.
 - phasync checks the version of a loaded phasync extension when its event loop starts and in `phasync\ext\ensure_loaded()`: it works with extension 2.x from 2.0.0-dev on, and otherwise throws a `RuntimeException` naming both versions and what to update. An extension installed with PIE is updated apart from phasync.
 - The extension is open source (MIT) and its binaries in release packages carry that licence. It has no `virtualize()` and no free-tier limit; phasync no longer looks for the extension's own `current_fiber()`.
 - `vendor/bin/phasync` runs PHP as it is when the extension is already loaded (PIE, `php.ini`) instead of refusing, and the PHP it starts keeps the flags it was started with (`php -d memory_limit=1G vendor/bin/phasync app.php`). Without a binary for the platform it points to `pie install phasync/ext-phasync`.
@@ -19,6 +24,7 @@ Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 
 ### Fixed
 
+- `vendor/bin/phasync` ran PHP without the extension, after a startup warning, when `PHASYNC_EXT_SO` named a file that does not exist; it now stops and says so (#140).
 - A new query (or curl transfer) no longer waits out the sleep of the service that polls for it (#138). `MySQLiAwaiter` and `CurlAwaiter` back off to 10 ms while nothing completes, so a short query that started behind a long one could wait up to 10 ms for its first look; `await()` now ends the sleep, and the backoff starts over. The sleep is a coroutine of its own that raises a flag, because an `awaitFlag()` timeout shorter than 10 ms is only delivered in 10 ms steps.
 - `MySQLiAwaiter::await()` started the polling service outside its `try`, so a service that failed to start (a hook throwing from `onScopeChange()`) left the connection registered, and the next `await()` on it was refused as already awaited (#137).
 - `MySQLiPoll::poll()` without a timeout threw `TypeError` (`phasync::awaitFlag(): Argument #2 ($timeout) must be of type float, null given`): 2.0.0-rc1 made the parameter `?float` and passed the null on. Every test named a timeout, so CI did not reach it. A null now means what the docblock says: wait for as long as the query takes.

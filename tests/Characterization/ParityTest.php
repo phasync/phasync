@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Parity: phasync behaves identically with and without phasync-ext. The only allowed
+ * Parity: phasync behaves identically with and without ext-phasync. The only allowed
  * differences are the FD_SETSIZE limit and blocking code staying blocking without the
  * extension. Run the suite both ways:
  *

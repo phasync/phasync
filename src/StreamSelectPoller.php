@@ -3,7 +3,7 @@
 namespace phasync;
 
 /**
- * A poller on PHP's stream_select(), used when phasync-ext is not loaded (with it, the loop uses the
+ * A poller on PHP's stream_select(), used when ext-phasync is not loaded (with it, the loop uses the
  * extension's epoll Poller). Like stream_select() itself it cannot wait on a descriptor numbered
  * FD_SETSIZE (1024 on a typical build) or higher.
  *
@@ -44,7 +44,7 @@ final class StreamSelectPoller implements PollerInterface
 
     /**
      * Waited-for streams stream_select() cannot wait on (no file descriptor, as php://memory), by
-     * resource id: their waiters throw the ValueError stream_select() throws, as phasync-ext does.
+     * resource id: their waiters throw the ValueError stream_select() throws, as ext-phasync does.
      *
      * @var array<int, true>
      */

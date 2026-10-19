@@ -23,7 +23,7 @@ use phasync\WriteChannelInterface;
 /**
  * The static API of phasync: start coroutines, wait for them, cancel them, and wait for streams and flags.
  *
- * A coroutine is a closure that runs as a PHP Fiber in the event loop of the process. It runs until it waits (`sleep()`, `yield()`, `await()`, `readable()`, `writable()`, `awaitFlag()`, a channel operation), and then the loop runs another. Code that never waits holds up every other coroutine. A wait looks like a plain function call: it returns a value or throws, so a coroutine reads top to bottom. With the optional phasync-ext extension, blocking PHP functions wait in the same way; phasync behaves the same with and without it.
+ * A coroutine is a closure that runs as a PHP Fiber in the event loop of the process. It runs until it waits (`sleep()`, `yield()`, `await()`, `readable()`, `writable()`, `awaitFlag()`, a channel operation), and then the loop runs another. Code that never waits holds up every other coroutine. A wait looks like a plain function call: it returns a value or throws, so a coroutine reads top to bottom. With the optional ext-phasync extension, blocking PHP functions wait in the same way; phasync behaves the same with and without it.
  *
  * `run()` starts the loop and returns when every coroutine it started has ended; `go()` starts a coroutine inside it. Every coroutine belongs to the frame of a `run()` (see {@see Frame}), which waits for it, and to the current `Scope` (fiber-interop/scope), the identity of the operation it serves, which it inherits from the code that started it. A coroutine that throws, with nobody awaiting it, makes its `run()` throw once the others have ended.
  *
@@ -135,7 +135,7 @@ final class phasync
                 $driver->drive($frame);
             };
 
-            // With phasync-ext, a coroutine that runs a whole interval in a PHP loop yields to
+            // With ext-phasync, a coroutine that runs a whole interval in a PHP loop yields to
             // other requests (EventLoop::preempt())
             $preempting = \function_exists('phasync\ext\set_preempt_function');
             if ($preempting) {
@@ -143,7 +143,7 @@ final class phasync
             }
 
             if (\function_exists('phasync\ext\manage')) {
-                // With phasync-ext, blocking I/O and sleeps inside coroutines park them in the
+                // With ext-phasync, blocking I/O and sleeps inside coroutines park them in the
                 // event loop instead of blocking the process. When PHP's own call has a timeout
                 // and the park times out, the extension finishes the call the way PHP does.
                 \phasync\ext\manage(
@@ -519,7 +519,7 @@ final class phasync
      *
      * With the default of 0 the coroutine goes to the back of the line: every coroutine that is ready runs before it resumes. A timer wakes the coroutine after `$seconds`, never earlier. Outside a coroutine it blocks the process for that long, and returns at once for 0.
      *
-     * Inside a coroutine, PHP's `sleep()` blocks the whole process, unless phasync-ext is loaded. `phasync\sleep()` is this function under the name of the native one.
+     * Inside a coroutine, PHP's `sleep()` blocks the whole process, unless ext-phasync is loaded. `phasync\sleep()` is this function under the name of the native one.
      *
      * ```php
      * phasync::run(function () {
@@ -1027,7 +1027,8 @@ final class phasync
      * ```
      *
      * @param object $signal  the object a raiser will pass to `raiseFlag()`
-     * @param float  $timeout seconds to wait at most
+     * @param float  $timeout seconds to wait at most; the loop checks these timeouts every 10 ms, so a shorter one
+     *                        ends after up to 10 ms (`sleep()` is exact)
      * @param bool   $throw   when false, a timeout returns false instead of throwing
      *                        TimeoutException, and never constructs one: for a wait that is
      *                        expected to time out often, where building the exception would be

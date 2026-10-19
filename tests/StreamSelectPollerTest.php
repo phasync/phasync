@@ -1,7 +1,7 @@
 <?php
 
 /*
- * The poller used without phasync-ext: it waits with stream_select(). With the extension loaded
+ * The poller used without ext-phasync: it waits with stream_select(). With the extension loaded
  * the loop uses the extension's poller instead, so these tests do not apply.
  */
 

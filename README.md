@@ -299,7 +299,7 @@ Also in `phasync\Util`: `RateLimiter`, `Synchronized` (a lock per coroutine) and
 
 ## Contributing
 
-phasync is in active development toward 2.0. [docs/SEMANTICS.md](docs/SEMANTICS.md) describes
+Upgrading from 1.x: [UPGRADING.md](UPGRADING.md). [docs/SEMANTICS.md](docs/SEMANTICS.md) describes
 how every part is meant to behave, and the tests in `tests/Characterization` pin how it behaves
 today. Tests, documentation and bug reports are welcome.
 

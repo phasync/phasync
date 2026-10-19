@@ -74,7 +74,7 @@ dataset('sch non-suspension points', [
     'nested run() that never blocks'         => [fn () => phasync::run(fn () => 1)],
 ]);
 
-// phasync-ext turns usleep() inside a coroutine into phasync::sleep().
+// ext-phasync turns usleep() inside a coroutine into phasync::sleep().
 test('SCH-1: usleep() is a suspension point only with the phasync extension', function () {
     $expected = \extension_loaded('phasync') ? ['a1', 'b', 'a2'] : ['a1', 'a2', 'b'];
     expect(schOrder(fn () => \usleep(1000)))->toBe($expected);
