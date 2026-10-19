@@ -48,7 +48,7 @@ as fast as PHP allows, and it may later use shortcuts that a decoupled package c
 **P1. Don't expose the event loop.** A coroutine reads like synchronous code. Suspension
 is hidden inside blocking calls (`sleep`, `await`, IO, channel operations).
 
-**P2. Build on the core mechanisms.** Higher-level tools (`WaitGroup`, `CurlMulti`,
+**P2. Build on the core mechanisms.** Higher-level tools (`WaitGroup`, `CurlAwaiter`,
 channels) suspend and wake through `awaitFlag()` and `raiseFlag()`, so exception
 propagation and cancellation work the same everywhere.
 
@@ -608,7 +608,7 @@ APIOutsideOfRunTest, RuntimeTest "RT-4"
 2. Tests use the injectable clock (TMO-5), `stream_socket_pair()` and in-memory
    resources. No network, no real `sleep` beyond a few milliseconds.
 3. Timing assertions compare against the injected clock, never wall-clock ratios.
-   (`CurlMultiTest` currently fails this way and is network dependent.)
+   (`CurlAwaiterTest` currently fails this way and is network dependent.)
 4. Cancellation and channel close get stress tests with randomised interleavings
    (seeded, so failures reproduce).
 5. `StringBuffer` keeps a benchmark that CI compares against a stored baseline.

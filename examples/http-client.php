@@ -12,7 +12,7 @@ use Psr\Http\Message\ResponseInterface;
 /*
  * Warning! The HttpClient here is a proof of concept. I want
  * it rewritten to be compatible with PSR, but it demonstrates
- * the {@see phasync\Services\CurlMulti} service in cooperation
+ * the {@see phasync\Services\CurlAwaiter} service in cooperation
  * with the {@see phasync\HttpClient\HttpClient} generating
  * PSR-7 ResponseInterface and PSR-7 StreamInterface.
  *

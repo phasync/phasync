@@ -1,13 +1,13 @@
 <?php
 
-use phasync\Services\CurlMulti;
+use phasync\Services\CurlAwaiter;
 
 // file:// URLs stand in for http:// ones, so the example needs no network
 $fetch = static function (string $url): string {
     $ch = \curl_init($url);
     \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-    return CurlMulti::await($ch);
+    return CurlAwaiter::await($ch);
 };
 
 phasync::run(function () use ($fetch) {

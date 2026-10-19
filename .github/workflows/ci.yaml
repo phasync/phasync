@@ -17,7 +17,7 @@ jobs:
 
     name: ⚙️ Running test for PHP ${{ matrix.php }}
 
-    # For tests/MySQLiPollTest.php (skipped when PHASYNC_TEST_MYSQL is unset); data on tmpfs, as an
+    # For tests/MySQLiAwaiterTest.php (skipped when PHASYNC_TEST_MYSQL is unset); data on tmpfs, as an
     # image's VOLUME would leave an anonymous volume per run
     services:
       mariadb:

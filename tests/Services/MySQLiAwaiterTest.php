@@ -1,6 +1,6 @@
 <?php
 
-use phasync\Services\MySQLiPoll;
+use phasync\Services\MySQLiAwaiter;
 
 test('skipped when PHASYNC_TEST_MYSQL is not set', function () {
 })->skip(!\getenv('PHASYNC_TEST_MYSQL'), 'set PHASYNC_TEST_MYSQL=host:port:user:password');
@@ -26,7 +26,7 @@ function getMySQLiConnection(): mysqli
     return $mysqli;
 }
 
-test('a query run with MYSQLI_ASYNC then MySQLiPoll::poll returns the connection and reap_async_query gives the rows', function () {
+test('a query run with MYSQLI_ASYNC then MySQLiAwaiter::await returns the connection and reap_async_query gives the rows', function () {
     if (!\getenv('PHASYNC_TEST_MYSQL')) {
         $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
     }
@@ -39,7 +39,7 @@ test('a query run with MYSQLI_ASYNC then MySQLiPoll::poll returns the connection
             $mysqli->query('SELECT 1 as num', \MYSQLI_ASYNC);
 
             // Poll the connection within a coroutine (with explicit timeout in float seconds)
-            $result = MySQLiPoll::poll($mysqli, 10);
+            $result = MySQLiAwaiter::await($mysqli, 10);
 
             expect($result)->toBe($mysqli);
 
@@ -56,7 +56,7 @@ test('a query run with MYSQLI_ASYNC then MySQLiPoll::poll returns the connection
     });
 });
 
-test('two coroutines polling two different connections run concurrently (total time ~ max, not sum)', function () {
+test('two coroutines awaiting two different connections run concurrently (total time ~ max, not sum)', function () {
     if (!\getenv('PHASYNC_TEST_MYSQL')) {
         $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
     }
@@ -71,7 +71,7 @@ test('two coroutines polling two different connections run concurrently (total t
             $fiber1 = phasync::go(function () use ($conn1) {
                 // Query that sleeps for 0.2 seconds
                 $conn1->query('SELECT SLEEP(0.2) as slept', \MYSQLI_ASYNC);
-                MySQLiPoll::poll($conn1, 10);
+                MySQLiAwaiter::await($conn1, 10);
                 $result = $conn1->reap_async_query();
 
                 return \microtime(true);
@@ -80,7 +80,7 @@ test('two coroutines polling two different connections run concurrently (total t
             $fiber2 = phasync::go(function () use ($conn2) {
                 // Query that sleeps for 0.2 seconds
                 $conn2->query('SELECT SLEEP(0.2) as slept', \MYSQLI_ASYNC);
-                MySQLiPoll::poll($conn2, 10);
+                MySQLiAwaiter::await($conn2, 10);
                 $result = $conn2->reap_async_query();
 
                 return \microtime(true);
@@ -100,7 +100,7 @@ test('two coroutines polling two different connections run concurrently (total t
     });
 });
 
-test('polling the same connection from two coroutines throws LogicException', function () {
+test('awaiting the same connection from two coroutines throws LogicException', function () {
     if (!\getenv('PHASYNC_TEST_MYSQL')) {
         $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
     }
@@ -112,7 +112,7 @@ test('polling the same connection from two coroutines throws LogicException', fu
             // First fiber starts polling
             $fiber1 = phasync::go(function () use ($mysqli) {
                 $mysqli->query('SELECT SLEEP(0.2)', \MYSQLI_ASYNC);
-                MySQLiPoll::poll($mysqli, 10);
+                MySQLiAwaiter::await($mysqli, 10);
                 $result = $mysqli->reap_async_query();
             });
 
@@ -124,7 +124,7 @@ test('polling the same connection from two coroutines throws LogicException', fu
             $fiber2               = phasync::go(function () use ($mysqli, &$caughtLogicException) {
                 // Don't execute a query yet; just try to poll the already-registered connection
                 try {
-                    MySQLiPoll::poll($mysqli, 10);
+                    MySQLiAwaiter::await($mysqli, 10);
                 } catch (LogicException $e) {
                     $caughtLogicException = true;
 
@@ -166,9 +166,9 @@ test('timeout argument is passed to awaitFlag', function () {
             $mysqli->query('SELECT 1', \MYSQLI_ASYNC);
 
             // Poll with a timeout value (should complete successfully)
-            // Note: MySQLiPoll parameter is ?int, should be ?float (bug in src/Services/MySQLiPoll.php:53)
+            // Note: MySQLiAwaiter parameter is ?int, should be ?float (bug in src/Services/MySQLiAwaiter.php:53)
             // The awaitFlag call at line 67 receives this timeout
-            $result = MySQLiPoll::poll($mysqli, 10);
+            $result = MySQLiAwaiter::await($mysqli, 10);
 
             expect($result)->toBe($mysqli);
 
@@ -196,7 +196,7 @@ test('service error path: RuntimeException when service terminates', function ()
             // Start the poll
             $fiber = phasync::go(function () use ($mysqli, &$caughtError) {
                 try {
-                    MySQLiPoll::poll($mysqli, 10);
+                    MySQLiAwaiter::await($mysqli, 10);
                 } catch (RuntimeException $e) {
                     $caughtError = $e->getMessage();
                     throw $e;
@@ -208,7 +208,7 @@ test('service error path: RuntimeException when service terminates', function ()
 
             // Now force the service to terminate by manipulating internal state
             // to trigger the finally block (set connections as empty while service is running)
-            $reflClass = new ReflectionClass(MySQLiPoll::class);
+            $reflClass = new ReflectionClass(MySQLiAwaiter::class);
 
             // Get the service fiber from reflection if possible, or use another approach
             // Actually, we can't easily cancel the service coroutine directly
@@ -223,7 +223,7 @@ test('service error path: RuntimeException when service terminates', function ()
 
             // Manually set an error as if the service terminated
             $errors          = $connIdProp->getValue();
-            $errors[$connId] = ['The MySQLiPoll service terminated without resolving the MySQLi handle', 1];
+            $errors[$connId] = ['The MySQLiAwaiter service terminated without resolving the MySQLi handle', 1];
             $connIdProp->setValue(null, $errors);
 
             // Raise the flag manually to wake up the fiber
@@ -236,7 +236,7 @@ test('service error path: RuntimeException when service terminates', function ()
                 $caughtError = $e->getMessage();
             }
 
-            expect($caughtError)->toContain('MySQLiPoll service terminated');
+            expect($caughtError)->toContain('MySQLiAwaiter service terminated');
         } finally {
             $mysqli->close();
         }
@@ -256,7 +256,7 @@ test('another coroutine ticking during the query proves non-blocking', function 
 
             $fiber = phasync::go(function () use ($mysqli) {
                 $mysqli->query('SELECT SLEEP(0.1)', \MYSQLI_ASYNC);
-                MySQLiPoll::poll($mysqli, 10);
+                MySQLiAwaiter::await($mysqli, 10);
                 $result = $mysqli->reap_async_query();
 
                 return true;
@@ -296,7 +296,7 @@ test('query error from MySQL is properly reported', function () {
 
             $caughtError = null;
             try {
-                MySQLiPoll::poll($mysqli, 10);
+                MySQLiAwaiter::await($mysqli, 10);
                 // If we get here, the error wasn't caught properly
                 expect(true)->toBeFalse();
             } catch (RuntimeException $e) {
@@ -314,7 +314,7 @@ test('query error from MySQL is properly reported', function () {
     });
 });
 
-test('poll() with no timeout argument waits for the query instead of throwing TypeError', function () {
+test('await() with no timeout argument waits for the query instead of throwing TypeError', function () {
     if (!\getenv('PHASYNC_TEST_MYSQL')) {
         $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
     }
@@ -324,14 +324,14 @@ test('poll() with no timeout argument waits for the query instead of throwing Ty
 
         try {
             // 2.0.0-rc1 passed the null default straight to phasync::awaitFlag(), which takes a
-            // float: every poll() that did not name a timeout threw TypeError.
+            // float: every await() that did not name a timeout threw TypeError.
             $mysqli->query('SELECT SLEEP(0.05) AS slept', \MYSQLI_ASYNC);
-            expect(MySQLiPoll::poll($mysqli))->toBe($mysqli);
+            expect(MySQLiAwaiter::await($mysqli))->toBe($mysqli);
             expect($mysqli->reap_async_query()->fetch_assoc())->toBe(['slept' => '0']);
 
             // an explicit null means the same thing
             $mysqli->query('SELECT 1 AS num', \MYSQLI_ASYNC);
-            expect(MySQLiPoll::poll($mysqli, null))->toBe($mysqli);
+            expect(MySQLiAwaiter::await($mysqli, null))->toBe($mysqli);
             expect($mysqli->reap_async_query()->fetch_assoc())->toBe(['num' => '1']);
         } finally {
             $mysqli->close();
@@ -355,7 +355,7 @@ test('a fast query costs its round trip, not a polling interval', function () {
             $started = \microtime(true);
             for ($i = 0; $i < $polled; ++$i) {
                 $mysqli->query('SELECT 1 AS num', \MYSQLI_ASYNC);
-                MySQLiPoll::poll($mysqli);
+                MySQLiAwaiter::await($mysqli);
                 $mysqli->reap_async_query();
             }
             $each = (\microtime(true) - $started) * 1000 / $polled;
@@ -367,7 +367,7 @@ test('a fast query costs its round trip, not a polling interval', function () {
     });
 });
 
-test('a query that finished before poll() was called needs no waiting', function () {
+test('a query that finished before await() was called needs no waiting', function () {
     if (!\getenv('PHASYNC_TEST_MYSQL')) {
         $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
     }
@@ -385,7 +385,7 @@ test('a query that finished before poll() was called needs no waiting', function
             phasync::sleep(0.1);
 
             $started = \microtime(true);
-            expect(MySQLiPoll::poll($mysqli))->toBe($mysqli);
+            expect(MySQLiAwaiter::await($mysqli))->toBe($mysqli);
             $each = (\microtime(true) - $started) * 1000;
 
             expect($each)->toBeLessThan(10, \sprintf('%.1f ms, the wait was not skipped', $each));
@@ -422,7 +422,7 @@ test('a connection closed under its waiter is reported to that waiter alone', fu
 
             $waiter = phasync::go(static function () use ($doomed): string {
                 try {
-                    MySQLiPoll::poll($doomed, 5);
+                    MySQLiAwaiter::await($doomed, 5);
 
                     return 'the waiter was woken as if its query had finished';
                 } catch (RuntimeException $e) {
@@ -430,7 +430,7 @@ test('a connection closed under its waiter is reported to that waiter alone', fu
                 }
             });
 
-            MySQLiPoll::poll($innocent, 5);
+            MySQLiAwaiter::await($innocent, 5);
             expect($innocent->reap_async_query()->fetch_assoc())->toBe(['SLEEP(0.3)' => '0']);
 
             expect(phasync::await($waiter))->toContain('was closed while a coroutine waited');
@@ -438,7 +438,7 @@ test('a connection closed under its waiter is reported to that waiter alone', fu
 
             // and the service is still running for the next query on the connection that survived
             $innocent->query('SELECT 42 AS num', \MYSQLI_ASYNC);
-            MySQLiPoll::poll($innocent, 5);
+            MySQLiAwaiter::await($innocent, 5);
             expect($innocent->reap_async_query()->fetch_assoc())->toBe(['num' => '42']);
         } finally {
             $innocent->close();

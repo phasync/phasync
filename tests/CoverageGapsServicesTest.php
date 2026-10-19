@@ -1,12 +1,12 @@
 <?php
 
 /*
- * Coverage gaps in Services and EventLoop: CurlMulti error handling, MySQLiPoll service
+ * Coverage gaps in Services and EventLoop: CurlAwaiter error handling, MySQLiAwaiter service
  * termination, ProcessRunner startup failures, and EventLoop shutdown/poller initialization.
  */
 
-use phasync\Services\CurlMulti;
-use phasync\Services\MySQLiPoll;
+use phasync\Services\CurlAwaiter;
+use phasync\Services\MySQLiAwaiter;
 use phasync\Util\Process;
 use phasync\Util\ProcessRunner;
 
@@ -14,10 +14,10 @@ beforeEach(fn () => phasyncResetProcessState());
 afterEach(fn () => phasyncResetProcessState());
 
 // ============================================================================
-// CurlMulti tests
+// CurlAwaiter tests
 // ============================================================================
 
-test('CurlMulti::await() processes curl handles and returns content', function () {
+test('CurlAwaiter::await() processes curl handles and returns content', function () {
     phasync::run(function () {
         $ch = \curl_init();
         if (false === $ch) {
@@ -33,7 +33,7 @@ test('CurlMulti::await() processes curl handles and returns content', function (
             \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
             \curl_setopt($ch, \CURLOPT_FAILONERROR, false);
 
-            $result = CurlMulti::await($ch);
+            $result = CurlAwaiter::await($ch);
             // Connection refused, but the handle was processed
             expect($result)->toBeFalsy();
         } finally {
@@ -44,7 +44,7 @@ test('CurlMulti::await() processes curl handles and returns content', function (
     });
 })->skip(!\extension_loaded('curl'), 'curl extension not loaded');
 
-test('CurlMulti await() with multiple handles processes all', function () {
+test('CurlAwaiter await() with multiple handles processes all', function () {
     phasync::run(function () {
         $handles = [];
         try {
@@ -62,7 +62,7 @@ test('CurlMulti await() with multiple handles processes all', function () {
 
             foreach ($handles as $ch) {
                 // Each handle goes through the await path
-                $result = CurlMulti::await($ch);
+                $result = CurlAwaiter::await($ch);
                 expect($result)->toBeFalsy();
             }
         } finally {
@@ -76,10 +76,10 @@ test('CurlMulti await() with multiple handles processes all', function () {
 })->skip(!\extension_loaded('curl'), 'curl extension not loaded');
 
 // ============================================================================
-// MySQLiPoll tests - service termination error path
+// MySQLiAwaiter tests - service termination error path
 // ============================================================================
 
-test('MySQLiPoll service error is thrown when service terminates with pending connections', function () {
+test('MySQLiAwaiter service error is thrown when service terminates with pending connections', function () {
     if (!\getenv('PHASYNC_TEST_MYSQL')) {
         $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
     }
@@ -103,7 +103,7 @@ test('MySQLiPoll service error is thrown when service terminates with pending co
             $fiber       = phasync::go(function () use ($mysqli, &$caughtError) {
                 try {
                     $mysqli->query('SELECT SLEEP(10)', \MYSQLI_ASYNC);
-                    MySQLiPoll::poll($mysqli, 10);
+                    MySQLiAwaiter::await($mysqli, 10);
                 } catch (RuntimeException $e) {
                     $caughtError = $e->getMessage();
                     throw $e;
@@ -113,13 +113,13 @@ test('MySQLiPoll service error is thrown when service terminates with pending co
             // Give it time to register
             phasync::sleep(0.01);
 
-            // Manually set service error to trigger lines 111-112 of MySQLiPoll.php
-            $reflClass  = new ReflectionClass(MySQLiPoll::class);
+            // Manually set service error to trigger lines 111-112 of MySQLiAwaiter.php
+            $reflClass  = new ReflectionClass(MySQLiAwaiter::class);
             $errorsProp = $reflClass->getProperty('errors');
             $connId     = \spl_object_id($mysqli);
 
             $errors          = $errorsProp->getValue();
-            $errors[$connId] = ['The MySQLiPoll service terminated without resolving the MySQLi handle', 1];
+            $errors[$connId] = ['The MySQLiAwaiter service terminated without resolving the MySQLi handle', 1];
             $errorsProp->setValue(null, $errors);
 
             // Wake the fiber
@@ -132,7 +132,7 @@ test('MySQLiPoll service error is thrown when service terminates with pending co
                 $caughtError = $e->getMessage();
             }
 
-            expect($caughtError)->toContain('MySQLiPoll service terminated');
+            expect($caughtError)->toContain('MySQLiAwaiter service terminated');
         } finally {
             $mysqli->close();
         }

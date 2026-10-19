@@ -325,8 +325,8 @@ test('Pool handles multiple concurrent borrows', function () {
     });
 });
 
-test('CurlMulti class has required methods', function () {
-    $class = new ReflectionClass(phasync\Services\CurlMulti::class);
+test('CurlAwaiter class has required methods', function () {
+    $class = new ReflectionClass(phasync\Services\CurlAwaiter::class);
     expect($class->hasMethod('await'))->toBeTrue();
     expect($class->hasMethod('register'))->toBeTrue();
 });

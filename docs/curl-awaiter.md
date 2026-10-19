@@ -1,32 +1,32 @@
-# `phasync\Services\CurlMulti` for concurrent HTTP requests
+# `phasync\Services\CurlAwaiter` for concurrent HTTP requests
 
 [Back to README.md](../README.md)
 
-The `CurlMulti` class provides asynchronous handling of cURL handles within the `phasync` framework. This allows you to perform multiple cURL requests concurrently using fibers.
+The `CurlAwaiter` class provides asynchronous handling of cURL handles within the `phasync` framework. This allows you to perform multiple cURL requests concurrently using fibers.
 
 ## Class Overview
 
-The `CurlMulti` class is designed to manage multiple cURL handles asynchronously. It uses the `curl_multi_*` functions to handle multiple cURL handles and `phasync` fibers to manage asynchronous execution.
+The `CurlAwaiter` class is designed to manage multiple cURL handles asynchronously. It uses the `curl_multi_*` functions to handle multiple cURL handles and `phasync` fibers to manage asynchronous execution.
 
 ## Usage
 
 ### Initialization
 
-You don't need to explicitly initialize the `CurlMulti` class. It automatically initializes when you use it.
+You don't need to explicitly initialize the `CurlAwaiter` class. It automatically initializes when you use it.
 
 ### Running Asynchronous cURL Requests
 
-To run asynchronous cURL requests using `CurlMulti`, you need to use the `CurlMulti::await` method from within a `phasync` coroutine. Here's how you can do it:
+To run asynchronous cURL requests using `CurlAwaiter`, you need to use the `CurlAwaiter::await` method from within a `phasync` coroutine. Here's how you can do it:
 
 1. **Create a cURL Handle**: Initialize a cURL handle with the desired URL and options.
-2. **Use `CurlMulti::await`**: Pass the cURL handle to `CurlMulti::await` to run the request asynchronously.
+2. **Use `CurlAwaiter::await`**: Pass the cURL handle to `CurlAwaiter::await` to run the request asynchronously.
 
 ### Example
 
 ```php
 <?php
 
-use phasync\Services\CurlMulti;
+use phasync\Services\CurlAwaiter;
 
 // Run the example inside phasync::run()
 phasync::run(function () {
@@ -35,7 +35,9 @@ phasync::run(function () {
         $ch = \curl_init('https://httpbin.org/get');
         \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-        return CurlMulti::await($ch);
+        $body = CurlAwaiter::await($ch);
+
+        return [$body, \curl_errno($ch)];
     });
 
     // Create a coroutine for the second cURL request
@@ -43,22 +45,24 @@ phasync::run(function () {
         $ch = \curl_init('https://httpbin.org/get');
         \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-        return CurlMulti::await($ch);
+        $body = CurlAwaiter::await($ch);
+
+        return [$body, \curl_errno($ch)];
     });
 
     // Await the results of the coroutines
-    $resultA = phasync::await($a);
-    $resultB = phasync::await($b);
+    [$bodyA, $errorA] = phasync::await($a);
+    [$bodyB, $errorB] = phasync::await($b);
 
     // Handle the results
-    if ($resultA !== false) {
-        echo "Request A succeeded: " . $resultA;
+    if (0 === $errorA) {
+        echo "Request A succeeded: " . $bodyA;
     } else {
         echo "Request A failed.";
     }
 
-    if ($resultB !== false) {
-        echo "Request B succeeded: " . $resultB;
+    if (0 === $errorB) {
+        echo "Request B succeeded: " . $bodyB;
     } else {
         echo "Request B failed.";
     }
@@ -67,7 +71,7 @@ phasync::run(function () {
 
 ### Error Handling
 
-The `CurlMulti::await` method returns `false` if the cURL request fails. You can handle this in your coroutine by checking the return value.
+A failed transfer does not throw, and `CurlAwaiter::await` returns an empty string for it. Check `curl_errno($ch)` (and `curl_error($ch)`) after it returns, as in the example above.
 
 ### Advanced Usage
 
@@ -78,7 +82,7 @@ You can handle multiple concurrent cURL requests by creating multiple coroutines
 ```php
 <?php
 
-use phasync\Services\CurlMulti;
+use phasync\Services\CurlAwaiter;
 
 phasync::run(function () {
     $handles = [];
@@ -89,7 +93,7 @@ phasync::run(function () {
             $ch = \curl_init('https://httpbin.org/get');
             \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-            return CurlMulti::await($ch);
+            return CurlAwaiter::await($ch);
         });
     }
 
@@ -112,7 +116,7 @@ To measure the performance of sequential versus concurrent execution, you can us
 ```php
 <?php
 
-use phasync\Services\CurlMulti;
+use phasync\Services\CurlAwaiter;
 
 // Measure sequential execution time
 $sequentialTime = phasync::run(function () {
@@ -121,7 +125,7 @@ $sequentialTime = phasync::run(function () {
     for ($i = 0; $i < 5; ++$i) {
         $ch = \curl_init('https://httpbin.org/delay/1');
         \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
-        CurlMulti::await($ch);
+        CurlAwaiter::await($ch);
     }
 
     return \microtime(true) - $start;
@@ -139,7 +143,7 @@ $concurrentTime = phasync::run(function () {
             $ch = \curl_init('https://httpbin.org/delay/1');
             \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-            return CurlMulti::await($ch);
+            return CurlAwaiter::await($ch);
         });
     }
 
@@ -155,15 +159,15 @@ echo "Concurrent Time: " . $concurrentTime . " seconds\n";
 
 ## API Reference
 
-### `CurlMulti::await(\CurlHandle $ch)`
+### `CurlAwaiter::await(\CurlHandle $ch)`
 
 - **Description**: Runs the given cURL handle asynchronously and waits for its completion.
 - **Parameters**:
   - `\CurlHandle $ch`: The cURL handle to run.
-- **Returns**: The result of the cURL request as a string on success, or `false` on failure.
+- **Returns**: The response body as a string (set `CURLOPT_RETURNTRANSFER`), or an empty string when the transfer fails: check `curl_errno($ch)`.
 
 ## Conclusion
 
-The `CurlMulti` class allows you to efficiently run multiple cURL requests concurrently using the `phasync` framework. By leveraging the power of fibers, you can improve the performance of your application when dealing with multiple HTTP requests.
+The `CurlAwaiter` class allows you to efficiently run multiple cURL requests concurrently using the `phasync` framework. By leveraging the power of fibers, you can improve the performance of your application when dealing with multiple HTTP requests.
 
 For more detailed information and advanced usage, refer to the `phasync` documentation and examples.

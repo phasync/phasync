@@ -64,7 +64,7 @@ Each step is useful on its own, and none requires the next.
 
 | Step | Add | What you get |
 |---|---|---|
-| 1 | `phasync/phasync` | Concurrent I/O inside one request, on your existing FPM setup. Wait with phasync's APIs: `phasync::readable()`, `CurlMulti`, `MySQLiPoll`. |
+| 1 | `phasync/phasync` | Concurrent I/O inside one request, on your existing FPM setup. Wait with phasync's APIs: `phasync::readable()`, `CurlAwaiter`, `MySQLiAwaiter`. |
 | 2 | The extension, bundled in phasync's release packages | Libraries you did not write (MySQL through PDO or mysqli, Guzzle, `curl_exec()`, files, `http://` streams, DNS) cooperate inside coroutines, unchanged. Epoll instead of `stream_select()`. |
 | 3 | [`phasync/swerve`](https://github.com/phasync/swerve) | A long-running PSR-15 server: the app boots once, each worker serves thousands of connections, streaming bodies, Server-Sent Events, WebSockets. Slim, mini and other PSR-15 frameworks run as they are. |
 | 4 | [`phasync/tether`](https://github.com/phasync/tether) | Live server-side components over one WebSocket per tab, in the style of Blazor Server and Phoenix LiveView. PHP 8.3. |
@@ -90,7 +90,7 @@ phasync needs PHP 8.2 or later and nothing else. It runs under PHP-FPM, Apache's
 CLI, and long-running servers.
 
 ```php
-use phasync\Services\CurlMulti;
+use phasync\Services\CurlAwaiter;
 
 function fetch(string $url): string
 {
@@ -98,7 +98,7 @@ function fetch(string $url): string
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
     // Inside a coroutine this waits without blocking the others; outside, it just runs
-    return CurlMulti::await($ch);
+    return CurlAwaiter::await($ch);
 }
 
 $pages = phasync::run(function () {
@@ -158,8 +158,8 @@ $wrote = fwrite(phasync::writable($socket), $response);  // waits until the sock
 Both work outside coroutines too, so a library written this way runs in any PHP program. One
 coroutine at a time may wait to read a given stream, and one to write to it.
 
-For HTTP, `phasync\Services\CurlMulti::await($ch)` runs a curl handle cooperatively. For MySQL,
-`phasync\Services\MySQLiPoll` does the same for mysqli's asynchronous queries.
+For HTTP, `phasync\Services\CurlAwaiter::await($ch)` runs a curl handle cooperatively. For MySQL,
+`phasync\Services\MySQLiAwaiter` does the same for mysqli's asynchronous queries.
 
 ## The phasync extension: existing code joins in
 
@@ -292,7 +292,7 @@ Also in `phasync\Util`: `RateLimiter`, `Synchronized` (a lock per coroutine) and
 - [INTRO: `phasync::run()` and `phasync::go()`](docs/run-and-go.md)
 - [Using phasync in existing projects](docs/use-in-existing-projects.md)
 - [Asynchronous I/O](docs/async-io-basics.md)
-- [Concurrent HTTP requests with CurlMulti](docs/curl-multi.md)
+- [Concurrent HTTP requests with CurlAwaiter](docs/curl-awaiter.md)
 - [WaitGroup](docs/wait-group.md) · [RateLimiter](docs/rate-limiter.md)
 - [Write a basic web server](docs/build-async-server.md)
 - [API reference](docs/API.md)

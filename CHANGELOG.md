@@ -7,6 +7,7 @@ Releases before 2.0.0-alpha0 are listed on the GitHub releases page.
 ### Changed
 
 - `phasync\Services\CurlMulti` and `phasync\Services\MySQLiPoll` are public API, documented and with an example. They were marked `@internal` in 2.0.0-beta5 while the README and docs recommended them.
+- They are renamed `phasync\Services\CurlAwaiter` and `phasync\Services\MySQLiAwaiter`, and both are awaited with `await()`: phasync's `await()` suspends the calling coroutine until something is ready, while `poll()` is what the event loop does to its streams, which is not what `MySQLiPoll::poll()` did. The names also no longer say how the wait is done, which the phasync extension replaces. The old classes remain as `@deprecated` classes that call the new ones (`CurlMulti::await()`, `MySQLiPoll::poll()`), and go in 3.0.
 
 ### Fixed
 

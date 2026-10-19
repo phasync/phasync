@@ -42,7 +42,7 @@ By using `phasync` for asynchronous I/O, the application can continue executing 
 ```php
 <?php
 
-use phasync\Services\CurlMulti;
+use phasync\Services\CurlAwaiter;
 
 phasync::run(function () {
     $urls = ['https://api.example.com/data1', 'https://api.example.com/data2', 'https://api.example.com/data3'];
@@ -51,7 +51,7 @@ phasync::run(function () {
         phasync::go(function () use ($url) {
             $ch = curl_init($url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            $response = CurlMulti::await($ch);
+            $response = CurlAwaiter::await($ch);
 
             // Process the response immediately
             echo "Received response from $url: $response\n";

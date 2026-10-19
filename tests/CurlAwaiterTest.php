@@ -1,6 +1,6 @@
 <?php
 
-use phasync\Services\CurlMulti;
+use phasync\Services\CurlAwaiter;
 
 // A local `php -S` instead of a public service: the timing test needs a server whose delay is the only latency
 beforeAll(function () {
@@ -32,14 +32,14 @@ test('test basic curl multi functionality', function () {
                 $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-                return CurlMulti::await($ch);
+                return CurlAwaiter::await($ch);
             });
 
             $b = phasync::go(function () {
                 $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-                return CurlMulti::await($ch);
+                return CurlAwaiter::await($ch);
             });
 
             expect(phasync::await($a))->toBe(true);
@@ -55,14 +55,14 @@ test('test curl multi with error handling', function () {
                 $ch = \curl_init('http://nonexistent.domain');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-                return CurlMulti::await($ch);
+                return CurlAwaiter::await($ch);
             });
 
             $b = phasync::go(function () {
                 $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-                return CurlMulti::await($ch);
+                return CurlAwaiter::await($ch);
             });
 
             expect(phasync::await($a))->toBe(false);
@@ -78,7 +78,7 @@ test('test curl multi with invalid URL', function () {
                 $ch = \curl_init('invalid-url');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-                return CurlMulti::await($ch);
+                return CurlAwaiter::await($ch);
             });
 
             expect(phasync::await($a))->toBe(false);
@@ -96,7 +96,7 @@ test('test multiple concurrent curl requests', function () {
                     $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
                     \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-                    return CurlMulti::await($ch);
+                    return CurlAwaiter::await($ch);
                 });
             }
 
@@ -114,7 +114,7 @@ test('test concurrent versus sequential execution time', function () {
         for ($i = 0; $i < 5; ++$i) {
             $ch = \curl_init($GLOBALS['curlMultiBase'] . '/delay/1');
             \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
-            CurlMulti::await($ch);
+            CurlAwaiter::await($ch);
         }
 
         return \microtime(true) - $start;
@@ -129,7 +129,7 @@ test('test concurrent versus sequential execution time', function () {
                 $ch = \curl_init($GLOBALS['curlMultiBase'] . '/delay/1');
                 \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
 
-                return CurlMulti::await($ch);
+                return CurlAwaiter::await($ch);
             });
         }
 
@@ -149,7 +149,7 @@ test('sequential requests are not paced by a polling interval (#133)', function 
         for ($i = 0; $i < 50; ++$i) {
             $ch = \curl_init($GLOBALS['curlMultiBase'] . '/get');
             \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
-            CurlMulti::await($ch);
+            CurlAwaiter::await($ch);
         }
 
         return \microtime(true) - $start;
