@@ -60,4 +60,4 @@ ext/ carries the binaries of the ext-phasync release $ext. This commit lives onl
 main stays binary-free."
 git -C "$tmp/tree" tag -a "$version" -m "phasync $version"
 
-echo "Tagged $version. Check it, then publish it with:  git push origin $version"
+echo "Tagged $version. Check it, then publish it with:  git push origin refs/tags/$version"
