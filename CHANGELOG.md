@@ -12,7 +12,7 @@ extension for every SAPI. Moving from 1.x: [UPGRADING.md](UPGRADING.md).
 
 - phasync requires `fiber-interop/scope` ^0.3 (the Scope RFC's spec level with secondary votes A and B), the version of the Scope class ext-phasync 2.0.0 bundles.
 - phasync checks the version of a loaded phasync extension when its event loop starts and in `phasync\ext\ensure_loaded()`: it works with extension 2.x from 2.0.0-dev on, and otherwise throws a `RuntimeException` naming both versions and what to update. An extension installed with PIE is updated apart from phasync.
-- The extension is open source (MIT) and its binaries in release packages carry that licence. It has no `virtualize()` and no free-tier limit; phasync no longer looks for the extension's own `current_fiber()`.
+- The extension is open source (MIT) and its binaries are bundled in release packages. phasync no longer looks for the extension's own `current_fiber()`.
 - `vendor/bin/phasync` runs PHP as it is when the extension is already loaded (PIE, `php.ini`) instead of refusing, and the PHP it starts keeps the flags it was started with (`php -d memory_limit=1G vendor/bin/phasync app.php`). Without a binary for the platform it points to `pie install phasync/ext-phasync`.
 - phasync no longer declares `"replace": {"phasync/phasync-ext": "*"}`. The extension is published as `phasync/ext-phasync` (PIE), named like `fiber-interop/ext-scope` and Composer's `ext-phasync` platform package.
 - `phasync\Services\CurlMulti` and `phasync\Services\MySQLiPoll` are public API, documented and with an example. They were marked `@internal` in 2.0.0-beta5 while the README and docs recommended them.

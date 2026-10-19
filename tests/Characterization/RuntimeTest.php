@@ -42,7 +42,7 @@ test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine end
     // about 20 bytes per cycle made here, whatever the machine's speed (the budget is 128).
     [$growth, $cycles] = $growth;
     expect($growth)->toBeLessThan($cycles * 128);
-})->skip(fn () => gcGraceActive(), 'the extension\'s gc grace (phasync.virtualize=1) leaves young cycles for later');
+});
 
 // RT-1: garbage collection state
 // ---------------------------------------------------------------------------
