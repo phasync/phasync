@@ -9,8 +9,6 @@ use phasync\Internal\RethrowExceptionTrait;
  *
  * Thrown in the waiting coroutine only; what it waited for is not cancelled: an awaited coroutine keeps running, and a channel keeps its values. `run()` throws it, too, when its frame's deadline passed ({@see Frame::setTimeout()}).
  *
- * It implements fiber-interop's `async\TimeoutException`, so code written against fiber-interop/api catches it.
- *
  * ```php
  * phasync::run(function () {
  *     $slow = phasync::go(fn () => phasync::sleep(1));
@@ -31,7 +29,7 @@ use phasync\Internal\RethrowExceptionTrait;
  *
  * @example examples/TimeoutException/1-give-up-waiting.php A timeout ends only that wait
  */
-class TimeoutException extends \RuntimeException implements RethrowExceptionInterface, \async\TimeoutException
+class TimeoutException extends \RuntimeException implements RethrowExceptionInterface
 {
     use RethrowExceptionTrait;
 }

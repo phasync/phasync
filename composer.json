@@ -36,7 +36,6 @@
             "io.php"
         ],
         "files": [
-            "src/async_interfaces.php",
             "src/functions.php",
             "src/ext_loader.php"
         ]
