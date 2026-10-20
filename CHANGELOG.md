@@ -2,6 +2,12 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## 2.0.4 (2026-10-20)
+
+Bundles ext-phasync 2.0.2, with ext-scope 0.3.1: loading the extension no longer slows code
+that doesn't use it. Generators now switch scope through calls compiled into their own bodies,
+so ordinary function calls cost what they cost without the extension (they were 15-20% slower).
+
 ## 2.0.3 (2026-10-19)
 
 Bundles ext-phasync 2.0.1: the Linux glibc binaries need at most glibc 2.34, so they load on
