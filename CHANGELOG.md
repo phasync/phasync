@@ -9,6 +9,11 @@ Requires fiber-interop/scope 0.4. A new `Scope` starts with empty `$_GET`, `$_PO
 creates it seeds what it needs. Coroutines still share their creator's scope. `Scope::bind()`
 wraps a callback to run in a given scope.
 
+- `phasync::cancel()` on a coroutine that already ended does nothing, as documented; it threw `InvalidArgumentException`.
+- A second coroutine reading a `StringBuffer` while another is reading throws `LogicException`; the reads interleaved.
+- `awaitFlag()` and `park()` timeouts under 10 ms fire at their real time, not in 10 ms steps.
+- `RateLimiter` documents its token-bucket contract.
+
 ## 2.0.4 (2026-10-20)
 
 Bundles ext-phasync 2.0.2, with ext-scope 0.3.1: loading the extension no longer slows code
