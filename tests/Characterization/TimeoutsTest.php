@@ -6,8 +6,10 @@
  * before changing anything here.
  *
  * Timing facts these tests rely on (deliberate design decisions):
- *  - deadlines fall in 10 ms slots (rounded up), delivered once the slot has passed, and
- *  - an otherwise idle loop wakes at the next slot while a timeout waits (D11).
+ *  - deadlines of 10 ms or more fall in 10 ms slots (rounded up), delivered once the slot
+ *    has passed, and an otherwise idle loop wakes at the next slot while one waits (D11);
+ *  - a deadline under 10 ms away is delivered at its real time instead (#139), through the
+ *    same exact scheduler sleep() uses.
  * Lower bounds ("never early") are strict; upper bounds are generous so that a busy
  * machine does not make the tests flaky.
  */
@@ -275,6 +277,60 @@ test('TMO-3: on an idle loop a short timeout fires within one 10 ms slot of its 
     expect($outcome)->toBe(TimeoutException::class);
     expect($seconds)->toBeGreaterThanOrEqual(0.05);
     expect($seconds)->toBeLessThan(0.3);
+});
+
+test('TMO-3: a sub-slot timeout (under 10 ms) fires at its real deadline, not rounded up to the next 10 ms slot (#139)', function () {
+    [$outcome, $seconds] = phasync::run(static fn () => tmoTimed(static fn () => heldFlagWait(0.001)));
+
+    expect($outcome)->toBe(TimeoutException::class);
+    expect($seconds)->toBeGreaterThanOrEqual(0.001);
+    // Generous for a loaded machine, but well short of the ~10 ms a slot-rounded delivery
+    // would always take regardless of how short the requested timeout was.
+    expect($seconds)->toBeLessThan(0.008);
+});
+
+test('TMO-3: several simultaneous sub-slot timeouts are all delivered at their real deadline (#139)', function () {
+    $times = phasync::run(static function () {
+        $times   = [];
+        $waiters = [];
+        foreach ([0.001, 0.002, 0.003] as $timeout) {
+            $waiters[] = phasync::go(static function () use ($timeout, &$times) {
+                [, $seconds] = tmoTimed(static fn () => heldFlagWait($timeout));
+                $times[]     = $seconds;
+            });
+        }
+        foreach ($waiters as $waiter) {
+            phasync::await($waiter);
+        }
+
+        return $times;
+    });
+    \sort($times);
+
+    expect($times[0])->toBeGreaterThanOrEqual(0.001)->toBeLessThan(0.008);
+    expect($times[1])->toBeGreaterThanOrEqual(0.002)->toBeLessThan(0.009);
+    expect($times[2])->toBeGreaterThanOrEqual(0.003)->toBeLessThan(0.01);
+});
+
+test('TMO-3: a sub-slot timeout cancelled by a flag raised before it fires leaves no stale state (#139)', function () {
+    // Exercises removeTimeout() cancelling an exact (sub-slot) timeout rather than a bucket one.
+    $result = phasync::run(static function () {
+        $flag = new stdClass();
+        $c    = phasync::go(static function () use ($flag) {
+            try {
+                phasync::awaitFlag($flag, 0.005);
+
+                return 'raised';
+            } catch (TimeoutException) {
+                return 'timed out';
+            }
+        });
+        phasync::raiseFlag($flag);
+
+        return phasync::await($c);
+    });
+
+    expect($result)->toBe('raised');
 });
 
 test('TMO-3: a zero or negative timeout throws TimeoutException at once, without waiting: the time allowed is up', function () {

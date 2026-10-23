@@ -328,13 +328,17 @@ passes a timeout, IO operations included.
 it was waiting on in a consistent state (same guarantee as CAN-6). ⚠️
 
 **TMO-3. A timeout never fires early, and fires at most about 10 ms late** while the loop
-runs. Deadlines are kept in 10 ms slots (rounded up) and delivered once their slot has passed;
+runs -- except a timeout under 10 ms, delivered at its real deadline (#139). Deadlines of
+10 ms or more are kept in 10 ms slots (rounded up) and delivered once their slot has passed;
 checking costs one integer comparison per tick, and only coroutines whose timeout expired are
 looked at, however many wait. Every waiter whose deadline falls in the same slot fires in the
-same pass, in registration order. An idle loop wakes at the next slot while a timeout waits.
-A zero or negative timeout (a deadline already past) throws `TimeoutException` at once,
-without waiting. A coroutine that does not suspend still delays every timer (SCH-1). `sleep()`
-is exact.
+same pass, in registration order. An idle loop wakes at the next slot while such a timeout
+waits. A deadline under 10 ms away would be dominated by that slot's rounding, so it is
+delivered through the same exact min-heap `sleep()` uses instead, at the cost of an O(n)
+removal if it is cancelled before firing (rare: most timeouts of this length are polling
+backoffs that do expire). A zero or negative timeout (a deadline already past) throws
+`TimeoutException` at once, without waiting. A coroutine that does not suspend still delays
+every timer (SCH-1). `sleep()` is exact.
 ✅ TimeoutsTest
 
 **TMO-4. A frame-level deadline is a timeout that cancels the frame.**

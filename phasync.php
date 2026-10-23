@@ -1029,8 +1029,11 @@ final class phasync
      * ```
      *
      * @param object $signal  the object a raiser will pass to `raiseFlag()`
-     * @param float  $timeout seconds to wait at most; the loop checks these timeouts every 10 ms, so a shorter one
-     *                        ends after up to 10 ms (`sleep()` is exact)
+     * @param float  $timeout seconds to wait at most, delivered at its real time; most timeouts
+     *                        are checked in 10 ms slots (one comparison per tick, not a scan of
+     *                        every waiter), but one under 10 ms would be dominated by that
+     *                        rounding, so it is delivered through the same exact scheduler
+     *                        `sleep()` uses instead (#139)
      * @param bool   $throw   when false, a timeout returns false instead of throwing
      *                        TimeoutException, and never constructs one: for a wait that is
      *                        expected to time out often, where building the exception would be
