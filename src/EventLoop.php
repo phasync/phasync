@@ -713,7 +713,13 @@ final class EventLoop implements \Countable
         $fiberExceptionHolders = $this->fiberExceptionHolders;
         $frames                = $this->frames;
         $fiberScopes           = $this->fiberScopes;
-        for ($i = 0; $i < $fiberCount && !$queue->isEmpty(); ++$i) {
+        // Counts down, rather than comparing against a separate loop-invariant bound: a
+        // coroutine's resume() can throw (for example WorkerStoppingException at a worker
+        // stop, ext only) into the catch below, and a tracing JIT that recorded $fiberCount
+        // as a register-only loop invariant across that exception edge could resume the VM
+        // with it undefined on the next condition check (phasync-ext-src#47). $fiberCount is
+        // the thing the loop condition reads, so it is also the thing each iteration writes.
+        for (; $fiberCount > 0 && !$queue->isEmpty(); --$fiberCount) {
             $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
             if (0 !== $this->nesting && \array_key_exists(\spl_object_id($fiber), $this->nested)) {
@@ -768,8 +774,11 @@ final class EventLoop implements \Countable
                 $this->handleTerminatedFiber($fiber);
             }
             if (0 !== $this->preempted) {
-                // A coroutine was preempted: the rest of this tick respects its frozen scope
-                $this->runFrozen($fiberCount - $i - 1);
+                // A coroutine was preempted: the rest of this tick respects its frozen scope.
+                // $fiberCount hasn't been decremented for this iteration yet (that's the for
+                // loop's third clause, run on the next pass), so it is already "how many are
+                // left after this one".
+                $this->runFrozen($fiberCount - 1);
                 break;
             }
         }

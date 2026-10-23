@@ -407,3 +407,34 @@ test('park() in an onScopeChange() hook is refused like any other wait', functio
         phasyncResetProcessState();
     }
 });
+
+test('a coroutine that throws when resumed does not stop the rest of that tick\'s queue from running (phasync-ext-src#47)', function () {
+    // Both $a and $b are queued for the same tick (raiseFlag() enqueues both at once), and
+    // $a's resume() throws straight out of Fiber::resume() inside tick()'s loop -- the exact
+    // path a tracing JIT mis-corrupted $fiberCount across (see EventLoop::tick()'s comment
+    // at its "Counts down" loop). $b must still run in that same pass.
+    $log    = [];
+    $thrown = null;
+    try {
+        phasync::run(function () use (&$log) {
+            $flag = new stdClass();
+            phasync::go(function () use ($flag, &$log) {
+                phasync::awaitFlag($flag);
+                $log[] = 'a resumed';
+                throw new RuntimeException('a failed');
+            });
+            $b = phasync::go(function () use ($flag, &$log) {
+                phasync::awaitFlag($flag);
+                $log[] = 'b resumed';
+            });
+            phasync::raiseFlag($flag);
+            phasync::await($b);
+        });
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($log)->toBe(['a resumed', 'b resumed']);
+    expect($thrown)->toBeInstanceOf(RuntimeException::class);
+    expect($thrown->getMessage())->toBe('a failed');
+});
