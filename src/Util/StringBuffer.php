@@ -12,6 +12,8 @@ use phasync\TimeoutException;
  *
  * Designed for servers (HTTP, FastCGI, WebSocket) that read fixed-size frames from a byte stream. A reader waits for data, `readFixed()` waits for a whole frame, and `end()` marks the end of the stream. Unbounded by default: a writer that outpaces its reader grows the buffer without limit. With `$maxSize`, `write()` waits until the reader has made room. For passing values between coroutines, use a channel.
  *
+ * One coroutine reads at a time: `read()`/`readFixed()` share a single unread cursor, so a second coroutine calling either while one is already inside it gets `LogicException` at once, not a wait-time exception.
+ *
  * If the writing coroutine exits without calling `end()`, readers must not wait forever. Ask for `getDeadmanSwitch()` in the writer and keep the object until it ends: when it is destroyed without `end()` having been called, a reader that has read the buffered data gets an exception instead of waiting.
  *
  * ```php
@@ -98,6 +100,13 @@ class StringBuffer implements SelectableInterface
      * total bytes actually consumed by read()/readFixed().
      */
     private ?int $maxSize = null;
+
+    /**
+     * The coroutine currently inside read() or readFixed(), for the single-reader
+     * invariant (BUF-4): the buffer has one unread cursor, so a second coroutine
+     * reading concurrently would corrupt it.
+     */
+    private ?\Fiber $activeReader = null;
 
     /**
      * Creates an empty buffer.
@@ -217,6 +226,7 @@ class StringBuffer implements SelectableInterface
      * @throws \OutOfBoundsException if `$maxLength` is negative
      * @throws TimeoutException      if no data arrived in time
      * @throws DeadmanException      if the writer exited without ending the buffer, once the buffered data is read
+     * @throws \LogicException       if another coroutine is already inside `read()` or `readFixed()` (BUF-4: one reader at a time)
      *
      * @return string the bytes read
      *
@@ -230,31 +240,36 @@ class StringBuffer implements SelectableInterface
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
 
-        $timesOut = \microtime(true) + $timeout;
-        while ($timeout > 0 && !$this->ended && !$this->fill(1)) {
-            if ($this->failed) {
-                throw new DeadmanException('Writer terminated unexpectedly');
+        $this->enterRead();
+        try {
+            $timesOut = \microtime(true) + $timeout;
+            while ($timeout > 0 && !$this->ended && !$this->fill(1)) {
+                if ($this->failed) {
+                    throw new DeadmanException('Writer terminated unexpectedly');
+                }
+                $remaining = $timesOut - \microtime(true);
+                if ($remaining <= 0) {
+                    throw new TimeoutException('StringBuffer read timed out');
+                }
+                $this->await($remaining);
             }
-            $remaining = $timesOut - \microtime(true);
-            if ($remaining <= 0) {
-                throw new TimeoutException('StringBuffer read timed out');
+            $this->fill($maxLength);
+
+            $chunk  = \substr($this->buffer, $this->offset, $maxLength);
+            $length = \strlen($chunk);
+            $this->offset += $length;
+            $this->totalRead += $length;
+            if ($length > 0) {
+                // Wakes a write() blocked on $maxSize backpressure, and readFromResource()'s own
+                // backpressure wait below -- both need to know when consumption, not just new data
+                // or new state, changes anything, and nothing else in this class signals that.
+                \phasync::raiseFlag($this->queue);
             }
-            $this->await($remaining);
-        }
-        $this->fill($maxLength);
 
-        $chunk  = \substr($this->buffer, $this->offset, $maxLength);
-        $length = \strlen($chunk);
-        $this->offset += $length;
-        $this->totalRead += $length;
-        if ($length > 0) {
-            // Wakes a write() blocked on $maxSize backpressure, and readFromResource()'s own
-            // backpressure wait below -- both need to know when consumption, not just new data
-            // or new state, changes anything, and nothing else in this class signals that.
-            \phasync::raiseFlag($this->queue);
+            return $chunk;
+        } finally {
+            $this->leaveRead();
         }
-
-        return $chunk;
     }
 
     /**
@@ -351,6 +366,7 @@ class StringBuffer implements SelectableInterface
      *
      * @throws TimeoutException if `$length` bytes were not there in time
      * @throws DeadmanException if the writer exited without ending the buffer
+     * @throws \LogicException  if another coroutine is already inside `read()` or `readFixed()` (BUF-4: one reader at a time)
      *
      * @return string|null the bytes, or null at the end of the buffer
      *
@@ -365,46 +381,51 @@ class StringBuffer implements SelectableInterface
             throw new \OutOfBoundsException("Can't read negative lengths");
         }
 
-        $timesOut = \microtime(true) + $timeout;
+        $this->enterRead();
+        try {
+            $timesOut = \microtime(true) + $timeout;
 
-        // Fill the buffer with enough data to read and optionally await more data if not ended.
-        // A timeout of exactly 0 is a non-blocking poll, as in read(): it takes what has been
-        // written so far and never throws. It still fills first, or data written but not yet
-        // moved into the buffer would be missed.
-        while (!$this->fill($length) && !$this->ended) {
-            if ($timeout <= 0) {
-                break;
+            // Fill the buffer with enough data to read and optionally await more data if not ended.
+            // A timeout of exactly 0 is a non-blocking poll, as in read(): it takes what has been
+            // written so far and never throws. It still fills first, or data written but not yet
+            // moved into the buffer would be missed.
+            while (!$this->fill($length) && !$this->ended) {
+                if ($timeout <= 0) {
+                    break;
+                }
+                if ($this->failed) {
+                    throw new DeadmanException('Writer terminated unexpectedly');
+                }
+                $remaining = $timesOut - \microtime(true);
+                if ($remaining <= 0) {
+                    throw new TimeoutException('StringBuffer readFixed timed out');
+                }
+                // Wait directly on the flag - don't use isReady() which may return true
+                // when there's some data but not enough for our fixed length requirement
+                try {
+                    \phasync::awaitFlag($this->queue, $remaining);
+                } catch (TimeoutException $e) {
+                    throw new TimeoutException('StringBuffer readFixed timed out', 0, $e);
+                }
             }
-            if ($this->failed) {
-                throw new DeadmanException('Writer terminated unexpectedly');
+
+            // Only reachable via $this->ended, or via $timeout <= 0, never via a real timeout
+            // expiring: a genuine "not enough data right now", distinct from a real timeout.
+            if ($length > $this->length - $this->offset) {
+                return null;
             }
-            $remaining = $timesOut - \microtime(true);
-            if ($remaining <= 0) {
-                throw new TimeoutException('StringBuffer readFixed timed out');
+
+            $chunk = \substr($this->buffer, $this->offset, $length);
+            $this->offset += $length;
+            $this->totalRead += $length;
+            if ($length > 0) {
+                \phasync::raiseFlag($this->queue);
             }
-            // Wait directly on the flag - don't use isReady() which may return true
-            // when there's some data but not enough for our fixed length requirement
-            try {
-                \phasync::awaitFlag($this->queue, $remaining);
-            } catch (TimeoutException $e) {
-                throw new TimeoutException('StringBuffer readFixed timed out', 0, $e);
-            }
+
+            return $chunk;
+        } finally {
+            $this->leaveRead();
         }
-
-        // Only reachable via $this->ended, or via $timeout <= 0, never via a real timeout
-        // expiring: a genuine "not enough data right now", distinct from a real timeout.
-        if ($length > $this->length - $this->offset) {
-            return null;
-        }
-
-        $chunk = \substr($this->buffer, $this->offset, $length);
-        $this->offset += $length;
-        $this->totalRead += $length;
-        if ($length > 0) {
-            \phasync::raiseFlag($this->queue);
-        }
-
-        return $chunk;
     }
 
     /**
@@ -475,6 +496,26 @@ class StringBuffer implements SelectableInterface
             $this->offset = 0;
         }
         \phasync::raiseFlag($this->queue);
+    }
+
+    /**
+     * Claims the single reader slot for `read()`/`readFixed()` (BUF-4).
+     *
+     * @throws \LogicException if another coroutine is already inside `read()` or `readFixed()`
+     */
+    private function enterRead(): void
+    {
+        $fiber = \Fiber::getCurrent();
+        if (null !== $this->activeReader && $this->activeReader !== $fiber) {
+            throw new \LogicException('StringBuffer: another coroutine is already reading (BUF-4: one reader at a time); use a Channel to fan data out to several readers');
+        }
+        $this->activeReader = $fiber;
+    }
+
+    /** Releases the single reader slot claimed by {@see StringBuffer::enterRead()}. */
+    private function leaveRead(): void
+    {
+        $this->activeReader = null;
     }
 
     /**

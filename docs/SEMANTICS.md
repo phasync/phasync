@@ -533,7 +533,13 @@ waiting. The deadman switch (`getDeadmanSwitch()`) is an optional safety net, an
 behaviour is `DeadmanException` from a blocking read, after buffered data has been read.
 ✅ StringBufferTest
 
-**BUF-4. One reader at a time.** ⚠️ Not enforced or tested.
+**BUF-4. One reader at a time.** `read()` and `readFixed()` share a single unread cursor
+(`offset`/`length`), so a second coroutine entering either while another is still waiting
+in it would corrupt that cursor. Entering either while another coroutine is still inside it
+throws `LogicException` at once, in the caller -- it is not delivered as a wait-time
+exception. Sequential calls from the same coroutine are unaffected. ✅ StringBufferTest
+"BUF-4: a second read() while one is still waiting throws LogicException", "BUF-4: a second
+readFixed() while one is still waiting throws LogicException"
 
 **BUF-5. Shortcuts allowed.** Any change may bypass core APIs (direct fiber handling,
 inlined flag logic) as long as BUF-1 to BUF-4 and the tests hold. Performance

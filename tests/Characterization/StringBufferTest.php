@@ -511,50 +511,71 @@ test('BUF-3: writeToResource() drains an ended buffer into a stream and returns 
 
 /* ------------------------------------------------------------------ BUF-4 */
 
-test('BUF-4: two blocked read() calls share the data: the first waiter gets what was written, the second keeps waiting', function () {
+test('BUF-4: a second read() while one is still waiting throws LogicException', function () {
     phasync::run(function () {
         $buffer = new StringBuffer();
         $out    = [];
         $reader = function (string $name) use ($buffer, &$out) {
             return phasync::go(function () use ($name, $buffer, &$out) {
-                $out[] = $name . ':' . $buffer->read(100);
+                try {
+                    $out[] = $name . ':' . $buffer->read(100);
+                } catch (LogicException $e) {
+                    $out[] = $name . ':' . $e->getMessage();
+                }
             });
         };
         $a = $reader('A');
+        // B enters read() while A is still suspended waiting for data, so B's enterRead()
+        // throws at once, synchronously, during phasync::go() -- before A even gets data.
         $b = $reader('B');
         phasync::sleep(0.02);
         $buffer->write('one');
-        phasync::sleep(0.02);
-        expect($out)->toBe(['A:one']);
-        $buffer->write('two');
-        phasync::sleep(0.02);
-        expect($out)->toBe(['A:one', 'B:two']);
-        $buffer->end();
         phasync::await($a);
         phasync::await($b);
+
+        \sort($out);
+        expect($out[0])->toBe('A:one');
+        expect($out[1])->toContain('one reader at a time');
     });
 });
 
-test('BUF-4: two blocked readFixed(3) calls split the bytes in arrival order', function () {
+test('BUF-4: a second readFixed() while one is still waiting throws LogicException', function () {
     phasync::run(function () {
         $buffer = new StringBuffer();
         $out    = [];
         $reader = function (string $name) use ($buffer, &$out) {
             return phasync::go(function () use ($name, $buffer, &$out) {
-                $out[] = $name . ':' . \var_export($buffer->readFixed(3), true);
+                try {
+                    $out[] = $name . ':' . \var_export($buffer->readFixed(3), true);
+                } catch (LogicException $e) {
+                    $out[] = $name . ':' . $e->getMessage();
+                }
             });
         };
         $a = $reader('A');
         $b = $reader('B');
         phasync::sleep(0.02);
         $buffer->write('abcd');
-        phasync::sleep(0.02);
-        expect($out)->toBe(["A:'abc'"]);
         $buffer->end();
         phasync::await($a);
         phasync::await($b);
-        expect($out)->toBe(["A:'abc'", 'B:NULL']);
+
+        \sort($out);
+        expect($out[0])->toBe("A:'abc'");
+        expect($out[1])->toContain('one reader at a time');
     });
+});
+
+test('BUF-4: sequential reads by the same coroutine are not blocked by the invariant', function () {
+    $result = phasync::run(function () {
+        $buffer = new StringBuffer();
+        $buffer->write('abcdef');
+        $buffer->end();
+
+        return $buffer->read(3) . $buffer->read(3);
+    });
+
+    expect($result)->toBe('abcdef');
 });
 
 /* ------------------------------------------------------------------ BUF-6 */
