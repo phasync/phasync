@@ -2,6 +2,13 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## Unreleased
+
+Requires fiber-interop/scope 0.4. A new `Scope` starts with empty `$_GET`, `$_POST`, `$_COOKIE`,
+`$_FILES`, `$_REQUEST` and `$_SERVER`, PHP's ini timezone and locale, and no session; whoever
+creates it seeds what it needs. Coroutines still share their creator's scope. `Scope::bind()`
+wraps a callback to run in a given scope.
+
 ## 2.0.4 (2026-10-20)
 
 Bundles ext-phasync 2.0.2, with ext-scope 0.3.1: loading the extension no longer slows code
