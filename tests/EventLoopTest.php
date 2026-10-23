@@ -72,11 +72,11 @@ test('whenTimeElapsed() with no time to wait resumes the coroutine on the next t
     expect($log)->toBe(['before', 'main', 'after']);
 });
 
-test('cancel() of a coroutine that has ended is refused', function () {
+test('cancel() of a coroutine that has ended is refused by the internal driver, but phasync::cancel() is a no-op (#146, CAN-3)', function () {
     phasync::run(function () {
         $done = phasync::go(fn () => 1);
         expect(fn () => phasync::getLoop()->cancel($done))->toThrow(LogicException::class, "Can't cancel a terminated fiber");
-        expect(fn () => phasync::cancel($done))->toThrow(InvalidArgumentException::class, 'already terminated');
+        phasync::cancel($done); // no-op: nothing is left to cancel
     });
 });
 
