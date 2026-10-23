@@ -420,6 +420,8 @@ final class phasync
      *
      * The cancellation is sticky: every wait of the coroutine throws the CancelledException from then on, so a coroutine that catches it and waits again is cancelled again. It throws nothing in the caller: a coroutine that is not waiting meets it at its next wait, and one that cancels itself finishes its current step and meets it at its next wait too. A coroutine that ends with the exception it was cancelled with is no failure of the run, but awaiting it throws it. `finally()` callbacks are not cancelled.
      *
+     * Cancelling a coroutine that has already ended is a no-op: there is nothing left to cancel, and a timeout firing just after the work ended is a common race, not a misuse.
+     *
      * It is a teardown, not a signal: to interrupt a wait once with an exception of your own, use {@see phasync::throw()}. It cancels that coroutine only, not the coroutines it started; to cancel a whole tree, cancel its frame ({@see Frame::cancel()}).
      *
      * ```php
@@ -449,7 +451,7 @@ final class phasync
      * @param int                                  $code     the code of the CancelledException
      * @param Throwable|null                       $previous what caused the cancellation
      *
-     * @throws InvalidArgumentException if the coroutine has ended, or the message is a Throwable
+     * @throws InvalidArgumentException if the message is a Throwable
      * @throws LogicException           if the coroutine was not started by phasync
      *
      * @see phasync::throw      interrupts one wait
@@ -471,7 +473,7 @@ final class phasync
             $cancellation = new CancelledException((string) $message, $code, $previous);
         }
         if ($fiber->isTerminated()) {
-            throw new InvalidArgumentException('Fiber is already terminated');
+            return; // no-op: nothing is left to cancel, see CAN-3 in docs/SEMANTICS.md
         }
         self::getDriver()->cancel($fiber, $cancellation);
     }

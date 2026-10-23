@@ -259,8 +259,8 @@ exception at its next wait. Any other coroutine that isn't waiting meets it at i
 one that was preempted too, never at the preemption itself (SCH-6). (#110) ✅ CancellationTest,
 CancelTest
 
-**CAN-3. Cancelling a finished coroutine is a no-op.** ❌ Currently throws
-`InvalidArgumentException`.
+**CAN-3. Cancelling a finished coroutine is a no-op.** ✅ CancellationTest "CAN-3: cancelling a
+terminated coroutine is a no-op"
 
 **CAN-4. Cancellation is sticky.** Once a coroutine or a frame is cancelled, every wait
 in it throws the cancellation again, until the coroutine ends or leaves the frame (a nested

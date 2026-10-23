@@ -179,8 +179,7 @@ test('CAN-2: a coroutine cancelled while it runs meets the cancellation at its n
     expect($result)->toBe('cancelled, then cancelled at its next wait');
 });
 
-test('CAN-3: cancelling a terminated coroutine throws InvalidArgumentException [DIVERGENCE]', function () {
-    // The contract (CAN-3) says this is a no-op.
+test('CAN-3: cancelling a terminated coroutine is a no-op', function () {
     $result = phasync::run(static function () {
         $child = phasync::go(static fn () => 1);
         try {
@@ -192,8 +191,8 @@ test('CAN-3: cancelling a terminated coroutine throws InvalidArgumentException [
         return 'no exception';
     });
 
-    expect($result)->toBe('InvalidArgumentException: Fiber is already terminated');
-})->group('divergence');
+    expect($result)->toBe('no exception');
+});
 
 // ---------------------------------------------------------------------------
 // CAN-4: delivery count
