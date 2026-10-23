@@ -461,9 +461,19 @@ that nothing else references, for example `awaitFlag(new stdClass(), $t)`, is un
 behaviour: it may end at once with `CancelledException` or later with `TimeoutException`
 (nobody has a reason to write it). To wait for a timeout, hold the flag in a variable.
 
-**RL-1. `RateLimiter`.** `await($timeout)` throws `TimeoutException` when no permit arrives
-in time. Its fuller contract (token-bucket vs. leaky-bucket semantics) is not yet written
-down. 🆕
+**RL-1. `RateLimiter` is a token bucket, not a leaky bucket.** A background coroutine
+refills a bucket of `$burst + 1` permits at a fixed `$eventsPerSecond` rate; `wait()`/
+`await($timeout)` take a permit at once if one is in the bucket, so a burst of calls after
+an idle period drains the whole bucket immediately (`$burst + 1` of them -- the `+1` is the
+first permit, offered once the generator coroutine has run, not from the constructor
+itself) before later calls wait for the rate again. It never queues or smooths callers
+(a leaky bucket would release them at a constant rate regardless of how they arrived);
+it only ever lets a caller through sooner, by letting permits accumulate, or makes it
+wait for the next permit. `await($timeout)` throws `TimeoutException` when no permit
+arrives in time; a `0` burst still offers the generator's current permit (so the first
+wait is immediate), but never lets a second one queue up behind it. The generator
+coroutine stops, without failing `run()`, once the limiter (and its read channel) is
+dropped. ✅ RateLimiterTest, Characterization\RateLimiterTest
 
 **IO-1. Waiting on a stream.** `readable`/`writable`/`stream` suspend until the resource
 is ready. At most one coroutine waits on a stream per direction: one may wait to read (or
