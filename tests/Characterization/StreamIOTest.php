@@ -57,6 +57,10 @@ function iochar_child(string $code, float $limit): array
  */
 function iochar_pair(): array
 {
+    if (\PHP_OS_FAMILY === 'Windows') {
+        PHPUnit\Framework\Assert::markTestSkipped('stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
+    }
+
     return \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
 }
 
@@ -324,6 +328,9 @@ if (!\function_exists('iochar_push_past_fd_setsize')) {
     /** @return resource[] every socket end created, kept referenced so the fds stay open */
     function iochar_push_past_fd_setsize(): array
     {
+        if (\PHP_OS_FAMILY === 'Windows') {
+            PHPUnit\Framework\Assert::markTestSkipped('stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
+        }
         $kept = [];
         for ($i = 0; $i < 1300; ++$i) {
             $kept[] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP)

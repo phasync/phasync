@@ -155,7 +155,7 @@ test('StringBuffer::writeToResource() keeps what a full pipe did not take', func
     } finally {
         \unlink($fifo);
     }
-});
+})->skip(!\function_exists('posix_mkfifo'), 'needs posix');
 
 // Channel
 

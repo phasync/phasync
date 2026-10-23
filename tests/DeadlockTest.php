@@ -207,7 +207,7 @@ test('DLK-3: a coroutine waiting on a socket is a possible wake-up: a stream_soc
         PHP, 1.0);
 
     expect($r)->toBe(['running' => true, 'stdout' => "waiting\n"]);
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('DLK-3: a child process that writes later is no stall', function () {
     $r = dlkChild(<<<'PHP'

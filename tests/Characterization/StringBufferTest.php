@@ -57,6 +57,10 @@ function bufchar_child(string $code, float $limit): array
  */
 function bufchar_pair(): array
 {
+    if (\PHP_OS_FAMILY === 'Windows') {
+        PHPUnit\Framework\Assert::markTestSkipped('stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
+    }
+
     return \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
 }
 
@@ -717,4 +721,4 @@ test('BUF-1: readFromResource()\'s own backpressure does not busy-loop past 1 MB
 
     expect($result['timedOut'])->toBeFalse();
     expect(\trim($result['stdout']))->toBe('ok');
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');

@@ -458,14 +458,14 @@ test('ResourceStream throws for a non-seekable resource in blocking mode, and le
 
     expect(fn () => new ResourceStream($fp))->toThrow(InvalidArgumentException::class, 'stream_set_blocking($resource, false)');
     expect(\stream_get_meta_data($fp)['blocked'])->toBeTrue();
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('ResourceStream accepts a non-seekable resource in non-blocking mode', function () {
     [$fp] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
     \stream_set_blocking($fp, false);
 
     expect((new ResourceStream($fp))->isSeekable())->toBeFalse();
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('ResourceStream accepts a seekable resource in blocking mode', function () {
     $fp = \fopen('php://temp', 'w+');

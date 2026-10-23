@@ -95,4 +95,4 @@ test('a stream becoming ready in the tick its waiter timed out: the waiter gets 
 
         return phasync::await($waiter);
     }))->toBe('timed out');
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');

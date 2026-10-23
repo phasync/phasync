@@ -17,6 +17,10 @@ if (!\function_exists('canPair')) {
      */
     function canPair(): array
     {
+        if (\PHP_OS_FAMILY === 'Windows') {
+            PHPUnit\Framework\Assert::markTestSkipped('stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
+        }
+
         return \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
     }
 }

@@ -46,7 +46,8 @@ test('proc_open failing on a file the kernel cannot execute is reported as a sta
     } finally {
         prr_rmtree($dir);
     }
-})->skip(\PHP_VERSION_ID < 80300, 'proc_open() reports this through posix_spawn() only from PHP 8.3');
+})->skip(\PHP_VERSION_ID < 80300, 'proc_open() reports this through posix_spawn() only from PHP 8.3')
+    ->skip(\PHP_OS_FAMILY === 'Windows', 'no shebang lines or posix_spawn() on Windows');
 
 test('a missing working directory is reported as a start failure', function () {
     expect(fn () => new ProcessRunner(['true'], '/nonexistent/working/dir'))

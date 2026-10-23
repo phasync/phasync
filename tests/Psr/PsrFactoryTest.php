@@ -227,14 +227,14 @@ test('PsrFactory::createStreamFromResource() leaves the blocking mode of the res
         $temp = \fopen('php://temp', 'w+');
         expect((new PsrFactory())->createStreamFromResource($temp)->isSeekable())->toBeTrue();
     });
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('PsrFactory::createStreamFromResource() throws for a blocking socket and does not change it', function () {
     [$fp] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
 
     expect(fn () => (new PsrFactory())->createStreamFromResource($fp))->toThrow(InvalidArgumentException::class, 'stream_set_blocking($resource, false)');
     expect(\stream_get_meta_data($fp)['blocked'])->toBeTrue();
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('PsrFactory::createStreamFromResource() wraps resource', function () {
     phasync::run(function () {

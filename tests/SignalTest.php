@@ -7,6 +7,12 @@ use phasync\TimeoutException;
  * event loop wakes the waiters between coroutines, never inside one, so they may do anything.
  */
 
+if (!\function_exists('pcntl_signal')) {
+    test('phasync::signal(): this file exercises POSIX signals (pcntl), not available here')->skip('needs pcntl');
+
+    return;
+}
+
 foreach ([false, true] as $async) {
     $mode = $async ? 'async signals' : 'dispatched by the loop';
 

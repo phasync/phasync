@@ -55,10 +55,16 @@ dataset('sch suspension points', [
         phasync::await(phasync::go(fn () => phasync::sleep(0.01)));
     }],
     'readable() on a quiet stream'    => [function () {
+        if (\PHP_OS_FAMILY === 'Windows') {
+            PHPUnit\Framework\Assert::markTestSkipped('stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
+        }
         $pair = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
         schTimedOut(fn () => phasync::readable($pair[0], 0.01));
     }],
     'writable() on a writable stream' => [function () {
+        if (\PHP_OS_FAMILY === 'Windows') {
+            PHPUnit\Framework\Assert::markTestSkipped('stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
+        }
         // Even a stream that is writable right now goes through the event loop.
         $pair = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
         phasync::writable($pair[0], 0.5);
@@ -267,7 +273,7 @@ test('SCH-3: readable() resumes only when data has arrived, and returns the reso
         phasync::await($reader);
     });
     expect($log)->toBe(['writing', 'readable returned the resource', 'data=hi']);
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('SCH-3: readable() on a quiet stream ends with TimeoutException, not a normal return', function () {
     $outcome = null;
@@ -282,7 +288,7 @@ test('SCH-3: readable() on a quiet stream ends with TimeoutException, not a norm
         }
     });
     expect($outcome)->toBe(TimeoutException::class);
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 // ---------------------------------------------------------------------------
 // SCH-4  Order in which coroutines resume (what the order really is today)

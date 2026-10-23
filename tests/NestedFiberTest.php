@@ -45,7 +45,7 @@ test('readable() in a Fiber a coroutine runs waits for another coroutine to writ
         expect($nested->isTerminated())->toBeTrue();
         expect($nested->getReturn())->toBe('x');
     });
-});
+})->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('a coroutine waiting in a Fiber of its own for a lock another coroutine holds gets it once that one releases it (Drupal: a row lock another request holds)', function () {
     $log = [];

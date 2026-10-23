@@ -74,7 +74,8 @@ test('a stream that cannot be waited on fails only its own waiter, the others ke
     });
 
     expect($log)->toBe(['memory: ValueError', 'socket: hello']);
-})->skip(\extension_loaded('phasync'), 'the extension has its own poller');
+})->skip(\extension_loaded('phasync'), 'the extension has its own poller')
+    ->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('two coroutines cannot wait to read from the same stream', function () {
     [$read, $send] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
@@ -92,7 +93,8 @@ test('two coroutines cannot wait to read from the same stream', function () {
     });
 
     expect($message)->toBe('Another coroutine is already waiting to read from this stream');
-})->skip(\extension_loaded('phasync'), 'the extension has its own poller');
+})->skip(\extension_loaded('phasync'), 'the extension has its own poller')
+    ->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('two coroutines cannot wait to write to the same stream', function () {
     [$write, $other] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
@@ -110,7 +112,8 @@ test('two coroutines cannot wait to write to the same stream', function () {
     });
 
     expect($message)->toBe('Another coroutine is already waiting to write to this stream');
-})->skip(\extension_loaded('phasync'), 'the extension has its own poller');
+})->skip(\extension_loaded('phasync'), 'the extension has its own poller')
+    ->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('a stream past FD_SETSIZE makes writable() throw an IOException naming the cause', function () {
     $kept = [];
@@ -131,7 +134,8 @@ test('a stream past FD_SETSIZE makes writable() throw an IOException naming the 
     });
 
     expect($message)->toStartWith('stream_select() failed for 1 watched stream(s): ');
-})->skip(\extension_loaded('phasync'), 'the extension has no FD_SETSIZE limit');
+})->skip(\extension_loaded('phasync'), 'the extension has no FD_SETSIZE limit')
+    ->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
 test('a ValueError that is not about the watched streams propagates from poll()', function () {
     [$read, $send] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
@@ -150,4 +154,5 @@ test('a ValueError that is not about the watched streams propagates from poll()'
     });
 
     expect($thrown)->toBeInstanceOf(ValueError::class);
-})->skip(\extension_loaded('phasync'), 'the extension has its own poller');
+})->skip(\extension_loaded('phasync'), 'the extension has its own poller')
+    ->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');

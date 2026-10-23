@@ -27,9 +27,10 @@ test('THR-1: throw() delivers that very exception to a coroutine in every kind o
     });
 
     expect($seen)->toBe($sent);
-})->with([
+})->with(\array_filter([
     'sleep'     => [static fn () => phasync::sleep(5)],
-    'readable'  => [static function (array &$keep) {
+    // stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows.
+    'readable'  => \PHP_OS_FAMILY === 'Windows' ? null : [static function (array &$keep) {
         $keep = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
         phasync::readable($keep[0], 5);
     }],
@@ -38,7 +39,7 @@ test('THR-1: throw() delivers that very exception to a coroutine in every kind o
         phasync::awaitFlag($keep, 5);
     }],
     'await'     => [static fn () => phasync::await(phasync::go(static fn () => phasync::sleep(0.5)), 5)],
-]);
+]));
 
 test('THR-2: throw() is one-shot: the next wait is an ordinary wait', function () {
     $log = [];
