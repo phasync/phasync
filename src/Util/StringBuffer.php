@@ -44,8 +44,9 @@ class StringBuffer implements SelectableInterface
 {
     use DeadmanSwitchTrait;
     /**
-     * How much unusable string data can the string buffer hold
-     * before we must perform substr to remove data already returned.
+     * Unused: read bytes are dropped when the next written chunk joins the unread rest.
+     *
+     * @deprecated
      */
     public const BUFFER_WASTE_LIMIT = 4096;
 
@@ -526,13 +527,6 @@ class StringBuffer implements SelectableInterface
      */
     protected function fill(int $requiredLength): bool
     {
-        // Clear buffer if necessary
-        if ($this->offset > self::BUFFER_WASTE_LIMIT) {
-            $this->buffer = \substr($this->buffer, $this->offset);
-            $this->length -= $this->offset;
-            $this->offset = 0;
-        }
-
         while ($this->length < $this->offset + $requiredLength && !$this->queue->isEmpty()) {
             $chunk       = $this->queue->shift();
             $chunkLength = \strlen($chunk);
@@ -542,8 +536,11 @@ class StringBuffer implements SelectableInterface
                 $this->length = $chunkLength;
                 $this->offset = 0;
             } else {
-                $this->buffer .= $chunk;
-                $this->length += $chunkLength;
+                // The consumed bytes go only when a chunk joins the rest: a large chunk read in
+                // pieces is never copied again for each read
+                $this->buffer = \substr($this->buffer, $this->offset) . $chunk;
+                $this->length += $chunkLength - $this->offset;
+                $this->offset = 0;
             }
         }
 

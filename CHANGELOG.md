@@ -13,6 +13,7 @@ wraps a callback to run in a given scope.
 - A second coroutine reading a `StringBuffer` while another is reading throws `LogicException`; the reads interleaved.
 - `awaitFlag()` and `park()` timeouts under 10 ms fire at their real time, not in 10 ms steps.
 - `RateLimiter` documents its token-bucket contract.
+- Reading a large `StringBuffer` chunk in pieces takes linear time; every read copied the unread rest (16 MB in 64 KB reads: 1.2 s, now 2 ms). `BUFFER_WASTE_LIMIT` is unused and deprecated.
 
 ## 2.0.4 (2026-10-20)
 
