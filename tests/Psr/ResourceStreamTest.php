@@ -472,3 +472,15 @@ test('ResourceStream accepts a seekable resource in blocking mode', function () 
 
     expect((new ResourceStream($fp))->isSeekable())->toBeTrue();
 });
+
+test('ResourceStream getSize() is null for a socket, and casting it to string still reads it', function () {
+    phasync::run(function () {
+        [$a, $b] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, 0);
+        \fwrite($b, 'over the socket');
+        \fclose($b);
+        \stream_set_blocking($a, false);
+        $stream = new ResourceStream($a);
+        expect($stream->getSize())->toBeNull()
+            ->and((string) $stream)->toBe('over the socket');
+    });
+});

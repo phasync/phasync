@@ -101,7 +101,9 @@ class ResourceStream implements StreamInterface
         if ($this->closed || $this->detached || 0 === $this->getSize()) {
             return '';
         }
-        $this->seek(0);
+        if ($this->isSeekable()) {
+            $this->seek(0);
+        }
         $chunks = [];
         try {
             while (!\feof($this->resource)) {
@@ -161,9 +163,10 @@ class ResourceStream implements StreamInterface
         if ($this->closed || $this->detached) {
             return null;
         }
+        // Only a file has a size; a socket, pipe or php://input has none to tell
         $stat = \fstat($this->resource);
 
-        return (int) $stat['size'];
+        return false !== $stat && 0100000 === ($stat['mode'] & 0170000) ? $stat['size'] : null;
     }
 
     /**
