@@ -2,7 +2,7 @@
 
 /*
  * Integration tests for ext-phasync under phasync::run(), which puts the process under
- * phasync\ext\manage() when the extension is loaded. Load it with a full path:
+ * Suspension::manage() for every coroutine when the extension is loaded. Load it with a full path:
  *
  *   php -d extension=/path/to/ext-phasync/modules/phasync.so vendor/bin/pest
  *

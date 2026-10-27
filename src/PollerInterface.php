@@ -7,8 +7,8 @@ namespace phasync;
  *
  * Coroutines wait in readable() and writable(); the loop calls poll() when it has nothing else
  * to do, and poll() unparks the waiters whose streams are ready ({@see EventLoop::park()}).
- * ext-phasync's phasync\ext\Poller has the same methods; the loop uses it directly when the
- * extension is loaded.
+ * With ext-phasync the loop's poller is a SuspensionPoller: coroutines wait in the extension,
+ * and poll() polls their Suspensions.
  *
  * @topic the-event-loop
  *

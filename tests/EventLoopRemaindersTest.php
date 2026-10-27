@@ -48,13 +48,13 @@ test('clear() inside a coroutine drops everything else and leaves that coroutine
     expect($result)->toBe('survived');
 });
 
-test('clear() gives the loop the poller the environment offers: the extension\'s when loaded, else stream_select', function () use ($loopProperty) {
+test('clear() gives the loop the poller the environment offers: Suspensions when the extension is loaded, else stream_select', function () use ($loopProperty) {
     $loop = (new ReflectionMethod(phasync::class, 'getDriver'))->invoke(null);
     $loop->clear();
 
     $poller = $loopProperty($loop, 'poller')->getValue($loop);
-    if (\class_exists(phasync\ext\Poller::class, false)) {
-        expect($poller)->toBeInstanceOf(phasync\ext\Poller::class);
+    if (\class_exists(phasync\ext\Suspension::class, false)) {
+        expect($poller)->toBeInstanceOf(phasync\SuspensionPoller::class);
     } else {
         expect($poller)->toBeInstanceOf(phasync\StreamSelectPoller::class);
     }

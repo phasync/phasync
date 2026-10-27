@@ -181,8 +181,8 @@ test('EventLoop clear() creates the correct poller based on environment', functi
     $pollerProp = new ReflectionProperty($loop, 'poller');
     $poller     = $pollerProp->getValue($loop);
 
-    if (\class_exists(phasync\ext\Poller::class, false)) {
-        expect($poller)->toBeInstanceOf(phasync\ext\Poller::class);
+    if (\class_exists(phasync\ext\Suspension::class, false)) {
+        expect($poller)->toBeInstanceOf(phasync\SuspensionPoller::class);
     } else {
         expect($poller)->toBeInstanceOf(phasync\StreamSelectPoller::class);
     }

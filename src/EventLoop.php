@@ -129,7 +129,7 @@ final class EventLoop implements \Countable
     private int $failureSeq = 0;
 
     /**
-     * Preemption (with ext-phasync's set_preempt_function()): the scopes frozen because one of
+     * Preemption (with ext-phasync, a Suspension that is ready already, see suspendedIn()): the scopes frozen because one of
      * their coroutines was preempted, each with that coroutine; none of a frozen scope's other
      * coroutines runs before it resumes.
      *
@@ -158,10 +158,8 @@ final class EventLoop implements \Countable
     private array $nested = [];
     private int $nesting  = 0;
 
-    /** Ticks so far, and the coroutine and tick the preempt function saw last. */
-    private int $ticks            = 0;
-    private ?\Fiber $preemptFiber = null;
-    private int $preemptTick      = -1;
+    /** Ticks so far. */
+    private int $ticks = 0;
 
     /**
      * phasync::finally() callbacks of the nested run() each fiber runs inline, if any, by
@@ -422,10 +420,32 @@ final class EventLoop implements \Countable
     public ?\Fiber $hookFiber = null;
 
     /**
-     * ext-phasync's poller when the extension is loaded (epoll, and its worker threads' waiters),
-     * else stream_select().
+     * The poller that coroutines wait for streams with: ext-phasync's Suspensions, else
+     * stream_select().
      */
-    private PollerInterface|ext\Poller $poller;
+    private PollerInterface $poller;
+
+    /** ext-phasync is loaded: coroutines are managed fibers, which blocking calls suspend. */
+    private bool $managed;
+
+    /**
+     * With ext-phasync: the Suspension of each coroutine whose blocking call suspended it, until it
+     * resumes through it.
+     *
+     * @var \WeakMap<\Fiber, ext\Suspension>
+     */
+    private \WeakMap $suspended;
+
+    /**
+     * The Suspensions still waiting, and their coroutines, by the coroutine's object id: what
+     * Suspension::poll() is given.
+     *
+     * @var array<int, ext\Suspension>
+     */
+    private array $suspensions = [];
+
+    /** @var array<int, \Fiber> */
+    private array $suspensionFibers = [];
 
     /**
      * Coroutines waiting through the poller ({@see self::parkForPoller()}): while there is one, the
@@ -513,9 +533,11 @@ final class EventLoop implements \Countable
             $shutdown = true;
             \register_shutdown_function(static function () { self::$exiting = true; });
         }
-        $this->poller                = \class_exists(ext\Poller::class, false)
-            ? new ext\Poller($this->getSlot(...), $this->parkForPoller(...), $this->unpark(...))
-            : new StreamSelectPoller($this);
+        $this->managed               = \class_exists(ext\Suspension::class, false);
+        $this->poller                = $this->managed ? new SuspensionPoller($this->pollSuspensions(...)) : new StreamSelectPoller($this);
+        $this->suspended             = new \WeakMap();
+        $this->suspensions           = [];
+        $this->suspensionFibers      = [];
         $this->pollerWaits           = 0;
         $this->parked                = [];
         $this->parkedSlots           = [];
@@ -747,9 +769,9 @@ final class EventLoop implements \Countable
                     unset($fiberExceptionHolders[$fiber]);
                     $exception = $eh->get();
                     $eh->returnToPool();
-                    $fiber->throw($exception);
+                    $this->throwInto($fiber, $exception);
                 } else {
-                    $fiber->resume();
+                    $this->continueFiber($fiber);
                 }
             } catch (\Throwable $e) {
                 if (!$fiber->isTerminated()) {
@@ -874,9 +896,9 @@ final class EventLoop implements \Countable
                 unset($this->fiberExceptionHolders[$fiber]);
                 $exception = $eh->get();
                 $eh->returnToPool();
-                $fiber->throw($exception);
+                $this->throwInto($fiber, $exception);
             } else {
-                $fiber->resume();
+                $this->continueFiber($fiber);
             }
         } catch (\Throwable $e) {
             if (!$fiber->isTerminated()) {
@@ -889,6 +911,116 @@ final class EventLoop implements \Countable
         }
         if ($fiber->isTerminated()) {
             $this->handleTerminatedFiber($fiber);
+        }
+    }
+
+    /**
+     * Run $fiber on: through the Suspension its blocking call left, if any. A blocking call it
+     * makes next suspends it again (with ext-phasync).
+     */
+    private function continueFiber(\Fiber $fiber): void
+    {
+        try {
+            if (null === $s = $this->suspended[$fiber] ?? null) {
+                $fiber->resume();
+            } else {
+                unset($this->suspended[$fiber]);
+                $s->resume();
+            }
+        } catch (ext\Suspension $next) {
+            $this->suspendedIn($fiber, $next);
+        }
+    }
+
+    /**
+     * Throw $exception into $fiber where it waits. A blocking call that can't be abandoned yet
+     * (a thread pool task) refuses: the exception goes in once the call is done.
+     */
+    private function throwInto(\Fiber $fiber, \Throwable $exception): void
+    {
+        try {
+            if (null === $s = $this->suspended[$fiber] ?? null) {
+                $fiber->throw($exception);
+
+                return;
+            }
+            unset($this->suspended[$fiber]);
+            try {
+                $s->throw($exception);
+            } catch (\RuntimeException $e) {
+                if (!$fiber->isSuspended()) {
+                    throw $e; // the coroutine ended with it
+                }
+                $this->suspended[$fiber]             = $s;
+                $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
+                $this->waitFor($fiber, $s);
+            }
+        } catch (ext\Suspension $next) {
+            $this->suspendedIn($fiber, $next);
+        }
+    }
+
+    /**
+     * A blocking call suspended $fiber (ext-phasync): it waits for $s in the next poll(). A
+     * Suspension that is ready already is a preemption: the coroutine goes to the back of the
+     * queue, and its scope is frozen until it runs again (see runFrozen()). Inside phasync's or
+     * Swerve's own code it goes on at once instead, since their bookkeeping may be half done.
+     */
+    private function suspendedIn(\Fiber $fiber, ext\Suspension $s): void
+    {
+        $this->suspended[$fiber]   = $s;
+        $this->fiberScopes[$fiber] = $s->getScope();
+        if (!$s->isReady()) {
+            $this->waitFor($fiber, $s);
+            if (0 !== $this->cancellations) {
+                $this->wake($fiber); // a cancellation it hasn't met yet ends the wait at once
+            }
+
+            return;
+        }
+        $class = (new \ReflectionFiber($fiber))->getTrace(\DEBUG_BACKTRACE_IGNORE_ARGS)[0]['class'] ?? '';
+        if (\str_starts_with($class, 'phasync\\') || 'phasync' === $class || \str_starts_with($class, 'Swerve\\')) {
+            $this->continueFiber($fiber);
+
+            return;
+        }
+        $scope = $this->fiberScopes[$fiber];
+        if (!isset($this->frozen[$scope])) {
+            $this->frozen[$scope] = $fiber;
+            $this->held[$scope]   = [];
+            ++$this->preempted;
+        }
+        $this->enqueueKnownLive($fiber);
+    }
+
+    /** $fiber waits for $s: polled, and counted as a wait that another process may end (DLK-3). */
+    private function waitFor(\Fiber $fiber, ext\Suspension $s): void
+    {
+        $id                          = \spl_object_id($fiber);
+        $this->suspensions[$id]      = $s;
+        $this->suspensionFibers[$id] = $fiber;
+        $this->pending[$fiber]       = \PHP_FLOAT_MAX;
+        ++$this->pollerWaits;
+    }
+
+    /**
+     * SuspensionPoller::poll(): wait up to $seconds, and queue the coroutines whose Suspension is
+     * ready.
+     */
+    private function pollSuspensions(float $seconds): void
+    {
+        if ([] === $this->suspensions) {
+            if ($seconds > 0) {
+                \usleep((int) ($seconds * 1_000_000));
+            }
+
+            return;
+        }
+        foreach (ext\Suspension::poll($this->suspensions, $seconds) as $id => $_) {
+            $fiber = $this->suspensionFibers[$id];
+            unset($this->suspensions[$id], $this->suspensionFibers[$id]);
+            --$this->pollerWaits;
+            $this->queue->enqueue($fiber); // still pending: it waits in the queue, as unpark() leaves it
         }
     }
 
@@ -952,45 +1084,6 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * ext-phasync's preempt function (set_preempt_function()): called between iterations of a
-     * PHP loop, about every $preemptInterval seconds. The running coroutine yields when it has
-     * run a whole interval and isn't in phasync's or swerve's own code, so that timers, I/O and
-     * other requests get their turn (whether any is ready is only known after the loop has
-     * polled); its scope stays frozen until it resumes.
-     *
-     * @internal phasync::run()
-     */
-    public function preempt(): void
-    {
-        $fiber = \phasync\ext\current_fiber();
-        if (null === $fiber || !isset($this->frames[$fiber])) {
-            return; // not in a coroutine: the loop's own tick, or a Fiber of the coroutine's own
-        }
-        if ($fiber !== $this->preemptFiber || $this->ticks !== $this->preemptTick) {
-            // Not running a whole interval yet: the next call decides
-            $this->preemptFiber = $fiber;
-            $this->preemptTick  = $this->ticks;
-
-            return;
-        }
-        $caller = \debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1]['class'] ?? '';
-        if (\str_starts_with($caller, 'phasync\\') || 'phasync' === $caller || \str_starts_with($caller, 'Swerve\\')) {
-            return; // never inside the runtime's own code
-        }
-        $scope = \Scope::getCurrent();
-        if (isset($this->frozen[$scope])) {
-            return; // its scope is frozen already (another coroutine of it was preempted)
-        }
-        $this->frozen[$scope] = $fiber;
-        $this->held[$scope]   = [];
-        ++$this->preempted;
-        $this->preemptFiber = null;
-        $this->enqueue($fiber);
-        $this->fiberScopes[$fiber] = $scope;
-        \Fiber::suspend();
-    }
-
-    /**
      * Start a service coroutine: in the service frame and the root scope; see phasync::service().
      */
     public function runService(\Closure $closure, array $args): \Fiber
@@ -1023,6 +1116,9 @@ final class EventLoop implements \Countable
             $fiber = $scope === $before ? new \Fiber($closure) : $scope->run(static fn () => new \Fiber($closure));
         }
 
+        if ($this->managed) {
+            ext\Suspension::manage($fiber); // its blocking calls suspend it
+        }
         $this->frames[$fiber] = $frame; // a wait in a hook is undone by discard(), which needs it
         if ($scope !== $this->liveScope) {
             $this->currentFiber = $fiber;
@@ -1051,6 +1147,8 @@ final class EventLoop implements \Countable
             $this->currentFiber = $fiber;
             $this->currentFrame = $frame;
             $fiber->start(...$args);
+        } catch (ext\Suspension $s) {
+            $this->suspendedIn($fiber, $s);
         } catch (\Throwable $e) {
             $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
         } finally {
@@ -1905,7 +2003,7 @@ final class EventLoop implements \Countable
     /**
      * The poller that coroutines wait for streams with.
      */
-    public function getPoller(): PollerInterface|ext\Poller
+    public function getPoller(): PollerInterface
     {
         return $this->poller;
     }
@@ -2110,6 +2208,13 @@ final class EventLoop implements \Countable
             $cancelled = false;
             // Parked: the slot is emptied
             $fiberId = \spl_object_id($fiber);
+            if (isset($this->suspensions[$fiberId])) {
+                // Waiting in a blocking call: no longer polled; its Suspension stays, for throwInto()
+                unset($this->suspensions[$fiberId], $this->suspensionFibers[$fiberId]);
+                --$this->pollerWaits;
+                $cancelled = true;
+                break;
+            }
             if (isset($this->parkedSlots[$fiberId])) {
                 unset($this->parked[$this->parkedSlots[$fiberId]], $this->parkedSlots[$fiberId]);
                 $cancelled = true;

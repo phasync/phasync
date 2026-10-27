@@ -25,6 +25,9 @@
     "provide": {
         "psr/http-factory-implementation": "1.1"
     },
+    "replace": {
+        "phasync/fiber-interop-facade": "^1.0"
+    },
     "minimum-stability": "stable",
     "bin": ["bin/phasync"],
     "autoload": {

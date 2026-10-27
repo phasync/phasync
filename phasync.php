@@ -10,6 +10,7 @@ use phasync\Internal\Debug;
 use phasync\Internal\ExceptionTool;
 use phasync\Internal\PromiseHandler;
 use phasync\Internal\ReadChannel;
+use phasync\SuspensionPoller;
 use phasync\Internal\Subscribers;
 use phasync\Internal\WriteChannel;
 use phasync\IOException;
@@ -135,26 +136,14 @@ final class phasync
                 $driver->drive($frame);
             };
 
-            // With ext-phasync, a coroutine that runs a whole interval in a PHP loop yields to
-            // other requests (EventLoop::preempt())
-            $preempting = \function_exists('phasync\ext\set_preempt_function');
+            // With ext-phasync, blocking calls in coroutines suspend them into the loop
+            // (EventLoop::suspendedIn()), and a coroutine that runs a whole interval without
+            // suspending is preempted
+            $preempting = $driver->getPoller() instanceof SuspensionPoller;
             if ($preempting) {
-                $previousPreempt = \phasync\ext\set_preempt_function($driver->preempt(...), $driver->preemptInterval);
+                \phasync\ext\Suspension::setPreemptInterval($driver->preemptInterval);
             }
-
-            if (\function_exists('phasync\ext\manage')) {
-                // With ext-phasync, blocking I/O and sleeps inside coroutines park them in the
-                // event loop instead of blocking the process. When PHP's own call has a timeout
-                // and the park times out, the extension finishes the call the way PHP does.
-                \phasync\ext\manage(
-                    $start,
-                    $driver->getPoller(),
-                    static fn (int $microseconds) => self::sleep($microseconds / 1_000_000),
-                    TimeoutException::class,
-                );
-            } else {
-                $start();
-            }
+            $start();
 
             if (null !== $exception) {
                 throw $exception;
@@ -163,7 +152,7 @@ final class phasync
             return $driver->endRun($frame, $fiber);
         } finally {
             if (isset($preempting) && $preempting) {
-                \phasync\ext\set_preempt_function($previousPreempt);
+                \phasync\ext\Suspension::setPreemptInterval(null);
             }
             $driver->closeRun($frame);
             $driver->restoreSignals(); // every signal phasync took gets its own handler back

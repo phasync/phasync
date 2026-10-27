@@ -1,22 +1,43 @@
 <?php
 
 /*
- * What the loop does with a preempted coroutine, driven by calling EventLoop::preempt() the way
- * ext-phasync does when a coroutine has run a whole interval in a PHP loop: the first call sees
- * the coroutine, the second (still in the same tick) preempts it. The coroutine goes to the back
- * of the queue and its scope is frozen: the other coroutines of that scope are held until it
- * resumes, those of other scopes keep running. PreemptionTest.php covers the same with the real
- * extension and a real busy loop; these tests need neither.
+ * What the loop does with a preempted coroutine: ext-phasync throws a ready Suspension out of a
+ * coroutine that has run a whole interval in a PHP loop. The coroutine goes to the back of the
+ * queue and its scope is frozen: the other coroutines of that scope are held until it resumes,
+ * those of other scopes keep running. PreemptionTest.php covers the same with long intervals.
  */
 
 use phasync\CancelledException;
 
-/** Preempt the running coroutine, as the extension's preempt function does after a whole interval. */
+beforeEach(function () {
+    if (!\class_exists(phasync\ext\Suspension::class, false)) {
+        $this->markTestSkipped('needs ext-phasync');
+    }
+});
+
+/** Busy in a PHP loop until preempted once: the loop has ticked meanwhile. */
 function eventLoopPreempt(): void
 {
-    $loop = phasync::getLoop();
-    $loop->preempt();
-    $loop->preempt();
+    $loop  = phasync::getLoop();
+    $ticks = new ReflectionProperty($loop, 'ticks');
+    $t0    = $ticks->getValue($loop);
+    phasync\ext\Suspension::setPreemptInterval(0.001);
+    try {
+        while ($ticks->getValue($loop) === $t0);
+    } finally {
+        phasync\ext\Suspension::setPreemptInterval($loop->preemptInterval);
+    }
+}
+
+/** Busy in a PHP loop for $seconds, under a 1 ms preempt interval. */
+function eventLoopBusy(float $seconds): void
+{
+    phasync\ext\Suspension::setPreemptInterval(0.001);
+    try {
+        for ($end = \microtime(true) + $seconds; \microtime(true) < $end;);
+    } finally {
+        phasync\ext\Suspension::setPreemptInterval(phasync::getLoop()->preemptInterval);
+    }
 }
 
 /** Start $fn as a coroutine that runs in $scope, as a server's connection coroutine runs a request. */
@@ -269,36 +290,37 @@ test('a coroutine that throws after being preempted fails like any other', funct
     }))->toThrow(RuntimeException::class, 'after the preemption');
 });
 
-test('preempt() from a plain Fiber inside a coroutine is ignored', function () {
+test('a plain Fiber inside a coroutine is never preempted', function () {
     $log = phasync::run(function () {
-        $log   = [];
-        $loop  = phasync::getLoop();
-        $plain = new Fiber(function () use ($loop, &$log) {
-            $loop->preempt();
-            $loop->preempt();
-            $loop->preempt();
+        $log = [];
+        $b   = eventLoopGoIn(new Scope(), function () use (&$log) {
+            $log[] = 'B';
+        });
+        $plain = new Fiber(function () use (&$log) {
+            eventLoopBusy(0.005);
             $log[] = 'plain';
         });
         $plain->start();
         $log[] = 'main';
+        phasync::await($b);
 
         return $log;
     });
 
-    expect($log)->toBe(['plain', 'main']);
+    expect($log)->toBe(['plain', 'main', 'B']);
 });
 
-test('preempt() called from the runtime itself never preempts', function () {
+test('the runtime itself is never preempted', function () {
     $log = phasync::run(function () {
         $log = [];
         $a   = eventLoopGoIn(new Scope(), function () use (&$log) {
             $log[] = 'A1';
-            // the same two calls that preempt above, made from inside a phasync class
+            // busy in a frame of a phasync class
+            phasync\ext\Suspension::setPreemptInterval(0.001);
             Closure::bind(function () {
-                $loop = phasync::getLoop();
-                $loop->preempt();
-                $loop->preempt();
+                for ($end = \microtime(true) + 0.005; \microtime(true) < $end;);
             }, null, phasync::class)();
+            phasync\ext\Suspension::setPreemptInterval(phasync::getLoop()->preemptInterval);
             $log[] = 'A2';
         });
         $b = eventLoopGoIn(new Scope(), function () use (&$log) {

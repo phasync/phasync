@@ -2,17 +2,20 @@
 <?php
 
 /*
- * Run PHP with the phasync extension loaded: `vendor/bin/phasync [php options] script.php [args]`
- * takes the same arguments as `php`. The extension is loaded through PHP_INI_SCAN_DIR, so PHP
- * processes this one starts load it too.
+ * Run PHP with the phasync extension loaded and its run/begin/finish keywords on:
+ * `vendor/bin/phasync [php options] script.php [args]` takes the same arguments as `php`. The
+ * extension is loaded through PHP_INI_SCAN_DIR, so PHP processes this one starts load it too.
  */
 
 declare(strict_types=1);
 
 require __DIR__ . '/../src/ext_loader.php';
 
-// Already loaded by PHP's configuration (PIE, php.ini): run PHP as it is
-if (!\extension_loaded('phasync')) {
+// Already loaded by PHP's configuration (PIE, php.ini): only the keywords are turned on
+$keywords = [];
+if (\extension_loaded('phasync')) {
+    $keywords = ['-d', 'phasync.keywords=1'];
+} else {
     if (\PHP_VERSION_ID < 80300) {
         \fwrite(\STDERR, 'phasync: ' . phasync\ext\_needs_php83() . " Run php directly.\n");
         exit(1);
@@ -38,7 +41,7 @@ if (!\extension_loaded('phasync')) {
 // Keep the flags this PHP was started with (php -d ... vendor/bin/phasync ...): they come before this script
 $own  = phasync\ext\_original_args();
 $at   = \array_search($_SERVER['argv'][0], $own, true);
-$args = [...(false === $at ? [] : \array_slice($own, 0, $at)), ...\array_slice($_SERVER['argv'], 1)];
+$args = [...$keywords, ...(false === $at ? [] : \array_slice($own, 0, $at)), ...\array_slice($_SERVER['argv'], 1)];
 
 if (\function_exists('pcntl_exec')) {
     \pcntl_exec(\PHP_BINARY, $args);
