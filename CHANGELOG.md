@@ -18,6 +18,7 @@ wraps a callback to run in a given scope.
 - Needs ext-phasync 2.0.4 or later 2.0.x when the extension is loaded: the extension's minor version must match phasync's. With it, a blocking call suspends its coroutine through the extension's `Suspension`, and a wait in a Fiber the coroutine runs itself (Drupal's renderer) suspends the whole coroutine instead of running the loop in place. A coroutine busy in such a Fiber is preempted too.
 - `vendor/bin/phasync` enables the extension's `phasync.keywords`.
 - phasync replaces `phasync/fiber-interop-facade`.
+- `phasync\ext\current_fiber()` is deprecated: use `Fiber::getCurrent()`.
 
 ## 2.0.4 (2026-10-20)
 

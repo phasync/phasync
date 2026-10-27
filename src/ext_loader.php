@@ -14,6 +14,19 @@ declare(strict_types=1);
 
 namespace phasync\ext;
 
+if (!\function_exists('phasync\\ext\\current_fiber')) {
+    /**
+     * The running Fiber.
+     *
+     * @deprecated since 2.0.5, removed in 2.1: use Fiber::getCurrent(). Kept for released packages
+     *             that call it (swerve 0.1, swerve-laravel 0.1).
+     */
+    function current_fiber(): ?\Fiber
+    {
+        return \Fiber::getCurrent();
+    }
+}
+
 /**
  * Ensure the phasync extension is loaded, re-executing this CLI process with
  * `-d extension=<matching .so>` if it is not.
