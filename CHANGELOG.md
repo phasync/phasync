@@ -2,7 +2,14 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.5 (2026-10-27)
+
+Bundles ext-phasync 2.0.4, with ext-scope 0.4.4. With the extension, coroutines wait through its
+`Suspension`; `run`, `begin` and `finish` become keywords for `phasync::run()`, `go()` and
+`await()` under `vendor/bin/phasync`; `sapi()` runs PHP's own request startup, so php.ini's limits
+and `filter_input()` apply per request; memcached and redis session locks wait in the coroutine;
+and `session_start()` throws instead of blocking when another scope of the process holds that
+session's lock.
 
 Requires fiber-interop/scope 0.4. A new `Scope` starts with empty `$_GET`, `$_POST`, `$_COOKIE`,
 `$_FILES`, `$_REQUEST` and `$_SERVER`, PHP's ini timezone and locale, and no session; whoever
@@ -16,7 +23,6 @@ wraps a callback to run in a given scope.
 - `ResourceStream::getSize()` is null for a stream with no size (a socket, a pipe, php://input), and casting such a stream to string reads it; it reported 0, with a warning for php://input, and the cast returned ''.
 - Reading a large `StringBuffer` chunk in pieces takes linear time; every read copied the unread rest (16 MB in 64 KB reads: 1.2 s, now 2 ms). `BUFFER_WASTE_LIMIT` is unused and deprecated.
 - Needs ext-phasync 2.0.4 or later 2.0.x when the extension is loaded: the extension's minor version must match phasync's. With it, a blocking call suspends its coroutine through the extension's `Suspension`, and a wait in a Fiber the coroutine runs itself (Drupal's renderer) suspends the whole coroutine instead of running the loop in place. A coroutine busy in such a Fiber is preempted too.
-- `vendor/bin/phasync` enables the extension's `phasync.keywords`.
 - phasync replaces `phasync/fiber-interop-facade`.
 - `phasync\ext\current_fiber()` is deprecated: use `Fiber::getCurrent()`.
 
