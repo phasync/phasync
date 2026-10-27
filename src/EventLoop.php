@@ -1016,14 +1016,8 @@ final class EventLoop implements \Countable
      */
     private function pollSuspensions(float $seconds): void
     {
-        if ([] === $this->suspensions) {
-            if ($seconds > 0) {
-                \usleep((int) ($seconds * 1_000_000));
-            }
-
-            return;
-        }
-        foreach (ext\Suspension::poll($this->suspensions, $seconds) as $id => $_) {
+        // may return early with none ready (a signal): the loop polls again
+        foreach (ext\Suspension::poll($this->suspensions, $seconds >= \PHP_FLOAT_MAX ? -1.0 : $seconds) as $id => $_) {
             $fiber = $this->suspensionFibers[$id];
             unset($this->suspensions[$id], $this->suspensionFibers[$id]);
             --$this->pollerWaits;
