@@ -46,11 +46,16 @@ test('await() of an object that is neither a coroutine nor a promise throws Inva
 });
 
 test('a replaced promise handler is used by await()', function () {
+    $handler  = new ReflectionProperty(PromiseHandler::class, 'handler');
+    $previous = $handler->getValue();
     PromiseHandler::set(static function (mixed $promise, ?Closure $onFulfilled, ?Closure $onRejected): bool {
         $onFulfilled('from handler');
 
         return true;
     });
-
-    expect(phasync::run(fn () => phasync::await(new stdClass())))->toBe('from handler');
+    try {
+        expect(phasync::run(fn () => phasync::await(new stdClass())))->toBe('from handler');
+    } finally {
+        $handler->setValue(null, $previous); // the handler is process-wide; later tests expect the default
+    }
 });

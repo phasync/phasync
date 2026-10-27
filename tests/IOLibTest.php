@@ -3,7 +3,7 @@
 use phasync\io;
 
 it('can asynchronously read file contents', function () {
-    $filename        = 'testfile.txt';
+    $filename        = \tempnam(\sys_get_temp_dir(), 'phasync');
     $expectedContent = 'Hello, world!';
     \file_put_contents($filename, $expectedContent);
 
@@ -16,7 +16,7 @@ it('can asynchronously read file contents', function () {
 });
 
 it('can asynchronously write file contents', function () {
-    $filename = 'testfile.txt';
+    $filename = \tempnam(\sys_get_temp_dir(), 'phasync');
     $data     = 'Hello, async world!';
 
     $result = phasync::run(function () use ($filename, $data) {
@@ -29,7 +29,7 @@ it('can asynchronously write file contents', function () {
 });
 
 it('can asynchronously lock and unlock a file', function () {
-    $filename = 'testfile.lock';
+    $filename = \tempnam(\sys_get_temp_dir(), 'phasync');
     \file_put_contents($filename, 'Locked file.');
 
     $result = phasync::run(function () use ($filename) {
