@@ -14,17 +14,6 @@ declare(strict_types=1);
 
 namespace phasync\ext;
 
-if (!\function_exists('phasync\\ext\\current_fiber')) {
-    /**
-     * The running Fiber: Fiber::getCurrent() without the extension, whose own current_fiber()
-     * phasync calls instead of Fiber::getCurrent().
-     */
-    function current_fiber(): ?\Fiber
-    {
-        return \Fiber::getCurrent();
-    }
-}
-
 /**
  * Ensure the phasync extension is loaded, re-executing this CLI process with
  * `-d extension=<matching .so>` if it is not.
@@ -90,11 +79,12 @@ function ensure_loaded(?string $soPath = null): void
 }
 
 /**
- * The extension versions this phasync works with: the same major version, from this one on.
+ * The extension versions this phasync works with: the same major.minor version, from this one on.
+ * Patch versions are independent.
  *
  * @internal
  */
-const MIN_EXT_VERSION = '2.0.0-dev';
+const MIN_EXT_VERSION = '2.0.4-dev';
 
 /**
  * Throws when the loaded extension is a version this phasync does not work with: an extension
@@ -118,12 +108,13 @@ function _check_version(): void
  */
 function _version_problem(string $version): ?string
 {
-    $major = (int) MIN_EXT_VERSION;
-    if ((int) $version > $major) {
-        return "The loaded phasync extension is version $version, newer than this phasync works with ($major.x). Update phasync (composer update phasync/phasync), or install ext-phasync $major.x.";
+    [$major, $minor] = \explode('.', MIN_EXT_VERSION);
+    $series          = "$major.$minor";
+    if (\version_compare($version, $major . '.' . ($minor + 1) . '.0-dev', '>=')) {
+        return "The loaded phasync extension is version $version, newer than this phasync works with ($series.x). Update phasync (composer update phasync/phasync), or install ext-phasync $series.x.";
     }
-    if ((int) $version < $major || \version_compare($version, MIN_EXT_VERSION, '<')) {
-        return "The loaded phasync extension is version $version; this phasync needs $major.x from " . MIN_EXT_VERSION . ' on. Update it (pie install phasync/ext-phasync), or remove it from php.ini to use the binary that comes with phasync (vendor/bin/phasync).';
+    if (\version_compare($version, MIN_EXT_VERSION, '<')) {
+        return "The loaded phasync extension is version $version; this phasync needs $series.x from " . MIN_EXT_VERSION . ' on. Update it (pie install phasync/ext-phasync), or remove it from php.ini to use the binary that comes with phasync (vendor/bin/phasync).';
     }
 
     return null;

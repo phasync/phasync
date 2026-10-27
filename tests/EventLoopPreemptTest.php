@@ -23,7 +23,8 @@ function eventLoopPreempt(): void
     $t0    = $ticks->getValue($loop);
     phasync\ext\Suspension::setPreemptInterval(0.001);
     try {
-        while ($ticks->getValue($loop) === $t0);
+        while ($ticks->getValue($loop) === $t0) {
+        }
     } finally {
         phasync\ext\Suspension::setPreemptInterval($loop->preemptInterval);
     }
@@ -34,7 +35,8 @@ function eventLoopBusy(float $seconds): void
 {
     phasync\ext\Suspension::setPreemptInterval(0.001);
     try {
-        for ($end = \microtime(true) + $seconds; \microtime(true) < $end;);
+        for ($end = \microtime(true) + $seconds; \microtime(true) < $end;) {
+        }
     } finally {
         phasync\ext\Suspension::setPreemptInterval(phasync::getLoop()->preemptInterval);
     }
@@ -185,7 +187,7 @@ test('a coroutine started in a frozen scope is not preempted again, and holds it
         $b = eventLoopGoIn(new Scope(), function () use (&$log, $scope) {
             $scope->run(function () use (&$log) {
                 phasync::go(function () use (&$log) {
-                    eventLoopPreempt();
+                    eventLoopBusy(0.005);
                     $log[] = 'D ran through';
                 });
             });
@@ -290,7 +292,7 @@ test('a coroutine that throws after being preempted fails like any other', funct
     }))->toThrow(RuntimeException::class, 'after the preemption');
 });
 
-test('a plain Fiber inside a coroutine is never preempted', function () {
+test('a coroutine busy in a plain Fiber of its own is preempted as a whole: the Fiber stays where it is', function () {
     $log = phasync::run(function () {
         $log = [];
         $b   = eventLoopGoIn(new Scope(), function () use (&$log) {
@@ -307,7 +309,7 @@ test('a plain Fiber inside a coroutine is never preempted', function () {
         return $log;
     });
 
-    expect($log)->toBe(['plain', 'main', 'B']);
+    expect($log)->toBe(['B', 'plain', 'main']);
 });
 
 test('the runtime itself is never preempted', function () {
@@ -318,7 +320,8 @@ test('the runtime itself is never preempted', function () {
             // busy in a frame of a phasync class
             phasync\ext\Suspension::setPreemptInterval(0.001);
             Closure::bind(function () {
-                for ($end = \microtime(true) + 0.005; \microtime(true) < $end;);
+                for ($end = \microtime(true) + 0.005; \microtime(true) < $end;) {
+                }
             }, null, phasync::class)();
             phasync\ext\Suspension::setPreemptInterval(phasync::getLoop()->preemptInterval);
             $log[] = 'A2';

@@ -436,6 +436,9 @@ final class EventLoop implements \Countable
      */
     private \WeakMap $suspended;
 
+    /** wait() is suspending the running coroutine through ext-phasync (Suspension::suspend()). */
+    private bool $waiting = false;
+
     /**
      * The Suspensions still waiting, and their coroutines, by the coroutine's object id: what
      * Suspension::poll() is given.
@@ -963,13 +966,19 @@ final class EventLoop implements \Countable
     /**
      * A blocking call suspended $fiber (ext-phasync): it waits for $s in the next poll(). A
      * Suspension that is ready already is a preemption: the coroutine goes to the back of the
-     * queue, and its scope is frozen until it runs again (see runFrozen()). Inside phasync's or
-     * Swerve's own code it goes on at once instead, since their bookkeeping may be half done.
+     * queue, and its scope is frozen until it runs again (see runFrozen()). It goes on at once
+     * instead when its scope is frozen already (another coroutine of it was preempted), or inside
+     * phasync's or Swerve's own code, whose bookkeeping may be half done.
      */
     private function suspendedIn(\Fiber $fiber, ext\Suspension $s): void
     {
         $this->suspended[$fiber]   = $s;
         $this->fiberScopes[$fiber] = $s->getScope();
+        if ($this->waiting) {
+            $this->waiting = false; // wait(): it waits for what it registered, not for the poll
+
+            return;
+        }
         if (!$s->isReady()) {
             $this->waitFor($fiber, $s);
             if (0 !== $this->cancellations) {
@@ -978,18 +987,16 @@ final class EventLoop implements \Countable
 
             return;
         }
+        $scope = $this->fiberScopes[$fiber];
         $class = (new \ReflectionFiber($fiber))->getTrace(\DEBUG_BACKTRACE_IGNORE_ARGS)[0]['class'] ?? '';
-        if (\str_starts_with($class, 'phasync\\') || 'phasync' === $class || \str_starts_with($class, 'Swerve\\')) {
-            $this->continueFiber($fiber);
+        if (isset($this->frozen[$scope]) || \str_starts_with($class, 'phasync\\') || 'phasync' === $class || \str_starts_with($class, 'Swerve\\')) {
+            $this->continueFiber($fiber); // its scope is frozen already, or it is in the runtime's own code
 
             return;
         }
-        $scope = $this->fiberScopes[$fiber];
-        if (!isset($this->frozen[$scope])) {
-            $this->frozen[$scope] = $fiber;
-            $this->held[$scope]   = [];
-            ++$this->preempted;
-        }
+        $this->frozen[$scope] = $fiber;
+        $this->held[$scope]   = [];
+        ++$this->preempted;
         $this->enqueueKnownLive($fiber);
     }
 
@@ -1491,7 +1498,9 @@ final class EventLoop implements \Countable
      * Fiber::getCurrent() is the coroutine, and come here otherwise. Fiber::suspend() would return
      * to the coroutine's own code, which does not expect it: here the loop runs in place instead,
      * tick after tick, until it would resume the coroutine. Other coroutines run meanwhile, resumed
-     * from that Fiber and suspending back to it; the Fiber stays where it is.
+     * from that Fiber and suspending back to it; the Fiber stays where it is. With ext-phasync the
+     * whole coroutine suspends instead (Suspension::suspend()), its Fiber where it is, and the loop
+     * resumes it as it resumes any other wait.
      *
      * Invariants of a tick run in place: it never resumes a coroutine that is running (one in
      * the chain of Fibers that led here, which waits in a Fiber of its own: its turn marks its wait
@@ -1503,6 +1512,15 @@ final class EventLoop implements \Countable
      */
     public function wait(): void
     {
+        if ($this->managed) {
+            // ext-phasync suspends the whole coroutine, its own Fiber where it is: resumed (or
+            // thrown into) through the Suspension as any other wait, see suspendedIn()
+            $this->fiberScopes[$this->currentFiber] = \Scope::getCurrent();
+            $this->waiting                          = true;
+            ext\Suspension::suspend();
+
+            return;
+        }
         $fiber             = $this->currentFiber;
         $frame             = $this->currentFrame;
         $scope             = $this->fiberScopes[$fiber] = \Scope::getCurrent();
@@ -2031,7 +2049,7 @@ final class EventLoop implements \Countable
     public function shutdown(ShutdownException $exception): void
     {
         foreach ($this->frames as $fiber => $_) {
-            if ($fiber !== \phasync\ext\current_fiber() && !$fiber->isTerminated()) {
+            if ($fiber !== \Fiber::getCurrent() && !$fiber->isTerminated()) {
                 $this->cancel($fiber, $exception);
             }
         }
@@ -2042,7 +2060,7 @@ final class EventLoop implements \Countable
     {
         $count = 0;
         foreach ($this->frames as $fiber => $_) {
-            $count += (int) ($fiber !== \phasync\ext\current_fiber() && !$fiber->isTerminated());
+            $count += (int) ($fiber !== \Fiber::getCurrent() && !$fiber->isTerminated());
         }
 
         return $count;
@@ -2084,7 +2102,7 @@ final class EventLoop implements \Countable
             throw new \LogicException('The fiber (' . Debug::getDebugInfo($fiber) . ') is not a phasync fiber');
         }
         $this->issued[$exception] = true;
-        if ($fiber === \phasync\ext\current_fiber()) {
+        if ($fiber === \Fiber::getCurrent()) {
             throw $exception;
         }
         if (!$this->deliver($fiber, $exception)) {

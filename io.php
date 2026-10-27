@@ -14,7 +14,7 @@ class io
      */
     public static function file_get_contents(string $filename): string|false
     {
-        if (!\phasync\ext\current_fiber()) {
+        if (!\Fiber::getCurrent()) {
             return \file_get_contents($filename);
         }
         $fp = self::open($filename, 'r');
@@ -42,7 +42,7 @@ class io
      */
     public static function file_put_contents(string $filename, mixed $data, int $flags = 0): int|false
     {
-        if (!\phasync\ext\current_fiber()) {
+        if (!\Fiber::getCurrent()) {
             return \file_put_contents($filename, $data, $flags);
         }
         $fp = self::open($filename, ($flags & \FILE_APPEND) ? 'a' : 'w');
@@ -144,7 +144,7 @@ class io
      */
     public static function flock($stream, int $operation, ?int &$would_block = null): bool
     {
-        if (!\phasync\ext\current_fiber()) {
+        if (!\Fiber::getCurrent()) {
             return \flock($stream, $operation, $would_block);
         }
 

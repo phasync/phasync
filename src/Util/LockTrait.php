@@ -61,7 +61,7 @@ trait LockTrait
      */
     public function lock(\Closure $callable, ?float $timeout=null): mixed
     {
-        $current = \phasync\ext\current_fiber();
+        $current = \Fiber::getCurrent();
         if (null === $this->lockHolder) {
             $this->lockHolder = $current;
         } elseif ($this->lockHolder !== $current) {

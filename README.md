@@ -181,7 +181,7 @@ under `ext/` (PHP 8.3 to 8.5; Linux x86-64 and ARM64 with glibc or musl, macOS).
   `php.ini`. phasync then uses that one, and `vendor/bin/phasync` and `ensure_loaded()` leave it be.
 
 The extension is [open source](https://github.com/phasync/ext-phasync) under the MIT licence, and
-versioned with phasync: phasync 2.x works with extension 2.x and throws a `RuntimeException` that
+versioned with phasync: phasync 2.0 works with extension 2.0.x and throws a `RuntimeException` that
 says what to update when another version is loaded. It bundles
 [ext-scope](https://github.com/fiber-interop/ext-scope) for the `Scope` class, and uses an ext-scope
 or a PHP that already has `Scope` instead.

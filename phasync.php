@@ -1203,7 +1203,7 @@ final class phasync
     private static function suspend(): void
     {
         if (0 !== self::$driver->cancellations) {
-            self::$driver->checkCancelled(\phasync\ext\current_fiber());
+            self::$driver->checkCancelled(\Fiber::getCurrent());
         }
         if (null !== self::$driver->hookFiber && self::$driver->hookFiber === self::$driver->currentFiber) {
             self::$driver->refuseHookWait();

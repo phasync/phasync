@@ -15,6 +15,9 @@ wraps a callback to run in a given scope.
 - `RateLimiter` documents its token-bucket contract.
 - `ResourceStream::getSize()` is null for a stream with no size (a socket, a pipe, php://input), and casting such a stream to string reads it; it reported 0, with a warning for php://input, and the cast returned ''.
 - Reading a large `StringBuffer` chunk in pieces takes linear time; every read copied the unread rest (16 MB in 64 KB reads: 1.2 s, now 2 ms). `BUFFER_WASTE_LIMIT` is unused and deprecated.
+- Needs ext-phasync 2.0.4 or later 2.0.x when the extension is loaded: the extension's minor version must match phasync's. With it, a blocking call suspends its coroutine through the extension's `Suspension`, and a wait in a Fiber the coroutine runs itself (Drupal's renderer) suspends the whole coroutine instead of running the loop in place. A coroutine busy in such a Fiber is preempted too.
+- `vendor/bin/phasync` enables the extension's `phasync.keywords`.
+- phasync replaces `phasync/fiber-interop-facade`.
 
 ## 2.0.4 (2026-10-20)
 

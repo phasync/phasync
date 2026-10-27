@@ -56,7 +56,7 @@ final class Synchronized
         }
 
         // The holder is a coroutine, not a context: the coroutines of one context are many
-        $current = \phasync\ext\current_fiber() ?? true;
+        $current = \Fiber::getCurrent() ?? true;
         if (!isset(self::$holders[$token])) {
             self::$holders[$token] = $current;
         } elseif (self::$holders[$token] === $current) {

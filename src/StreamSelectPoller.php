@@ -3,8 +3,8 @@
 namespace phasync;
 
 /**
- * A poller on PHP's stream_select(), used when ext-phasync is not loaded (with it, the loop uses the
- * extension's epoll Poller). Like stream_select() itself it cannot wait on a descriptor numbered
+ * A poller on PHP's stream_select(), used when ext-phasync is not loaded (with it, the loop uses
+ * SuspensionPoller). Like stream_select() itself it cannot wait on a descriptor numbered
  * FD_SETSIZE (1024 on a typical build) or higher.
  *
  * @internal not part of the public API; may change in any release

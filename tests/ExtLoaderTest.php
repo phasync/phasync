@@ -102,18 +102,6 @@ test('_original_args() falls back to the script and its arguments where /proc is
     expect(\array_slice($args, 1))->toBe(['one', 'two words']);
 });
 
-test('current_fiber() is Fiber::getCurrent()', function () {
-    expect(\phasync\ext\current_fiber())->toBeNull();
-
-    $inside = null;
-    $fiber  = new Fiber(function () use (&$inside) {
-        $inside = \phasync\ext\current_fiber();
-    });
-    $fiber->start();
-
-    expect($inside)->toBe($fiber);
-});
-
 test('ensure_loaded() refuses to re-exec twice: a child that was already re-executed and still has no extension throws', function () use ($runChild, $ensure) {
     [$exit, $output] = $runChild($ensure('\'/some/where.so\''), [], ['PHASYNC_EXT_REEXEC' => '1']);
 
@@ -256,8 +244,8 @@ test('_resolve_so prefers PHASYNC_EXT_SO, then ext/phasync-<abi>.so, else null',
     }
 });
 
-test('_version_problem() accepts an extension of the same major version, from the minimum on', function () {
-    foreach (['2.0.0-dev', '2.0.0-beta1', '2.0.0', '2.7.3'] as $v) {
+test('_version_problem() accepts an extension of the same major.minor version, from the minimum on', function () {
+    foreach (['2.0.4-dev', '2.0.4', '2.0.5-dev', '2.0.17'] as $v) {
         expect(\phasync\ext\_version_problem($v))->toBeNull();
     }
 });
@@ -265,6 +253,10 @@ test('_version_problem() accepts an extension of the same major version, from th
 test('_version_problem() names both versions and the fix when the extension is too old or too new', function () {
     expect(\phasync\ext\_version_problem('0.5.0-beta7'))
         ->toContain('0.5.0-beta7')->toContain('pie install phasync/ext-phasync');
+    expect(\phasync\ext\_version_problem('2.0.3'))
+        ->toContain('2.0.3')->toContain('from 2.0.4-dev on');
+    expect(\phasync\ext\_version_problem('2.1.0'))
+        ->toContain('2.1.0')->toContain('composer update phasync/phasync');
     expect(\phasync\ext\_version_problem('3.0.0'))
         ->toContain('3.0.0')->toContain('composer update phasync/phasync');
 });

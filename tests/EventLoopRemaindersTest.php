@@ -2,8 +2,7 @@
 
 /*
  * The corners of EventLoop that the behaviour tests don't reach on their way: clear() inside a
- * coroutine, the poller the environment offers, a clock that jumps, an in-place wait under the
- * extension's current_fiber(), a coroutine started in another scope, a terminated waiter and a
+ * coroutine, the poller the environment offers, a clock that jumps, an in-place wait, a coroutine started in another scope, a terminated waiter and a
  * failure that arrives after its run() ended.
  *
  * Every test starts from, and leaves behind, a fresh driver: several of them change loop state
