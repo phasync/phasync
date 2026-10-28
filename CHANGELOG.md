@@ -5,6 +5,7 @@ Releases before 2.0.0 are listed on the GitHub releases page.
 ## Unreleased
 
 - `StringBuffer::read()` and `readFixed()` are 30-50% faster: only a read that waits claims the single reader slot, and the deadline is computed only then; 2.0.5 claimed it for every read (15-24% slower than 2.0.4).
+- `StringBuffer` keeps written chunks as they are and reads them with `substr()`; a read that spans chunks is assembled with one `implode()`. `readFixed()` of a 4 MB frame from 4 KB writes takes 6 ms (2.0.5: 906 ms, 2.0.4: 10 ms), and 16 MB written at once and read in 4 KB pieces takes 16 ms (2.0.4: 9.8 s). Small reads from a long chunk split its unread rest into pieces aligned to the read size once more than `BUFFER_WASTE_THRESHOLD` (64 KB) is read; `BUFFER_WASTE_LIMIT` is its deprecated alias, removed in 2.1. `unread()` of the bytes just read steps back instead of queueing a copy. Frame benchmarks 8-30% faster than 2.0.4.
 - With ext-phasync, the loop resumes and cancels every coroutine with `Fiber::resume()`/`throw()`, including one a blocking call suspended: no lookup per resume (buffered channels 10%, socket round trips 8% faster).
 
 ## 2.0.5 (2026-10-27)

@@ -44,32 +44,34 @@ class StringBuffer implements SelectableInterface
 {
     use DeadmanSwitchTrait;
     /**
-     * Unused: read bytes are dropped when the next written chunk joins the unread rest.
-     *
-     * @deprecated
+     * How many read bytes a long buffered string may hold before small reads from it split the
+     * rest into pieces, so the read bytes can be freed. FastCGI records are short; HTTP bodies
+     * and files arrive in long writes.
      */
-    public const BUFFER_WASTE_LIMIT = 4096;
+    public const BUFFER_WASTE_THRESHOLD = 65536;
+
+    /** @deprecated since 2.0.6, removed in 2.1: use BUFFER_WASTE_THRESHOLD */
+    public const BUFFER_WASTE_LIMIT = self::BUFFER_WASTE_THRESHOLD;
 
     /**
-     * Contains the chunks of binary data appended or prepended
+     * The chunks after $buffer, in order: written chunks, put-back chunks and split pieces
      *
      * @var \SplDoublyLinkedList<string>
      */
     protected \SplDoublyLinkedList $queue;
 
     /**
-     * Contains unread bytes, for situations where data was consumed
-     * and not used.
+     * The chunk being read: reads take substr() of it from $offset, and a read that spans into
+     * the chunks after it joins the pieces once
      */
     protected string $buffer    = '';
 
     /**
-     * The length of the unread bytes buffer
+     * The length of $buffer
      */
     protected int $length       = 0;
     /**
-     * The read offset in the unread bytes buffer, to reduce the number
-     * of string trimming operations.
+     * The read offset in $buffer: read bytes stay until the chunk is done, or a long chunk is split
      */
     protected int $offset       = 0;
 
@@ -244,7 +246,7 @@ class StringBuffer implements SelectableInterface
         if ($this->reading) {
             $this->refuseSecondReader();
         }
-        if ($timeout > 0 && !$this->ended && !$this->fill(1)) {
+        if (!$this->fill(1) && $timeout > 0 && !$this->ended) {
             $this->reading = true;
             try {
                 $timesOut = \microtime(true) + $timeout;
@@ -262,11 +264,45 @@ class StringBuffer implements SelectableInterface
                 $this->reading = false;
             }
         }
-        $this->fill($maxLength);
-
-        $chunk  = \substr($this->buffer, $this->offset, $maxLength);
-        $length = \strlen($chunk);
-        $this->offset += $length;
+        $length = $this->totalWritten - $this->totalRead;
+        if ($length > $maxLength) {
+            $length = $maxLength;
+        }
+        if ($length <= $this->length - $this->offset) {
+            $chunk = \substr($this->buffer, $this->offset, $length);
+            $this->offset += $length;
+            if ($this->offset > self::BUFFER_WASTE_THRESHOLD && $length > 0 && $this->offset > $this->length >> 1 && $this->length - $this->offset > 16 * $length) {
+                // Small reads from a long chunk, with many left: split the rest into pieces that
+                // hold a whole number of reads like this one, so the read bytes are freed and
+                // the next reads take whole pieces
+                $piece = \intdiv(self::BUFFER_WASTE_THRESHOLD + $length - 1, $length) * $length;
+                for ($at = $this->offset + \intdiv($this->length - $this->offset - 1, $piece) * $piece; $at > $this->offset; $at -= $piece) {
+                    $this->queue->unshift(\substr($this->buffer, $at, $piece));
+                }
+                $this->buffer = \substr($this->buffer, $this->offset, $piece);
+                $this->length = \strlen($this->buffer);
+                $this->offset = 0;
+            }
+        } else {
+            // It spans into the chunks after this one: join the pieces once, and the chunk it
+            // ends in is read from next
+            $parts  = $this->offset < $this->length ? [\substr($this->buffer, $this->offset)] : [];
+            $needed = $length - ($this->length - $this->offset);
+            while (true) {
+                $next       = $this->queue->shift();
+                $nextLength = \strlen($next);
+                if ($nextLength >= $needed) {
+                    $parts[]      = $nextLength === $needed ? $next : \substr($next, 0, $needed);
+                    $this->buffer = $next;
+                    $this->length = $nextLength;
+                    $this->offset = $needed;
+                    break;
+                }
+                $parts[] = $next;
+                $needed -= $nextLength;
+            }
+            $chunk = isset($parts[1]) ? \implode('', $parts) : $parts[0];
+        }
         $this->totalRead += $length;
         if ($length > 0) {
             // Wakes a write() blocked on $maxSize backpressure, and readFromResource()'s own
@@ -421,12 +457,45 @@ class StringBuffer implements SelectableInterface
 
         // Only reachable via $this->ended, or via $timeout <= 0, never via a real timeout
         // expiring: a genuine "not enough data right now", distinct from a real timeout.
-        if ($length > $this->length - $this->offset) {
+        if ($length > $this->totalWritten - $this->totalRead) {
             return null;
         }
 
-        $chunk = \substr($this->buffer, $this->offset, $length);
-        $this->offset += $length;
+        if ($length <= $this->length - $this->offset) {
+            $chunk = \substr($this->buffer, $this->offset, $length);
+            $this->offset += $length;
+            if ($this->offset > self::BUFFER_WASTE_THRESHOLD && $length > 0 && $this->offset > $this->length >> 1 && $this->length - $this->offset > 16 * $length) {
+                // Small reads from a long chunk, with many left: split the rest into pieces that
+                // hold a whole number of reads like this one, so the read bytes are freed and
+                // the next reads take whole pieces
+                $piece = \intdiv(self::BUFFER_WASTE_THRESHOLD + $length - 1, $length) * $length;
+                for ($at = $this->offset + \intdiv($this->length - $this->offset - 1, $piece) * $piece; $at > $this->offset; $at -= $piece) {
+                    $this->queue->unshift(\substr($this->buffer, $at, $piece));
+                }
+                $this->buffer = \substr($this->buffer, $this->offset, $piece);
+                $this->length = \strlen($this->buffer);
+                $this->offset = 0;
+            }
+        } else {
+            // It spans into the chunks after this one: join the pieces once, and the chunk it
+            // ends in is read from next
+            $parts  = $this->offset < $this->length ? [\substr($this->buffer, $this->offset)] : [];
+            $needed = $length - ($this->length - $this->offset);
+            while (true) {
+                $next       = $this->queue->shift();
+                $nextLength = \strlen($next);
+                if ($nextLength >= $needed) {
+                    $parts[]      = $nextLength === $needed ? $next : \substr($next, 0, $needed);
+                    $this->buffer = $next;
+                    $this->length = $nextLength;
+                    $this->offset = $needed;
+                    break;
+                }
+                $parts[] = $next;
+                $needed -= $nextLength;
+            }
+            $chunk = isset($parts[1]) ? \implode('', $parts) : $parts[0];
+        }
         $this->totalRead += $length;
         if ($length > 0) {
             \phasync::raiseFlag($this->queue);
@@ -495,11 +564,16 @@ class StringBuffer implements SelectableInterface
         }
         $chunkLength = \strlen($chunk);
         $this->totalRead -= $chunkLength;
-        if ($this->length === $this->offset) {
+        if ($chunkLength <= $this->offset && 0 === \substr_compare($this->buffer, $chunk, $this->offset - $chunkLength, $chunkLength)) {
+            // The bytes just read: step back over them
+            $this->offset -= $chunkLength;
+        } elseif ($this->length === $this->offset) {
             $this->queue->unshift($chunk);
         } else {
-            $this->buffer = $chunk . \substr($this->buffer, $this->offset);
-            $this->length += $chunkLength - $this->offset;
+            // In front of the unread rest, which waits after it as it is
+            $this->queue->unshift(0 === $this->offset ? $this->buffer : \substr($this->buffer, $this->offset));
+            $this->buffer = $chunk;
+            $this->length = $chunkLength;
             $this->offset = 0;
         }
         \phasync::raiseFlag($this->queue);
@@ -512,30 +586,19 @@ class StringBuffer implements SelectableInterface
     }
 
     /**
-     * Function that grows the string buffer until it can be
-     * used to read at least $chunkLength bytes.
+     * Whether `$requiredLength` bytes are buffered. A chunk that has been read gives way to the
+     * next one as it is, without a copy.
      *
      * @return bool True if able to provide enough data
      */
     protected function fill(int $requiredLength): bool
     {
-        while ($this->length < $this->offset + $requiredLength && !$this->queue->isEmpty()) {
-            $chunk       = $this->queue->shift();
-            $chunkLength = \strlen($chunk);
-
-            if ($this->length === $this->offset) {
-                $this->buffer = $chunk;
-                $this->length = $chunkLength;
-                $this->offset = 0;
-            } else {
-                // The consumed bytes go only when a chunk joins the rest: a large chunk read in
-                // pieces is never copied again for each read
-                $this->buffer = \substr($this->buffer, $this->offset) . $chunk;
-                $this->length += $chunkLength - $this->offset;
-                $this->offset = 0;
-            }
+        while ($this->offset === $this->length && !$this->queue->isEmpty()) {
+            $this->buffer = $this->queue->shift();
+            $this->length = \strlen($this->buffer);
+            $this->offset = 0;
         }
 
-        return $this->length >= $this->offset + $requiredLength;
+        return $this->totalWritten - $this->totalRead >= $requiredLength;
     }
 }

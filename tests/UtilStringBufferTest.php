@@ -278,18 +278,65 @@ test('write with backpressure waits and then completes', function () {
     });
 });
 
-test('buffer waste limit clears old data', function () {
+test('small reads from a long chunk split it past the waste threshold, and read on in order', function () {
     phasync::run(function () {
+        $data   = \implode('', \array_map(static fn ($i) => \sprintf('%07d|', $i), \range(0, 99999))); // 800 000 bytes
         $buffer = new StringBuffer();
-        $buffer->write(\str_repeat('x', StringBuffer::BUFFER_WASTE_LIMIT + 100));
+        $buffer->write($data);
         $buffer->end();
 
-        // Read less than BUFFER_WASTE_LIMIT, should trigger cleanup
-        $buffer->read(100);
+        $received = '';
+        for ($i = 0; $i < 20000; ++$i) {
+            $received .= $buffer->read(24); // past BUFFER_WASTE_THRESHOLD and half of it, with many reads left
+        }
+        // split: the chunk read now is a piece holding a whole number of 24-byte reads
+        $length = (new ReflectionProperty(StringBuffer::class, 'length'))->getValue($buffer);
+        expect($length % 24)->toBe(0)->and($length)->toBeLessThan(StringBuffer::BUFFER_WASTE_THRESHOLD + 24);
+        $received .= $buffer->read(\strlen($data));
+        expect($received)->toBe($data);
+        expect($buffer->read(1))->toBe('');
+    });
+});
 
-        // Continue reading should work
-        $rest = $buffer->read(10000);
-        expect(\strlen($rest))->toBe(StringBuffer::BUFFER_WASTE_LIMIT);
+test('reads that never line up with the written chunks return the bytes in order', function () {
+    phasync::run(function () {
+        $data   = \implode('', \array_map(static fn ($i) => \sprintf('%07d|', $i), \range(0, 4095))); // 32 KB
+        $buffer = new StringBuffer();
+        foreach (\str_split($data, 4096) as $chunk) {
+            $buffer->write($chunk);
+        }
+        $buffer->end();
+        $received = $buffer->read(1024);
+        while ('' !== $chunk = $buffer->read(4096)) {
+            $received .= $chunk;
+        }
+        expect($received)->toBe($data);
+    });
+});
+
+test('readFixed() of a frame spanning many chunks joins them in order and reads on from the last', function () {
+    phasync::run(function () {
+        $buffer = new StringBuffer();
+        $buffer->write('ab');
+        foreach (\range(1, 100) as $i) {
+            $buffer->write(\sprintf('%03d', $i));
+        }
+        expect($buffer->read(1))->toBe('a');
+        expect($buffer->readFixed(1 + 3 * 99 + 1))->toBe('b' . \implode('', \array_map(static fn ($i) => \sprintf('%03d', $i), \range(1, 99))) . '1');
+        expect($buffer->read(10))->toBe('00');
+    });
+});
+
+test('unread() of the bytes just read steps back; of other bytes, puts them in front of the rest', function () {
+    phasync::run(function () {
+        $buffer = new StringBuffer();
+        $buffer->write('header:body');
+        expect($buffer->read(7))->toBe('header:');
+        $buffer->unread('header:');
+        expect((new ReflectionProperty(StringBuffer::class, 'offset'))->getValue($buffer))->toBe(0);
+        expect($buffer->read(7))->toBe('header:');
+        $buffer->unread('NEW:');
+        expect($buffer->read(100))->toBe('NEW:body');
     });
 });
 

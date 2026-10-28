@@ -304,9 +304,10 @@ test('BUF-2: reading a negative length throws OutOfBoundsException', function ()
     expect(fn () => $buffer->readFixed(-1))->toThrow(OutOfBoundsException::class);
 });
 
-test('BUF-2: reading many small pieces across the compaction limit reassembles the data', function () {
-    expect(StringBuffer::BUFFER_WASTE_LIMIT)->toBe(4096);
-    $payload = \str_repeat('0123456789', 2000);
+test('BUF-2: reading many small pieces across the waste threshold reassembles the data', function () {
+    expect(StringBuffer::BUFFER_WASTE_THRESHOLD)->toBe(65536);
+    expect(StringBuffer::BUFFER_WASTE_LIMIT)->toBe(StringBuffer::BUFFER_WASTE_THRESHOLD);
+    $payload = \str_repeat('0123456789', 20000);
     $buffer  = new StringBuffer();
     $buffer->write($payload);
     $received = '';
