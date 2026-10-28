@@ -2,7 +2,9 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.6 (2026-10-28)
+
+Bundles ext-phasync 2.0.5, with ext-scope 0.5.0: cheaper scope switches, and a per-tick poll as cheap as 2.0.3's.
 
 - With ext-scope 0.5 (bundled in ext-phasync), the loop runs its ticks in a scope of its own through `Scope::__run_without()` (coroutines still run in the scope they were started in): resuming coroutines of one scope switches no state, and moving between two scopes switches once instead of twice. `onScopeChange()` hooks no longer see a switch back to the caller's scope between coroutines.
 - `StringBuffer::read()` and `readFixed()` are 30-50% faster: only a read that waits claims the single reader slot, and the deadline is computed only then; 2.0.5 claimed it for every read (15-24% slower than 2.0.4).
