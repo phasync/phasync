@@ -317,26 +317,28 @@ final class phasync
             // Convert this promise into a Fiber
             $fiber = self::go(static function () use ($fiberOrPromise) {
                 // May be a Promise
-                $status = null;
-                $result = null;
-                if (!PromiseHandler::handle($fiberOrPromise, static function (mixed $value) use (&$status, &$result) {
+                $status  = null;
+                $result  = null;
+                $settled = new \stdClass();
+                if (!PromiseHandler::handle($fiberOrPromise, static function (mixed $value) use (&$status, &$result, $settled) {
                     if (null !== $status) {
                         throw new LogicException('Promise resolved or rejected twice');
                     }
                     $status = true;
                     $result = $value;
-                }, static function (mixed $error) use (&$status, &$result) {
+                    self::raiseFlag($settled);
+                }, static function (mixed $error) use (&$status, &$result, $settled) {
                     if (null !== $status) {
                         throw new LogicException('Promise resolved or rejected twice');
                     }
                     $status = false;
                     $result = $error;
+                    self::raiseFlag($settled);
                 })) {
                     throw new InvalidArgumentException('The awaited object must be a Fiber or a promise-like object');
                 }
-                // Allow the promise-like object to resolve
                 while (null === $status) {
-                    self::yield();
+                    self::awaitFlag($settled);
                 }
                 if ($status) {
                     return $result;

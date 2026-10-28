@@ -40,6 +40,26 @@ test('await() of a promise-like object throws its rejection', function () {
     }))->toThrow(DomainException::class, 'rejected');
 });
 
+test('await() of a promise-like object waits for it without spinning (#152)', function () {
+    $promise = thenable();
+    $cpu     = static fn (): float => ($r = \getrusage())['ru_utime.tv_sec'] + $r['ru_utime.tv_usec'] / 1e6 + $r['ru_stime.tv_sec'] + $r['ru_stime.tv_usec'] / 1e6;
+    $used    = $cpu();
+    $result  = phasync::run(function () use ($promise) {
+        phasync::go(function () use ($promise) {
+            phasync::sleep(0.3);
+            ($promise->callbacks[0])('late');
+        });
+
+        return phasync::await($promise);
+    });
+    expect($result)->toBe('late');
+    expect($cpu() - $used)->toBeLessThan(0.1); // 0.3 s of waiting
+});
+
+test('await() of a promise-like object that nothing will ever settle is a deadlock (#152)', function () {
+    expect(fn () => phasync::run(fn () => phasync::await(thenable())))->toThrow(phasync\DeadlockException::class);
+});
+
 test('await() of an object that is neither a coroutine nor a promise throws InvalidArgumentException', function () {
     expect(fn () => phasync::run(fn () => phasync::await(new stdClass())))
         ->toThrow(InvalidArgumentException::class, 'must be a Fiber or a promise-like object');
