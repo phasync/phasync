@@ -484,3 +484,20 @@ test('ResourceStream getSize() is null for a socket, and casting it to string st
             ->and((string) $stream)->toBe('over the socket');
     });
 });
+
+test('ResourceStream __toString waits for a socket\'s data without spinning (#154)', function () {
+    phasync::run(function () {
+        [$a, $b] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, 0);
+        \stream_set_blocking($a, false);
+        phasync::go(function () use ($b) {
+            phasync::sleep(0.2);
+            \fwrite($b, 'hello');
+            phasync::sleep(0.2);
+            \fclose($b);
+        });
+        $cpu  = static fn (): float => ($r = \getrusage())['ru_utime.tv_sec'] + $r['ru_utime.tv_usec'] / 1e6 + $r['ru_stime.tv_sec'] + $r['ru_stime.tv_usec'] / 1e6;
+        $used = $cpu();
+        expect((string) new ResourceStream($a))->toBe('hello');
+        expect($cpu() - $used)->toBeLessThan(0.1); // 0.4 s of waiting
+    });
+});

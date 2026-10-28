@@ -2,6 +2,10 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## Unreleased
+
+- `ResourceStream::__toString()` leaves the waiting to `read()`: no `yield()` between reads. (#154)
+
 ## 2.0.6 (2026-10-28)
 
 Bundles ext-phasync 2.0.5, with ext-scope 0.5.0: cheaper scope switches, and a per-tick poll as cheap as 2.0.3's.

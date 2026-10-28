@@ -106,13 +106,9 @@ class ResourceStream implements StreamInterface
         }
         $chunks = [];
         try {
+            // read() waits for a non-seekable stream to be readable
             while (!\feof($this->resource)) {
-                $chunk = $this->read(32768);
-                if ('' === $chunk) {
-                    \phasync::yield();
-                } else {
-                    $chunks[] = $chunk;
-                }
+                $chunks[] = $this->read(32768);
             }
 
             return \implode('', $chunks);
