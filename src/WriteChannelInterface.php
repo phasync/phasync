@@ -34,11 +34,10 @@ namespace phasync;
 interface WriteChannelInterface extends SelectableInterface
 {
     /**
-     * Switches off the deadlock check of the channel.
+     * Does nothing.
      *
-     * The coroutine that created the channel gets a ChannelException if it waits on the channel and no other coroutine has done so within about 100 ms. Call this when the creator is meant to wait on the channel alone.
-     *
-     * @see phasync::channel
+     * @deprecated since 2.0.7, removed in 2.1: does nothing. Channels no longer guess at deadlocks
+     * with a timer; a real deadlock fails the outermost run() with a DeadlockException.
      */
     public function activate(): void;
 
@@ -66,7 +65,7 @@ interface WriteChannelInterface extends SelectableInterface
      * @param mixed $value   what to send
      * @param float $timeout seconds to wait at most
      *
-     * @throws ChannelException if the channel is closed, or the creator of the channel waits on it alone, see {@see WriteChannelInterface::activate()}
+     * @throws ChannelException if the channel is closed
      * @throws TimeoutException if the value could not be sent in time
      *
      * @see ReadChannelInterface::read

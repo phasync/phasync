@@ -7,6 +7,7 @@
  */
 
 use phasync\ChannelException;
+use phasync\DeadlockException;
 use phasync\TimeoutException;
 
 uses()->group('characterization');
@@ -593,50 +594,34 @@ test('CHN-9: any value -- including a non-Serializable object, a Closure and a r
 // CHN-10  Timing heuristics inside Channel
 // ---------------------------------------------------------------------------
 
-test('CHN-10: the creator reading an empty channel with no other coroutine gets a "likely deadlock" ChannelException after about 100 ms [DIVERGENCE]', function () {
-    // SEMANTICS DLK-1 / CHN-10 expect no time-based deadlock guessing.
-    $t   = \microtime(true);
-    $out = phasync::run(function () {
+test('CHN-10: the creator reading an empty channel with no other coroutine is a deadlock run() reports exactly (#153)', function () {
+    expect(fn () => phasync::run(function () {
         phasync::channel($r, $w, 0);
-        try {
-            $r->read();
-        } catch (Throwable $e) {
-            return [\get_class($e), $e->getMessage()];
-        }
-    });
-    $elapsed = \microtime(true) - $t;
+        $r->read();
+    }))->toThrow(DeadlockException::class);
+});
 
-    expect($out)->toBe([ChannelException::class, "Likely deadlock detected. Can't await a channel that has no known readers/writers."]);
-    expect($elapsed)->toBeGreaterThanOrEqual(0.09)->toBeLessThan(3.0);
-})->group('divergence');
-
-test('CHN-10: the creator writing an unbuffered channel with no other coroutine gets the same ChannelException [DIVERGENCE]', function () {
-    $out = phasync::run(function () {
+test('CHN-10: the creator writing an unbuffered channel with no other coroutine is a deadlock too (#153)', function () {
+    expect(fn () => phasync::run(function () {
         phasync::channel($r, $w, 0);
-        try {
-            $w->write(1);
-        } catch (Throwable $e) {
-            return \get_class($e);
-        }
+        $w->write(1);
+    }))->toThrow(DeadlockException::class);
+});
 
-        return 'write returned';
-    });
-
-    expect($out)->toBe(ChannelException::class);
-})->group('divergence');
-
-test('CHN-10: the deadlock guess wins over a read timeout on the creator [DIVERGENCE]', function () {
-    $out = phasync::run(function () {
+test('CHN-10: a read timeout on the creator is a TimeoutException at the timeout (#153)', function () {
+    [$class, $elapsed] = phasync::run(function () {
         phasync::channel($r, $w, 0);
+        $t = \microtime(true);
         try {
-            $r->read(0.05);
+            $r->read(0.15);
         } catch (Throwable $e) {
-            return \get_class($e);
+            return [\get_class($e), \microtime(true) - $t];
         }
     });
 
-    expect($out)->toBe(ChannelException::class);
-})->group('divergence');
+    expect($class)->toBe(TimeoutException::class);
+    expect($elapsed)->toBeGreaterThanOrEqual(0.149)->toBeLessThan(3.0);
+});
 
 test('CHN-10: after activate() the creator blocks normally and a timeout throws TimeoutException', function () {
     [$class, $elapsed] = phasync::run(function () {
@@ -654,11 +639,11 @@ test('CHN-10: after activate() the creator blocks normally and a timeout throws 
     expect($elapsed)->toBeGreaterThanOrEqual(0.099)->toBeLessThan(3.0);
 });
 
-test('CHN-10: the creator may block if another coroutine uses the channel within the grace period', function () {
+test('CHN-10: the creator waits for a coroutine that writes later, however much later (#153)', function () {
     $out = phasync::run(function () {
         phasync::channel($r, $w, 0);
         phasync::go(function () use ($w) {
-            phasync::sleep(0.02);
+            phasync::sleep(0.2);
             $w->write('hi');
         });
 
@@ -957,7 +942,7 @@ test('PUB-1: a subscriber read with a timeout throws TimeoutException', function
     expect($out)->toBe(TimeoutException::class);
 });
 
-test('PUB-1: activate() on a subscriber throws RuntimeException', function () {
+test('PUB-1: activate() on a subscriber does nothing, as on any channel end (deprecated)', function () {
     $out = phasync::run(function () {
         phasync::publisher($subs, $pub);
         $subscriber = phasync::go(function () use ($subs) {
@@ -966,6 +951,8 @@ test('PUB-1: activate() on a subscriber throws RuntimeException', function () {
             } catch (Throwable $e) {
                 return \get_class($e);
             }
+
+            return 'nothing';
         });
         $pub->activate();
         $out = phasync::await($subscriber);
@@ -974,5 +961,5 @@ test('PUB-1: activate() on a subscriber throws RuntimeException', function () {
         return $out;
     });
 
-    expect($out)->toBe(RuntimeException::class);
+    expect($out)->toBe('nothing');
 });

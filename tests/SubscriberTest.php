@@ -3,13 +3,13 @@
 /**
  * Comprehensive tests for Subscriber class
  */
-test('Subscriber activate throws error', function () {
+test('Subscriber activate does nothing (deprecated)', function () {
     phasync::run(function () {
         phasync::publisher($subscribers, $writer);
         $subscriber = $subscribers->subscribe();
-        expect(function () use ($subscriber) {
-            $subscriber->activate();
-        })->toThrow(RuntimeException::class, "Can't activate a subscriber this way");
+        $subscriber->activate();
+        expect($subscriber->isClosed())->toBeFalse();
+        $writer->close();
     });
 });
 

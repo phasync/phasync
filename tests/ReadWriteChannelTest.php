@@ -4,7 +4,7 @@
  * Tests for ReadChannel and WriteChannel wrappers
  */
 
-test('ReadChannel activate delegates to backend', function () {
+test('ReadChannel activate() does nothing (deprecated)', function () {
     phasync::run(function () {
         phasync::channel($reader, $writer);
         $reader->activate();
@@ -90,7 +90,7 @@ test('ReadChannel iterator works', function () {
     });
 });
 
-test('WriteChannel activate delegates to backend', function () {
+test('WriteChannel activate() does nothing (deprecated)', function () {
     phasync::run(function () {
         phasync::channel($reader, $writer);
         $writer->activate();
@@ -157,11 +157,9 @@ test('WriteChannel isClosed delegates to backend', function () {
     });
 });
 
-test('ReadChannel auto-activate on high refcount', function () {
+test('the creator awaits its own channel\'s reader end while a coroutine writes (#153)', function () {
     phasync::run(function () {
         phasync::channel($reader, $writer);
-        // Create a situation where refcount is high (stored in variable)
-        $r = $reader;
         phasync::go(function () use ($writer) {
             phasync::sleep(0.01);
             $writer->write('test');
@@ -171,11 +169,9 @@ test('ReadChannel auto-activate on high refcount', function () {
     });
 });
 
-test('WriteChannel auto-activate on high refcount', function () {
+test('the creator awaits its own channel\'s writer end while a coroutine reads (#153)', function () {
     phasync::run(function () {
         phasync::channel($reader, $writer);
-        // Create a situation where refcount is high (stored in variable)
-        $w = $writer;
         phasync::go(function () use ($reader) {
             $reader->read();
         });

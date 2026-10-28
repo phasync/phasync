@@ -15,8 +15,7 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
     private \SplQueue $buffer;
     private int $capacity;
     private object $flag;
-    private bool $closed = false;
-    private ?\Fiber $creatorFiber;
+    private bool $closed          = false;
     private mixed $pendingWrite   = null;
     private bool $hasPendingWrite = false;
 
@@ -28,7 +27,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         }
         $this->capacity     = $capacity;
         $this->flag         = new \stdClass();
-        $this->creatorFiber = \phasync::getFiber();
     }
 
     public function isReadyForRead(): bool
@@ -66,7 +64,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
 
     public function awaitReadable(float $timeout = \PHP_FLOAT_MAX): void
     {
-        $this->ensureNotCreatorFiber();
         $timesOut = \microtime(true) + $timeout;
         while (!$this->isReadyForRead()) {
             $this->awaitFlag($timesOut);
@@ -75,7 +72,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
 
     public function awaitWritable(float $timeout = \PHP_FLOAT_MAX): void
     {
-        $this->ensureNotCreatorFiber();
         $timesOut = \microtime(true) + $timeout;
         while (!$this->isReadyForWrite()) {
             $this->awaitFlag($timesOut);
@@ -92,7 +88,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
 
     public function activate(): void
     {
-        $this->creatorFiber = null;
     }
 
     public function isReadable(): bool
@@ -123,8 +118,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         // This sleep prevents some deadlocks that may be unexpected by developers
         \phasync::sleep();
 
-        $checked = false;
-
         while (true) {
             if (0 === $this->capacity && $this->hasPendingWrite) {
                 // Unbuffered channel. If a value is available, we return it even if the channel is closed.
@@ -151,12 +144,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
                 throw new TimeoutException('Channel read operation timed out');
             }
 
-            if (!$checked) {
-                $this->ensureNotCreatorFiber();
-                $checked = true;
-                continue;
-            }
-
             try {
                 $this->awaitFlag($timesOut);
             } catch (TimeoutException $e) {
@@ -176,19 +163,12 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         // This sleep prevents some deadlocks that may be unexpected by developers
         \phasync::sleep();
 
-        $checked = false;
-
         while (true) {
             if ($this->closed) {
                 // Writes are never permitted on a closed channel
                 throw new ChannelException('Channel is closed');
             } elseif (0 === $this->capacity && !$this->hasPendingWrite) {
                 // Unbuffered channel can be written to, but always blocks
-                if (!$checked) {
-                    $this->ensureNotCreatorFiber();
-                    $checked = true;
-                }
-
                 \phasync::raiseFlag($this->flag);
                 $this->hasPendingWrite = true;
                 $this->pendingWrite    = $value;
@@ -214,12 +194,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
             $remainingTimeout = self::calculateRemainingTimeout($timesOut);
             if ($remainingTimeout <= 0) {
                 throw new TimeoutException('Channel write operation timed out');
-            }
-
-            if (!$checked) {
-                $this->ensureNotCreatorFiber();
-                $checked = true;
-                continue;
             }
 
             try {
@@ -254,24 +228,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
     private function hasReadableValue(): bool
     {
         return $this->hasPendingWrite || ($this->capacity > 0 && !$this->buffer->isEmpty());
-    }
-
-    private function ensureNotCreatorFiber(): void
-    {
-        if ($this->creatorFiber?->isRunning()) {
-            // Allow at least 100 ms to see if another coroutine prevents deadlock
-            $timeout = \microtime(true) + 0.1;
-            while (\microtime(true) < $timeout) {
-                \phasync::yield();
-                if (!$this->creatorFiber?->isRunning()) {
-                    $this->creatorFiber = null;
-
-                    return;
-                }
-            }
-            throw new ChannelException("Likely deadlock detected. Can't await a channel that has no known readers/writers.");
-        }
-        $this->creatorFiber = null;
     }
 
     private static function calculateRemainingTimeout(float $timesOut): float

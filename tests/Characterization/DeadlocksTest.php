@@ -7,6 +7,7 @@
  */
 
 use phasync\ChannelException;
+use phasync\DeadlockException;
 use phasync\TimeoutException;
 
 uses()->group('characterization');
@@ -74,46 +75,29 @@ if (!\function_exists('dlkTimed')) {
 // DLK-1: time-based deadlock guessing
 // ---------------------------------------------------------------------------
 
-test('DLK-1: the creator of a channel reading it gets ChannelException("Likely deadlock") after about 0.1 s [DIVERGENCE]', function () {
-    // The contract (DLK-1) says no time-based deadlock guessing.
-    [$outcome, $seconds, $message] = phasync::run(static function () {
+test('DLK-1: the creator of a channel reading it alone is reported exactly, by run(), as a deadlock (#153)', function () {
+    expect(fn () => phasync::run(static function () {
         phasync::channel($r, $w);
+        $r->read();
+    }))->toThrow(DeadlockException::class);
+});
 
-        return dlkTimed(static fn () => $r->read());
-    });
-
-    expect($outcome)->toBe(ChannelException::class);
-    expect($message)->toStartWith('Likely deadlock detected');
-    expect($seconds)->toBeGreaterThanOrEqual(0.09);
-    expect($seconds)->toBeLessThan(0.6);
-})->group('divergence');
-
-test('DLK-1: the creator of a channel writing to it (unbuffered) gets ChannelException("Likely deadlock") [DIVERGENCE]', function () {
-    [$outcome, $seconds, $message] = phasync::run(static function () {
+test('DLK-1: the creator of a channel writing to it alone (unbuffered) is reported as a deadlock (#153)', function () {
+    expect(fn () => phasync::run(static function () {
         phasync::channel($r, $w);
+        $w->write('x');
+    }))->toThrow(DeadlockException::class);
+});
 
-        return dlkTimed(static fn () => $w->write('x'));
-    });
-
-    expect($outcome)->toBe(ChannelException::class);
-    expect($message)->toStartWith('Likely deadlock detected');
-    expect($seconds)->toBeGreaterThanOrEqual(0.09);
-    expect($seconds)->toBeLessThan(0.6);
-})->group('divergence');
-
-test('DLK-1: the creator writing to a full buffered channel gets ChannelException("Likely deadlock") [DIVERGENCE]', function () {
-    [$outcome, , $message] = phasync::run(static function () {
+test('DLK-1: the creator writing alone to a full buffered channel is reported as a deadlock (#153)', function () {
+    expect(fn () => phasync::run(static function () {
         phasync::channel($r, $w, 1);
         $w->write('a');
+        $w->write('b');
+    }))->toThrow(DeadlockException::class);
+});
 
-        return dlkTimed(static fn () => $w->write('b'));
-    });
-
-    expect($outcome)->toBe(ChannelException::class);
-    expect($message)->toStartWith('Likely deadlock detected');
-})->group('divergence');
-
-test('DLK-1: activate() switches the creator heuristic off, so the same read times out normally instead [DIVERGENCE]', function () {
+test('DLK-1: the creator\'s read with a timeout times out normally; activate() changes nothing', function () {
     [$outcome, $seconds] = phasync::run(static function () {
         phasync::channel($r, $w);
         $r->activate();
@@ -123,7 +107,7 @@ test('DLK-1: activate() switches the creator heuristic off, so the same read tim
 
     expect($outcome)->toBe(TimeoutException::class);
     expect($seconds)->toBeGreaterThanOrEqual(0.1);
-})->group('divergence');
+});
 
 test('DLK-1: a channel read from another coroutine than the creator is not treated as a deadlock, it just waits [DIVERGENCE]', function () {
     [$outcome, , $message] = phasync::run(static function () {

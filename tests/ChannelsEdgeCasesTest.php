@@ -205,25 +205,22 @@ test('channel getIterator works', function () {
     });
 });
 
-test('channel deadlock detection allows time to recover', function () {
-    phasync::run(function () {
+test('a read nothing can ever answer is reported once the last other coroutine ended, not on a timer (#153)', function () {
+    $t = \microtime(true);
+    expect(fn () => phasync::run(function () {
         phasync::channel($reader, $writer);
-        // Creator tries to read immediately - should allow 100ms for recovery
-        phasync::go(function () use ($reader) {
-            phasync::sleep(0.05); // Reader starts in 50ms
+        phasync::go(function () {
+            phasync::sleep(0.2); // alive, but never writes
         });
-        // Creator fiber is still running, this read will check for deadlock
-        expect(function () use ($reader) {
-            $reader->read();
-        })->toThrow(ChannelException::class);
-    });
+        $reader->read();
+    }))->toThrow(phasync\DeadlockException::class);
+    expect(\microtime(true) - $t)->toBeGreaterThanOrEqual(0.19);
 });
 
-test('channel activate nulls creatorFiber', function () {
+test('activate() on a channel end does nothing (deprecated)', function () {
     phasync::run(function () {
         phasync::channel($reader, $writer);
         phasync::go(function () use ($writer) {
-            // Activate should allow creator fiber to be null
             $writer->activate();
             expect(true)->toBeTrue();
         });

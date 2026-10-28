@@ -2,15 +2,13 @@
 
 use phasync\ChannelException;
 
-test('basic deadlock protection in phasync', function () {
+test('the creator reading alone from its channel is a deadlock run() reports (#153)', function () {
     expect(function () {
         phasync::run(function () {
             phasync::channel($reader, $writer);
-
-            // Should throw exception warning about deadlock
             $reader->read();
         });
-    })->toThrow(ChannelException::class);
+    })->toThrow(phasync\DeadlockException::class);
 });
 
 test('reader in child coroutine, writer in main coroutine', function () {
@@ -93,15 +91,11 @@ test('reader starts after writer is closed', function () {
     });
 });
 
-test('immediate operation by creator throws exception', function () {
-    phasync::run(function () {
+test('the creator writing alone to its unbuffered channel is a deadlock run() reports (#153)', function () {
+    expect(fn () => phasync::run(function () {
         phasync::channel($reader, $writer);
-
-        // Attempting the first operation immediately by the creator should throw.
-        expect(function () use ($writer) {
-            $writer->write('test');
-        })->toThrow(ChannelException::class);
-    });
+        $writer->write('test');
+    }))->toThrow(phasync\DeadlockException::class);
 });
 
 test('first operation by another coroutine succeeds', function () {

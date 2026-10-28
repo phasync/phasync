@@ -35,13 +35,10 @@ use Traversable;
 interface ReadChannelInterface extends SelectableInterface, Traversable
 {
     /**
-     * Switches off the deadlock check of the channel.
+     * Does nothing.
      *
-     * The coroutine that created the channel gets a ChannelException if it waits on the channel and no other coroutine has done so within about 100 ms. Call this when the creator is meant to wait on the channel alone, as when the other end is used by a coroutine that starts later.
-     *
-     * @see phasync::channel
-     *
-     * @example examples/ReadChannelInterface.activate/1-the-creator-waits-alone.php The deadlock check, and switching it off
+     * @deprecated since 2.0.7, removed in 2.1: does nothing. Channels no longer guess at deadlocks
+     * with a timer; a real deadlock fails the outermost run() with a DeadlockException.
      */
     public function activate(): void;
 
@@ -81,7 +78,6 @@ interface ReadChannelInterface extends SelectableInterface, Traversable
      * @param bool|null $eof     set to true if the channel is closed and empty
      *
      * @throws TimeoutException if nothing arrived in time
-     * @throws ChannelException if the creator of the channel waits on it alone, see {@see ReadChannelInterface::activate()}
      *
      * @return mixed the value, or null at the end of the channel
      *

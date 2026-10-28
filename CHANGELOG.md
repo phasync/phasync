@@ -4,6 +4,7 @@ Releases before 2.0.0 are listed on the GitHub releases page.
 
 ## Unreleased
 
+- A channel's creator may wait on it like any coroutine: the 100 ms "likely deadlock" guess and its `ChannelException` are gone, and so is the busy `yield()` loop behind it. A wait nothing can ever end fails the outermost `run()` with a `DeadlockException`, exactly, when the last coroutine that could have ended it is done. `activate()` does nothing and is deprecated, removed in 2.1; on a subscriber it no longer throws. (#153)
 - `ResourceStream::__toString()` leaves the waiting to `read()`: no `yield()` between reads. (#154)
 
 ## 2.0.6 (2026-10-28)

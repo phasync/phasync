@@ -26,7 +26,6 @@ final class Subscriber implements SubscriberInterface, \IteratorAggregate
 
     public function activate(): void
     {
-        throw new \RuntimeException("Can't activate a subscriber this way. Use the publisher instead.");
     }
 
     /**

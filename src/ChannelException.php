@@ -5,9 +5,9 @@ namespace phasync;
 use phasync\Internal\RethrowExceptionTrait;
 
 /**
- * A channel operation failed: it was written to after it was closed, or the wait looked like a deadlock.
+ * A channel operation failed: it was written to after it was closed.
  *
- * `write()` throws it on a closed channel. The creator-coroutine check throws it from the coroutine that called `phasync::channel()`, when it waits on the channel and no other coroutine has done so within about 100 ms; see {@see phasync::channel()}, and `activate()` to switch the check off. A timeout is a TimeoutException, not this.
+ * `write()` throws it on a closed channel. A timeout is a TimeoutException, not this; a wait that nothing can ever end fails the outermost `run()` with a DeadlockException.
  *
  * ```php
  * phasync::run(function () {

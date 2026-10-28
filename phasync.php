@@ -733,8 +733,6 @@ final class phasync
      *
      * When the writer closes the channel, readers read what is left, and then see the end: `foreach` over the reader stops, and `read()` sets its `$eof` argument. Writing to a closed channel throws a ChannelException. Dropping the last reference to an end closes the other: that is how a coroutine that serves a channel stops when its peer is gone.
      *
-     * The coroutine that calls `channel()` is not expected to wait on it itself: if it does, and no other coroutine has waited on the channel within about 100 ms, the wait throws a ChannelException (a likely deadlock). Call `activate()` on an end to switch that off.
-     *
      * ```php
      * phasync::run(function () {
      *     phasync::channel($reader, $writer, 10);   // a buffer of 10 values
@@ -756,6 +754,8 @@ final class phasync
      * @param WriteChannelInterface|null $write      receives the writing end
      * @param int                        $bufferSize values the channel holds before `write()` waits; 0: none
      *
+     * @throws LogicException outside a coroutine
+     *
      * @see phasync::publisher  to deliver every value to many readers
      * @see ReadChannelInterface
      * @see WriteChannelInterface
@@ -767,6 +767,7 @@ final class phasync
      */
     public static function channel(?ReadChannelInterface &$read, ?WriteChannelInterface &$write, int $bufferSize = 0): void
     {
+        self::getFiber(); // throws outside a coroutine
         $channel = new Channel($bufferSize);
         $read    = new ReadChannel($channel);
         $write   = new WriteChannel($channel);
