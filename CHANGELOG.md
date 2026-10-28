@@ -2,6 +2,11 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## Unreleased
+
+- `StringBuffer::read()` and `readFixed()` are 30-50% faster: only a read that waits claims the single reader slot, and the deadline is computed only then; 2.0.5 claimed it for every read (15-24% slower than 2.0.4).
+- With ext-phasync, the loop resumes and cancels every coroutine with `Fiber::resume()`/`throw()`, including one a blocking call suspended: no lookup per resume (buffered channels 10%, socket round trips 8% faster).
+
 ## 2.0.5 (2026-10-27)
 
 Bundles ext-phasync 2.0.4, with ext-scope 0.4.4. With the extension, coroutines wait through its

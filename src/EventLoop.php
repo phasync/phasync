@@ -429,12 +429,13 @@ final class EventLoop implements \Countable
     private bool $managed;
 
     /**
-     * With ext-phasync: the Suspension of each coroutine whose blocking call suspended it, until it
-     * resumes through it.
+     * With ext-phasync: the Suspension of each coroutine whose blocking call was cancelled, by
+     * spl_object_id(), until the cancellation is thrown in: a call that can't be abandoned refuses
+     * it, and the coroutine waits for that Suspension again (see throwInto()).
      *
-     * @var \WeakMap<\Fiber, ext\Suspension>
+     * @var array<int, ext\Suspension>
      */
-    private \WeakMap $suspended;
+    private array $cancelledSuspensions;
 
     /** wait() is suspending the running coroutine through ext-phasync (Suspension::suspend()). */
     private bool $waiting = false;
@@ -538,7 +539,7 @@ final class EventLoop implements \Countable
         }
         $this->managed               = \class_exists(ext\Suspension::class, false);
         $this->poller                = $this->managed ? new SuspensionPoller($this->pollSuspensions(...)) : new StreamSelectPoller($this);
-        $this->suspended             = new \WeakMap();
+        $this->cancelledSuspensions  = [];
         $this->suspensions           = [];
         $this->suspensionFibers      = [];
         $this->pollerWaits           = 0;
@@ -918,18 +919,13 @@ final class EventLoop implements \Countable
     }
 
     /**
-     * Run $fiber on: through the Suspension its blocking call left, if any. A blocking call it
-     * makes next suspends it again (with ext-phasync).
+     * Run $fiber on. With ext-phasync, Fiber::resume() of a coroutine a blocking call suspended
+     * completes that call, and a blocking call it makes next suspends it again.
      */
     private function continueFiber(\Fiber $fiber): void
     {
         try {
-            if (null === $s = $this->suspended[$fiber] ?? null) {
-                $fiber->resume();
-            } else {
-                unset($this->suspended[$fiber]);
-                $s->resume();
-            }
+            $fiber->resume();
         } catch (ext\Suspension $next) {
             $this->suspendedIn($fiber, $next);
         }
@@ -941,25 +937,20 @@ final class EventLoop implements \Countable
      */
     private function throwInto(\Fiber $fiber, \Throwable $exception): void
     {
+        $id = \spl_object_id($fiber);
         try {
-            if (null === $s = $this->suspended[$fiber] ?? null) {
-                $fiber->throw($exception);
-
-                return;
+            $fiber->throw($exception);
+        } catch (\RuntimeException $e) {
+            if (!$fiber->isSuspended()) {
+                throw $e; // the coroutine ended with it
             }
-            unset($this->suspended[$fiber]);
-            try {
-                $s->throw($exception);
-            } catch (\RuntimeException $e) {
-                if (!$fiber->isSuspended()) {
-                    throw $e; // the coroutine ended with it
-                }
-                $this->suspended[$fiber]             = $s;
-                $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
-                $this->waitFor($fiber, $s);
-            }
+            // A blocking call that can't be abandoned refused it: thrown in once the call is done
+            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($exception, $fiber);
+            $this->waitFor($fiber, $this->cancelledSuspensions[$id]);
         } catch (ext\Suspension $next) {
             $this->suspendedIn($fiber, $next);
+        } finally {
+            unset($this->cancelledSuspensions[$id]);
         }
     }
 
@@ -972,7 +963,6 @@ final class EventLoop implements \Countable
      */
     private function suspendedIn(\Fiber $fiber, ext\Suspension $s): void
     {
-        $this->suspended[$fiber]   = $s;
         $this->fiberScopes[$fiber] = $s->getScope();
         if ($this->waiting) {
             $this->waiting = false; // wait(): it waits for what it registered, not for the poll
@@ -2222,6 +2212,7 @@ final class EventLoop implements \Countable
             $fiberId = \spl_object_id($fiber);
             if (isset($this->suspensions[$fiberId])) {
                 // Waiting in a blocking call: no longer polled; its Suspension stays, for throwInto()
+                $this->cancelledSuspensions[$fiberId] = $this->suspensions[$fiberId];
                 unset($this->suspensions[$fiberId], $this->suspensionFibers[$fiberId]);
                 --$this->pollerWaits;
                 $cancelled = true;
