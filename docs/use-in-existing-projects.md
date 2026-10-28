@@ -56,3 +56,18 @@ function log_something(string $text): void {
     fclose($fp);
 }
 ```
+
+## Threads (ext-parallel)
+
+On a thread-safe PHP, each `parallel\Runtime` is a thread with its own PHP state, so each thread that calls `phasync::run()` gets a loop of its own; the loops run at the same time. Two things to know:
+
+- `Future::value()` and `parallel\Channel::recv()` block the whole thread, every coroutine in it with them. A coroutine waits for a thread by checking `Future::done()` between `phasync::sleep()` calls.
+- phasync channels, promises and coroutines live in one thread. Between threads, send plain values over a `parallel\Channel`.
+
+```php
+$future = (new parallel\Runtime('vendor/autoload.php'))->run(static fn () => heavy_work());
+while (!$future->done()) {
+    phasync::sleep(0.005); // the other coroutines go on
+}
+$result = $future->value();
+```

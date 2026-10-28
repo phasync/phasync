@@ -120,6 +120,33 @@ jobs:
           flags: ext
         if: matrix.php == '8.5' && steps.ext.outputs.so
 
+  zts:
+    runs-on: ubuntu-latest
+
+    name: 🧵 Thread-safe PHP 8.5 with ext-parallel
+
+    # On a thread-safe PHP each parallel\Runtime is a thread with a phasync loop of its own (#145, #149):
+    # the whole suite, then the threads in tests/ParallelTest.php, which skips where parallel is absent
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v7
+
+      - name: 🧰 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: parallel
+        env:
+          phpts: ts
+
+      - name: 📥 Install dependencies
+        run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+      - name: ✅ Tests
+        run: |
+          php -r 'exit(PHP_ZTS && extension_loaded("parallel") ? 0 : 1);'
+          vendor/bin/pest --stop-on-defect
+
   windows:
     runs-on: windows-latest
 

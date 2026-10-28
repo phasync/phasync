@@ -395,6 +395,9 @@ instead of adding cancellation broadcasts. ⚠️ ChannelsTest "channels memory 
 
 **CHN-9. Any PHP value can be sent**, including objects and resources. A channel is
 single-process, in-memory coroutine communication, so there is no serialization step. ✅
+On a thread-safe (ZTS) PHP the same holds within a thread: each thread has its own PHP state and
+its own loop, and a channel never crosses threads (between threads, `parallel\Channel`). ✅ CI's
+ZTS job, `tests/ParallelTest.php` (#145)
 
 **CHN-10. No timing heuristics.** `read()` and `write()` do not insert `phasync::sleep()`
 calls or time-based "likely deadlock" checks. ❌ See DLK-1.
