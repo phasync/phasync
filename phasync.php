@@ -144,8 +144,8 @@ final class phasync
             if ($preempting) {
                 \phasync\ext\Suspension::setPreemptInterval($driver->preemptInterval);
             }
-            if ($driver->loopScope) {
-                (new \Scope())->run(static fn () => \Scope::__run_without($start));
+            if (null !== $driver->tickScope) {
+                $driver->tickScope->run(static fn () => \Scope::__run_without($start));
             } else {
                 $start();
             }

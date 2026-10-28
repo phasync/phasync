@@ -86,11 +86,11 @@ test('each coroutine sees its own scope\'s superglobals across waits, and run() 
             }));
             phasync::sleep(0.01);
 
-            return $_GET['who'];
+            return [$_GET['who'], Scope::getCurrent()];
         });
 
-        return [$who, $_GET['who']];
-    }))->toBe(['outer', 'outer']);
+        return [...$who, $_GET['who'], Scope::getCurrent()];
+    }))->toBe(['outer', $scope, 'outer', $scope]);
     expect($_GET)->toBe(['who' => 'root']);
 });
 
