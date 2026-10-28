@@ -99,7 +99,7 @@ function scenarios(): array
             return 2 * $loops;
         }],
 
-        'switch_sleep0_2ctx' => ['context switches: two coroutines looping sleep(0), each in a context of its own', static function (float $s) use ($n) {
+        'switch_sleep0_2scope' => ['context switches: two coroutines looping sleep(0), each in a Scope of its own', static function (float $s) use ($n) {
             $loops = $n(150000, $s);
             \phasync::run(static function () use ($loops) {
                 $body = static function () use ($loops) {
@@ -107,8 +107,8 @@ function scenarios(): array
                         \phasync::sleep(0);
                     }
                 };
-                $a = \phasync::go($body, context: new \stdClass());
-                $b = \phasync::go($body, context: new \stdClass());
+                $a = (new \Scope())->run(static fn () => \phasync::go($body));
+                $b = (new \Scope())->run(static fn () => \phasync::go($body));
                 \phasync::await($a);
                 \phasync::await($b);
             });
