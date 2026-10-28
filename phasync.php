@@ -125,9 +125,10 @@ final class phasync
             \gc_disable();
             $fiber     = null;
             $exception = null;
-            $start     = static function () use ($driver, $fn, $args, $frame, &$fiber, &$exception) {
+            $scope     = \Scope::getCurrent();
+            $start     = static function () use ($driver, $fn, $args, $frame, $scope, &$fiber, &$exception) {
                 try {
-                    $fiber = $driver->create($fn, $args, $frame, \Scope::getCurrent());
+                    $fiber = $driver->create($fn, $args, $frame, $scope);
                 } catch (Throwable $e) {
                     $exception = $e; // an onScopeChange() hook threw: no coroutine was started
 
@@ -143,7 +144,11 @@ final class phasync
             if ($preempting) {
                 \phasync\ext\Suspension::setPreemptInterval($driver->preemptInterval);
             }
-            $start();
+            if ($driver->loopScope) {
+                (new \Scope())->run(static fn () => \Scope::__run_without($start));
+            } else {
+                $start();
+            }
 
             if (null !== $exception) {
                 throw $exception;

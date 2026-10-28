@@ -75,6 +75,16 @@ final class EventLoop implements \Countable
     private bool $scopePolyfill = false;
 
     /**
+     * Whether the outermost run() drives the loop in a scope of its own whose state ext-scope never
+     * applies (Scope::__run_without(), ext-scope 0.5): a coroutine's state stays live while the loop
+     * runs, so loop → A → loop → A switches no state, and loop → A → loop → B once. The polyfill
+     * already applies a scope's state only when the loop resumes a coroutine in it.
+     *
+     * @internal phasync::run()
+     */
+    public readonly bool $loopScope;
+
+    /**
      * Cancelled coroutines, with the exception each cancellation throws: sticky, so every wait
      * of a cancelled coroutine, or of one in a cancelled frame (or a frame nested in it), throws
      * it until the coroutine ends or leaves the frame.
@@ -468,6 +478,7 @@ final class EventLoop implements \Countable
             \class_exists($class);
         }
         $this->scopePolyfill = \defined('fiber_interop\\scope\\IS_POLYFILL') && \fiber_interop\scope\IS_POLYFILL;
+        $this->loopScope     = !$this->scopePolyfill && \method_exists(\Scope::class, '__run_without');
         if ($this->scopePolyfill) {
             // The polyfill keys the current scope by execution unit. Ours is the coroutine: the one
             // whose scope the loop activates (switchScope()), else the running coroutine whenever
@@ -1149,8 +1160,9 @@ final class EventLoop implements \Countable
                 $this->handleTerminatedFiber($fiber);
             }
         }
-        if ($this->liveScope !== $before) {
-            $this->switchScope($before, null); // the creating code goes on
+        // The creating code goes on in its scope; not the loop's own (loopScope), whose state is never live
+        if ($this->liveScope !== $before && (null !== $currentFiber || !$this->loopScope)) {
+            $this->switchScope($before, null);
         }
         if (0 !== $this->preempted && null !== $currentFiber && isset($this->frozen[$before])) {
             // The new coroutine was preempted before it first suspended: its creator is of the

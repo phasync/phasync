@@ -381,7 +381,8 @@ test('a hook that throws when a waiting coroutine of another scope resumes throw
     });
     try {
         expect(fn () => phasync::run(function () use ($scope) {
-            $scope->run(fn () => phasync::go(fn () => phasync::sleep(0.001)));
+            $scope->run(fn () => phasync::go(fn () => phasync::sleep(0.02)));
+            phasync::sleep(0.001); // the root's coroutine runs in between: the scope is entered again
             phasync::sleep(0.05);
         }))->toThrow(RuntimeException::class, 'hook refused the scope');
     } finally {

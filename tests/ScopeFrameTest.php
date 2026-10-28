@@ -53,6 +53,47 @@ test('the scope survives waits while other scopes run in between', function () {
     expect($log)->toBe(['a=', 'b=', 'a=', 'b=', 'a=', 'b=']);
 });
 
+test('each coroutine sees its own scope\'s superglobals across waits, and run() leaves the caller\'s as they were', function () {
+    $_GET = ['who' => 'root'];
+    $seen = [];
+    phasync::run(function () use (&$seen) {
+        foreach (['a', 'b'] as $name) {
+            (new Scope())->run(function () use ($name, &$seen) {
+                $_GET = ['who' => $name];
+                phasync::go(function () use ($name, &$seen) {
+                    for ($i = 0; $i < 2; ++$i) {
+                        phasync::sleep(0);
+                        $seen[]      = $name . '=' . $_GET['who'];
+                        $_GET['who'] = $name; // written while live: kept as this scope's
+                    }
+                });
+            });
+        }
+        phasync::sleep(0.01);
+        $seen[] = 'root=' . $_GET['who'];
+    });
+    expect($seen)->toBe(['a=a', 'b=b', 'a=a', 'b=b', 'root=root']);
+    expect($_GET)->toBe(['who' => 'root']);
+
+    // run() called inside a scope: its coroutine is in that scope, and the scope's state is back after
+    $scope = new Scope();
+    expect($scope->run(function () {
+        $_GET = ['who' => 'outer'];
+        $who  = phasync::run(function () {
+            phasync::go(fn () => (new Scope())->run(function () {
+                $_GET = ['who' => 'inner'];
+                phasync::sleep(0);
+            }));
+            phasync::sleep(0.01);
+
+            return $_GET['who'];
+        });
+
+        return [$who, $_GET['who']];
+    }))->toBe(['outer', 'outer']);
+    expect($_GET)->toBe(['who' => 'root']);
+});
+
 test('a coroutine that suspends inside $scope->run() finds that scope again, and the others do not see it', function () {
     $request = new Scope();
     $log     = [];
@@ -124,8 +165,10 @@ test('onScopeChange() fires before a coroutine of another scope resumes, and not
         }
         phasync::sleep(0.02);
     });
-    // a and a resume back to back: one change into a; then b; then the root again for the main coroutine
-    expect(\array_slice($changes, -3))->toBe(['root>a', 'a>b', 'b>root']);
+    // a and a resume back to back: one change into a (from whatever was live: with ext-scope the
+    // loop's own scope is never applied, so b stays live from the coroutine created last); then b;
+    // then the root again for the main coroutine
+    expect(\array_slice($changes, -3))->toBeIn([['root>a', 'a>b', 'b>root'], ['b>a', 'a>b', 'b>root']]);
     expect(\count(\array_filter($changes, static fn ($c) => 'a>a' === $c || 'b>b' === $c || 'root>root' === $c)))->toBe(0);
 });
 
