@@ -119,8 +119,8 @@ test('RL-1: isReady() is true while a token is available and false right after i
         return $out;
     });
 
-    // The generator's first token is offered once it has run: not yet right after the constructor
-    expect($out)->toBe([false, true, false, true]);
+    // The generator offers its first token at once
+    expect($out)->toBe([true, true, false, true]);
 });
 
 test('RL-1: await() throws TimeoutException when no permit comes within its timeout (#75)', function () {
@@ -196,7 +196,7 @@ test('RL-1: a limiter that was never used can be dropped without error', functio
     expect($out)->toBe('done');
 });
 
-test('RL-1: no token is offered right after the constructor, and dropping the limiter then ends its generator quietly', function () {
+test('RL-1: a token is offered right after the constructor, and dropping the limiter then ends its generator quietly', function () {
     $ready = null;
     $out   = phasync::run(function () use (&$ready) {
         $rl    = new RateLimiter(50);
@@ -205,5 +205,5 @@ test('RL-1: no token is offered right after the constructor, and dropping the li
         return 'done';
     });
 
-    expect([$ready, $out])->toBe([false, 'done']);
+    expect([$ready, $out])->toBe([true, 'done']);
 });

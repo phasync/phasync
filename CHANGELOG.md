@@ -6,6 +6,8 @@ Releases before 2.0.0 are listed on the GitHub releases page.
 
 - A channel's creator may wait on it like any coroutine: the 100 ms "likely deadlock" guess and its `ChannelException` are gone, and so is the busy `yield()` loop behind it. A wait nothing can ever end fails the outermost `run()` with a `DeadlockException`, exactly, when the last coroutine that could have ended it is done. `activate()` does nothing and is deprecated, removed in 2.1; on a subscriber it no longer throws. (#153)
 - `phasync::await()` of a promise sleeps until it settles instead of yielding in a loop; a promise nothing can settle any more fails `run()` with a `DeadlockException`. (#152)
+- Channel `read()` and `write()` no longer start with a `phasync::sleep()`: one that need not wait returns at once, without letting other coroutines run first (SEMANTICS CHN-10). An unbuffered `write()` still waiting when the reading end is closed or dropped throws `ChannelException('Channel is closed')`; the value was never read. (#158)
+- `BufferedStream` and `UnbufferedStream` wait until the other side acts by default, instead of throwing a "possible deadlock" `TimeoutException` after 60 seconds; a stall nothing can end is an exact `DeadlockException`. `$deadlockTimeout` remains for a timeout of your own. The coroutine that created an `UnbufferedStream` may convert it to a string. (#158)
 - `ResourceStream::__toString()` leaves the waiting to `read()`: no `yield()` between reads. (#154)
 - CI runs the suite on a thread-safe PHP 8.5 with ext-parallel: each thread runs a phasync loop of its own; `docs/use-in-existing-projects.md` tells how to wait for a thread without blocking the loop. (#145, #149)
 

@@ -20,4 +20,10 @@ interface ChannelBackendInterface extends ReadChannelInterface, WriteChannelInte
     public function isReadyForWrite(): bool;
 
     public function awaitWritable(float $timeout = \PHP_FLOAT_MAX): void;
+
+    /**
+     * Closes the channel from the reading end: a value written but not yet read can never be,
+     * so the write() waiting with it throws.
+     */
+    public function closeReading(): void;
 }

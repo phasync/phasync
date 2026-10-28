@@ -15,11 +15,8 @@ use Psr\Http\Message\StreamInterface;
  * `append()` waits while more than `$bufferSize` bytes are unread. The stream is not seekable or writable,
  * and `getSize()` is null.
  *
- * Both sides wait with `phasync::awaitFlag()`: after `$deadlockTimeout` seconds without the other side
- * making progress, the waiting call throws a `TimeoutException`.
- *
- * The coroutine that created the stream cannot convert it to a string: `__toString()` returns an
- * error message instead of waiting for itself.
+ * Both sides wait with `phasync::awaitFlag()` until the other side acts; with a `$deadlockTimeout`,
+ * the waiting call throws a `TimeoutException` after that many seconds without progress.
  *
  * ```php
  * $stream = new UnbufferedStream();
@@ -57,34 +54,29 @@ class UnbufferedStream implements StreamInterface
     private bool $ended    = false;
     private bool $locked   = false;
     private bool $detached = false;
-    private \WeakReference $creator;
     private object $readFlag;
     private object $writeFlag;
 
     /**
-     * Creates an empty stream, owned by the current coroutine.
+     * Creates an empty stream.
      *
      * @param int   $bufferSize      the number of unread bytes after which `append()` waits for the reader
-     * @param float $deadlockTimeout seconds that `read()` and `append()` wait for the other side before throwing a `TimeoutException`
+     * @param float $deadlockTimeout seconds that `read()` and `append()` wait for the other side before throwing a `TimeoutException`; by default they wait until it acts
      */
-    public function __construct(int $bufferSize = 64 * 1024, float $deadlockTimeout = 60)
+    public function __construct(int $bufferSize = 64 * 1024, float $deadlockTimeout = \PHP_FLOAT_MAX)
     {
         $this->bufferSize      = $bufferSize;
         $this->deadlockTimeout = $deadlockTimeout;
-        $this->creator         = \WeakReference::create(\phasync::getFiber());
         $this->readFlag        = new \stdClass();
         $this->writeFlag       = new \stdClass();
     }
 
     /**
-     * Returns the rest of the stream, or a message starting with "Stream Error" when it cannot: it was
-     * closed or detached, or this is the coroutine that created the stream.
+     * Returns the rest of the stream, or a message starting with "Stream Error" when it was closed or
+     * detached.
      */
     public function __toString(): string
     {
-        if ($this->creator->get() === \phasync::getFiber()) {
-            return 'Stream Error: Can\'t access stream from the coroutine that created it';
-        }
         if ($this->detached) {
             return 'Stream Error: Detached';
         }
@@ -226,7 +218,7 @@ class UnbufferedStream implements StreamInterface
      * reader has read enough.
      *
      * @throws \RuntimeException after `end()`
-     * @throws TimeoutException  when the reader makes no progress for `$deadlockTimeout` seconds
+     * @throws TimeoutException  when the reader makes no progress within `$deadlockTimeout` seconds
      *
      * @see UnbufferedStream::end
      *

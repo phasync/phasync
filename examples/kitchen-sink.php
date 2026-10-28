@@ -1,6 +1,5 @@
 <?php
 
-use phasync\ChannelException;
 use phasync\Util\WaitGroup;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -35,12 +34,6 @@ try {
             }
             echo elapsed() . "Delayed subscriber done\n";
         });
-
-        try {
-            $publisher->write('First chunk for only the first subscriber');
-        } catch (ChannelException $e) {
-            echo elapsed() . " Can't activate the channel from within the same coroutine that created it\n";
-        }
 
         phasync::go(function () use ($publisher) {
             $publisher->write('First chunk for only the first subscriber');

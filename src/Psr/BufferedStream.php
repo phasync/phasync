@@ -59,9 +59,9 @@ class BufferedStream implements StreamInterface
      * Creates an empty stream.
      *
      * @param int   $bufferSize      the content size in bytes above which it moves from memory to a temporary file
-     * @param float $deadlockTimeout seconds that a read or `getSize()` waits for the writer before throwing a `TimeoutException`
+     * @param float $deadlockTimeout seconds that a read or `getSize()` waits for the writer before throwing a `TimeoutException`; by default it waits until the writer acts
      */
-    public function __construct(int $bufferSize = 2 * 1024 * 1024, float $deadlockTimeout = 60)
+    public function __construct(int $bufferSize = 2 * 1024 * 1024, float $deadlockTimeout = \PHP_FLOAT_MAX)
     {
         $this->bufferSize      = $bufferSize;
         $this->deadlockTimeout = $deadlockTimeout;
@@ -405,7 +405,7 @@ class BufferedStream implements StreamInterface
         $timeout = \microtime(true) + $this->deadlockTimeout;
         while (null === $this->endOffset) {
             if ($timeout < \microtime(true)) {
-                throw ExceptionTool::popTrace(new TimeoutException('Possible deadlock detected; timeout after ' . $this->deadlockTimeout . ' seconds'), __FILE__);
+                throw ExceptionTool::popTrace(new TimeoutException('No end() within ' . $this->deadlockTimeout . ' seconds'), __FILE__);
             }
             $this->waitForUpdate();
         }
@@ -417,7 +417,7 @@ class BufferedStream implements StreamInterface
         try {
             \phasync::awaitFlag($this, $this->deadlockTimeout);
         } catch (TimeoutException) {
-            throw ExceptionTool::popTrace(new TimeoutException('Possible deadlock detected, no update in ' . $this->deadlockTimeout . ' seconds'), __FILE__);
+            throw ExceptionTool::popTrace(new TimeoutException('No update within ' . $this->deadlockTimeout . ' seconds'), __FILE__);
         }
     }
 }

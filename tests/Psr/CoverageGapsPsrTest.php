@@ -275,7 +275,7 @@ test('BufferedStream.getSize times out when end not called', function () {
         // Don't call end(), just try to get size which calls blockUntilEnded internally
         expect(function () use ($stream) {
             $stream->getSize();
-        })->toThrow(TimeoutException::class, 'deadlock');
+        })->toThrow(TimeoutException::class, 'within 0.05 seconds');
     });
 });
 
@@ -286,7 +286,7 @@ test('BufferedStream.getContents times out when writer stuck', function () {
         // Try to read without end() being called
         expect(function () use ($stream) {
             $stream->getContents();
-        })->toThrow(TimeoutException::class, 'deadlock');
+        })->toThrow(TimeoutException::class, 'within 0.05 seconds');
     });
 });
 

@@ -400,7 +400,7 @@ its own loop, and a channel never crosses threads (between threads, `parallel\Ch
 ZTS job, `tests/ParallelTest.php` (#145)
 
 **CHN-10. No timing heuristics.** `read()` and `write()` do not insert `phasync::sleep()`
-calls or time-based "likely deadlock" checks. ❌ See DLK-1.
+calls or time-based "likely deadlock" checks. ✅ DeadlocksTest DLK-1, ChannelsTest CHN-10
 
 
 ## 8. `select` is not part of the API
@@ -424,8 +424,8 @@ directly by `Channel`, `StringBuffer`, `WaitGroup` and `RateLimiter`'s own calle
 it exactly, when nothing can ever run again, and uses no timers.*
 
 **DLK-1. No time-based deadlock guessing.** No inserted sleeps, no "wait 100 ms and
-assume", no library-imposed 30 or 60 second limits. ❌ Present in `Channel::read()`,
-`Channel::write()`, `BufferedStream`, `UnbufferedStream`. (`ensureNotCreatorFiber()` removed, #153.)
+assume", no library-imposed 30 or 60 second limits. ✅ Channels (#153) and `BufferedStream`/
+`UnbufferedStream` wait until the other side acts, or for a timeout the caller chose.
 
 **DLK-2. Await cycles are detected when they form.** `await($a)` inside `$a`'s own wait
 chain throws `LogicException`. ✅ EdgeCaseTest "circular dependency deadlock"

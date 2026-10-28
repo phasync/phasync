@@ -16,6 +16,7 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
     private int $capacity;
     private object $flag;
     private bool $closed          = false;
+    private bool $readingClosed   = false;
     private mixed $pendingWrite   = null;
     private bool $hasPendingWrite = false;
 
@@ -115,9 +116,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
         $eof      = false;
         $timesOut = \microtime(true) + $timeout;
 
-        // This sleep prevents some deadlocks that may be unexpected by developers
-        \phasync::sleep();
-
         while (true) {
             if (0 === $this->capacity && $this->hasPendingWrite) {
                 // Unbuffered channel. If a value is available, we return it even if the channel is closed.
@@ -160,9 +158,6 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
 
         $timesOut = \microtime(true) + $timeout;
 
-        // This sleep prevents some deadlocks that may be unexpected by developers
-        \phasync::sleep();
-
         while (true) {
             if ($this->closed) {
                 // Writes are never permitted on a closed channel
@@ -175,6 +170,11 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
                 try {
                     // Block until a reader has consumed the value (making the channel writable again)
                     $this->awaitWritable(self::calculateRemainingTimeout($timesOut));
+                    if ($this->readingClosed && $this->hasPendingWrite) {
+                        $this->hasPendingWrite = false;
+                        $this->pendingWrite    = null;
+                        throw new ChannelException('Channel is closed');
+                    }
 
                     return;
                 } catch (TimeoutException $e) {
@@ -208,6 +208,12 @@ final class Channel implements ChannelBackendInterface, \IteratorAggregate
     {
         $this->closed = true;
         \phasync::raiseFlag($this->flag);
+    }
+
+    public function closeReading(): void
+    {
+        $this->readingClosed = true;
+        $this->close();
     }
 
     public function isClosed(): bool

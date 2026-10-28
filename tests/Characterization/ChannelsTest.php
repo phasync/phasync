@@ -155,7 +155,8 @@ test('CHN-2: a buffered channel accepts writes up to its capacity, then blocks u
         return $log;
     });
 
-    expect($log)->toBe(['wrote 1', 'wrote 2', 'reader start', 'read 1', 'wrote 3', 'read 2', 'read 3']);
+    // the third write waits for the first read; the reader then reads on without yielding
+    expect($log)->toBe(['wrote 1', 'wrote 2', 'reader start', 'read 1', 'read 2', 'wrote 3', 'read 3']);
 });
 
 test('CHN-2: writing to a full buffered channel with a timeout throws TimeoutException', function () {
@@ -319,7 +320,7 @@ test('CHN-5: an unbuffered value that is pending when the channel closes is stil
         return $out;
     });
 
-    expect($out)->toBe(['write returned', "read 1: 'x'", 'read 2: NULL']);
+    expect($out)->toBe(["read 1: 'x'", 'read 2: NULL', 'write returned']);
 });
 
 test('CHN-5: a written null is read as null and does not close the channel', function () {
@@ -664,10 +665,7 @@ test('CHN-10: the creator can use a buffered channel without blocking', function
     expect($out)->toBe(1);
 });
 
-test('CHN-10: even a non-blocking read() and write() let sibling coroutines run first [DIVERGENCE]', function () {
-    // SEMANTICS CHN-10 expects no inserted phasync::sleep() calls. Every channel operation
-    // starts with one, so a sibling gets at least one turn during each operation, even when
-    // the buffer has room and data.
+test('CHN-10: a read() and write() that need not wait let no sibling coroutine run', function () {
     [$writeTicks, $readTicks] = phasync::run(function () {
         phasync::channel($r, $w, 5);
         $ticks   = 0;
@@ -694,9 +692,9 @@ test('CHN-10: even a non-blocking read() and write() let sibling coroutines run 
         return $result;
     });
 
-    expect($writeTicks)->toBeGreaterThanOrEqual(1);
-    expect($readTicks)->toBeGreaterThanOrEqual(1);
-})->group('divergence');
+    expect($writeTicks)->toBe(0);
+    expect($readTicks)->toBe(0);
+});
 
 test('CHN-10: a read timeout on a child coroutine throws TimeoutException after at least the timeout', function () {
     [$class, $message, $elapsed] = phasync::run(function () {

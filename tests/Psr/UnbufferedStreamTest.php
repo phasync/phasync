@@ -227,13 +227,23 @@ test('getContents reads all remaining data', function () {
     });
 });
 
-test('__toString returns error from creator coroutine', function () {
+test('the coroutine that created the stream may convert it to a string, waiting for the writer', function () {
     phasync::run(function () {
-        $stream = new UnbufferedStream(1024);
-        $result = (string) $stream;
-        expect($result)->toContain('Stream Error');
-        expect($result)->toContain('coroutine that created it');
+        $stream = new UnbufferedStream(4);
+        phasync::go(function () use ($stream) {
+            $stream->append('hello ');
+            phasync::sleep(0.01);
+            $stream->append('world');
+            $stream->end();
+        });
+        expect((string) $stream)->toBe('hello world');
     });
+});
+
+test('a creator that converts a stream nothing writes to fails run() with a DeadlockException', function () {
+    expect(fn () => phasync::run(function () {
+        return (string) new UnbufferedStream();
+    }))->toThrow(phasync\DeadlockException::class);
 });
 
 test('getMetadata returns correct keys', function () {

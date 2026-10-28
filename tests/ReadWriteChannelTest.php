@@ -20,6 +20,7 @@ test('ReadChannel isReady delegates to backend', function () {
         });
         phasync::sleep(0.01);
         expect($reader->isReady())->toBeTrue();
+        expect($reader->read())->toBe('test');
     });
 });
 

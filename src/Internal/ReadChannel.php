@@ -66,7 +66,7 @@ final class ReadChannel implements ReadChannelInterface, \IteratorAggregate
 
     public function close(): void
     {
-        $this->channel->close();
+        $this->channel->closeReading();
     }
 
     public function isClosed(): bool

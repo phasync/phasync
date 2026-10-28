@@ -109,7 +109,7 @@ test('DLK-1: the creator\'s read with a timeout times out normally; activate() c
     expect($seconds)->toBeGreaterThanOrEqual(0.1);
 });
 
-test('DLK-1: a channel read from another coroutine than the creator is not treated as a deadlock, it just waits [DIVERGENCE]', function () {
+test('DLK-1: a channel read from another coroutine than the creator is not treated as a deadlock, it just waits', function () {
     [$outcome, , $message] = phasync::run(static function () {
         phasync::channel($r, $w);
         $reader = phasync::go(static fn () => dlkTimed(static fn () => $r->read(0.1)));
@@ -119,11 +119,10 @@ test('DLK-1: a channel read from another coroutine than the creator is not treat
 
     expect($outcome)->toBe(TimeoutException::class);
     expect($message)->toBe('Channel read operation timed out');
-})->group('divergence');
+});
 
-test('DLK-1: Channel::read() suspends at least once (via phasync::sleep) even when a value is already buffered [DIVERGENCE]', function () {
-    // The contract (CHN-10) says read() does not insert phasync::sleep() calls. The sibling
-    // below counts how often it got to run while read() was executing.
+test('DLK-1: Channel::read() of a buffered value does not suspend', function () {
+    // The sibling counts how often it got to run while read() was executing
     $slices = phasync::run(static function () {
         phasync::channel($r, $w, 2);
         $w->write('a');
@@ -144,10 +143,10 @@ test('DLK-1: Channel::read() suspends at least once (via phasync::sleep) even wh
         return $during;
     });
 
-    expect($slices)->toBeGreaterThanOrEqual(1);
-})->group('divergence');
+    expect($slices)->toBe(0);
+});
 
-test('DLK-1: Channel::write() suspends at least once (via phasync::sleep) even when the buffer has room [DIVERGENCE]', function () {
+test('DLK-1: Channel::write() into a buffer with room does not suspend', function () {
     $slices = phasync::run(static function () {
         phasync::channel($r, $w, 2);
         $count   = 0;
@@ -167,8 +166,8 @@ test('DLK-1: Channel::write() suspends at least once (via phasync::sleep) even w
         return $during;
     });
 
-    expect($slices)->toBeGreaterThanOrEqual(1);
-})->group('divergence');
+    expect($slices)->toBe(0);
+});
 
 // ---------------------------------------------------------------------------
 // DLK-2: await cycles are detected when they form
@@ -387,4 +386,18 @@ test('DLK-5: a writer end in a reference cycle is released by idle-time GC befor
     });
 
     expect($outcome)->toBe('ok');
+});
+
+test('DLK-1: a BufferedStream read nothing can end fails run() with a DeadlockException once the writer is gone, not on a timer', function () {
+    $t = \microtime(true);
+    expect(fn () => phasync::run(static function () {
+        $stream = new phasync\Psr\BufferedStream();
+        phasync::go(static function () use ($stream) {
+            $stream->append('never ended');
+            phasync::sleep(0.1);
+        });
+
+        return $stream->getContents();
+    }))->toThrow(DeadlockException::class);
+    expect(\microtime(true) - $t)->toBeGreaterThanOrEqual(0.09)->toBeLessThan(1);
 });

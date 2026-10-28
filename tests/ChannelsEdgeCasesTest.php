@@ -113,6 +113,7 @@ test('channel write with timeout on unbuffered blocked channel', function () {
         expect(function () use ($writer) {
             $writer->write('second', 0.05);
         })->toThrow(TimeoutException::class);
+        expect($reader->read())->toBe('first');
     });
 });
 
@@ -122,6 +123,7 @@ test('channel await on reader waits for data', function () {
         phasync::go(function () use ($reader) {
             $reader->await(1.0);
             expect($reader->isReady())->toBeTrue();
+            expect($reader->read())->toBe('test');
         });
         phasync::sleep(0.01);
         phasync::go(function () use ($writer) {
