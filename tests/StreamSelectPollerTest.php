@@ -96,22 +96,38 @@ test('two coroutines cannot wait to read from the same stream', function () {
 })->skip(\extension_loaded('phasync'), 'the extension has its own poller')
     ->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 
-test('two coroutines cannot wait to write to the same stream', function () {
+test('several coroutines may wait to write to one stream: each readiness wakes the one that waited longest', function () {
     [$write, $other] = \stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+    \stream_set_blocking($write, false);
+    while (@\fwrite($write, \str_repeat('x', 65536)) > 0) {
+        // fill the socket buffer: writable() waits
+    }
 
-    $message = phasync::run(function () use ($write) {
-        $first = phasync::go(fn () => phasync::writable($write, 0.2));
-        try {
-            phasync::writable($write, 0.2);
-        } catch (LogicException $e) {
-            $message = $e->getMessage();
+    $woken = phasync::run(function () use ($write, $other) {
+        $woken   = [];
+        $writers = [];
+        foreach (['first', 'second', 'third'] as $name) {
+            $writers[] = phasync::go(function () use ($write, $name, &$woken) {
+                phasync::writable($write, 1.0);
+                $woken[] = $name;
+            });
         }
-        phasync::cancel($first);
+        $cancelled = phasync::go(fn () => phasync::writable($write, 1.0));
+        phasync::sleep(0.02);
+        expect($woken)->toBe([]);
+        phasync::cancel($cancelled);
+        \stream_set_blocking($other, false);
+        while ('' !== (string) \fread($other, 1 << 20)) {
+            // drain: the stream becomes writable
+        }
+        foreach ($writers as $writer) {
+            phasync::await($writer);
+        }
 
-        return $message;
+        return $woken;
     });
 
-    expect($message)->toBe('Another coroutine is already waiting to write to this stream');
+    expect($woken)->toBe(['first', 'second', 'third']);
 })->skip(\extension_loaded('phasync'), 'the extension has its own poller')
     ->skip(\PHP_OS_FAMILY === 'Windows', 'stream_socket_pair(STREAM_PF_UNIX) is not implemented on Windows');
 

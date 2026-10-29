@@ -31,7 +31,10 @@ final class StreamSelectPoller implements PollerInterface
     private array $readSlots = [];
 
     /**
-     * @var array<int, int>
+     * The slots of the coroutines waiting to write, oldest first: several may (a log written by
+     * many), and each readiness wakes the oldest.
+     *
+     * @var array<int, array<int, int>> by resource id, slot => slot
      */
     private array $writeSlots = [];
 
@@ -121,10 +124,18 @@ final class StreamSelectPoller implements PollerInterface
             unset($this->readStreams[$id], $this->readSlots[$id]);
             $loop->unpark($slot); // false if its wait was cancelled or timed out this tick
         }
-        foreach ($writes as $id => $_) {
-            $slot = $this->writeSlots[$id];
-            unset($this->writeStreams[$id], $this->writeSlots[$id]);
-            $loop->unpark($slot); // false if its wait was cancelled or timed out this tick
+        foreach ($writes as $id => $stream) {
+            // A failure, a closed stream or one that can't be waited on: every waiter hears of it
+            $all = false === $result || isset($this->unselectable[$id]) || !\is_resource($stream);
+            do {
+                $slot = \array_key_first($this->writeSlots[$id]);
+                unset($this->writeSlots[$id][$slot]);
+                // false if its wait was cancelled or timed out this tick: the next one gets it
+                $woken = $loop->unpark($slot);
+            } while ((!$woken || $all) && $this->writeSlots[$id]);
+            if (!$this->writeSlots[$id]) {
+                unset($this->writeStreams[$id], $this->writeSlots[$id]);
+            }
         }
     }
 
@@ -187,24 +198,26 @@ final class StreamSelectPoller implements PollerInterface
 
     public function writable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
     {
-        $id = \get_resource_id($stream);
-        if (isset($this->writeSlots[$id])) {
-            throw new \LogicException('Another coroutine is already waiting to write to this stream');
-        }
-        $slot                    = $this->loop->getSlot();
-        $this->writeStreams[$id] = $stream;
-        $this->writeSlots[$id]   = $slot;
-        $failures                = $this->failures;
+        $id                           = \get_resource_id($stream);
+        $slot                         = $this->loop->getSlot();
+        $this->writeStreams[$id]      = $stream;
+        $this->writeSlots[$id][$slot] = $slot;
+        $failures                     = $this->failures;
         try {
             $this->loop->parkForPoller($slot, $timeout);
         } finally {
-            if (($this->writeSlots[$id] ?? null) === $slot) {
+            if (isset($this->writeSlots[$id][$slot])) {
                 // Not unparked: the wait was cancelled or timed out
-                unset($this->writeStreams[$id], $this->writeSlots[$id]);
+                unset($this->writeSlots[$id][$slot]);
+                if (!$this->writeSlots[$id]) {
+                    unset($this->writeStreams[$id], $this->writeSlots[$id]);
+                }
             }
         }
         if (isset($this->unselectable[$id])) {
-            unset($this->unselectable[$id]);
+            if (!isset($this->writeSlots[$id])) {
+                unset($this->unselectable[$id]); // the last writer told
+            }
 
             throw new \ValueError('No stream arrays were passed');
         }

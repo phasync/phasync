@@ -481,19 +481,21 @@ coroutine stops, without failing `run()`, once the limiter (and its read channel
 dropped. ✅ RateLimiterTest, Characterization\RateLimiterTest
 
 **IO-1. Waiting on a stream.** `readable`/`writable`/`stream` suspend until the resource
-is ready. At most one coroutine waits on a stream per direction: one may wait to read (or
-for out of band data) and one to write, which covers full duplex use. A second coroutine
-that tries to wait in a direction that is taken gets `LogicException` at once, without
-waiting. `stream()` with both directions takes both. A waiting coroutine is resumed only by
-the events it asked for. ✅
+is ready. At most one coroutine waits to read a stream (or for out of band data); a second
+coroutine that tries gets `LogicException` at once, without waiting. Any number may wait to
+write (a log written by many): they queue, and each time the stream is writable the one that
+waited longest is resumed. `stream()` with both directions takes both. A waiting coroutine is
+resumed only by the events it asked for. ✅
 
-Two coroutines reading (or writing) one stream at the same time is a data race, as with a
-shared buffered reader in Go or Rust: PHP's stream buffer is shared, so each could get part
-of the other's data. phasync catches it when the second coroutine has to wait. It does not
+Two coroutines reading one stream at the same time is a data race, as with a shared buffered
+reader in Go or Rust: PHP's stream buffer is shared, so each could get part of the other's
+data. phasync catches it when the second coroutine has to wait. It does not
 catch a second coroutine whose read is satisfied without waiting, because it never reaches
-phasync; that coroutine silently takes data the first was waiting for. Give each direction
-of a stream to one coroutine at a time; to share a stream, pass it between coroutines (for
-example through a channel) or guard it with a lock.
+phasync; that coroutine silently takes data the first was waiting for. Give a stream's
+reading to one coroutine at a time; to share it, pass it between coroutines (for example
+through a channel) or guard it with a lock. Writers that queue write whole messages only if
+each writes its message in one go once resumed: a partial write that waits again lets the
+next writer in.
 
 **IO-2. A resource closed while waited on throws `IOException`** in the waiting
 coroutine. ⚠️
