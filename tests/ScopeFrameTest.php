@@ -43,12 +43,12 @@ test('a coroutine\'s scope is freed as it ends, also while nothing else runs (#1
 
         public function __destruct()
         {
-            $this->freed = microtime(true);
+            $this->freed = \microtime(true);
         }
     };
     phasync::run(function () use (&$probe, &$freed) {
         $map   = new WeakMap();
-        $start = microtime(true);
+        $start = \microtime(true);
         phasync::go(function () use ($map, &$probe) {
             (new Scope())->run(function () use ($map, &$probe) {
                 $map[Scope::getCurrent()] = $probe;

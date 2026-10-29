@@ -444,15 +444,15 @@ test('a long ready queue does not make a due timer late: the tick stops resuming
     $late = phasync::run(function () {
         $late  = null;
         $timer = phasync::go(function () use (&$late) {
-            $due = microtime(true) + 0.02;
+            $due = \microtime(true) + 0.02;
             phasync::sleep(0.02);
-            $late = microtime(true) - $due;
+            $late = \microtime(true) - $due;
         });
         for ($i = 0; $i < 100; ++$i) {
             phasync::go(function () {
                 for ($n = 0; $n < 3; ++$n) {
                     phasync::sleep(0); // queued: the work happens in the loop's ticks
-                    for ($end = hrtime(true) + 1_000_000; hrtime(true) < $end;) {
+                    for ($end = \hrtime(true) + 1_000_000; \hrtime(true) < $end;) {
                         // 1 ms of work between waits
                     }
                 }
@@ -489,5 +489,5 @@ test('the drain is budgeted, not cut short: with a timer due at once, the ready 
 
         return $order;
     });
-    expect(array_values(array_filter($order, 'is_int')))->toBe(range(0, 19)); // FIFO
+    expect(\array_values(\array_filter($order, 'is_int')))->toBe(\range(0, 19)); // FIFO
 });
