@@ -12,11 +12,9 @@ uses()->group('characterization');
 // RT-1: cyclic garbage is collected also while no coroutine terminates
 
 test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine ends, is collected', function () {
-    // The loop's collection pacing is process-wide: an earlier run() can leave it backed off up to
-    // 8 times GC_MAX_INTERVAL (a collection that found under 1% garbage, as one of a test file's
-    // live objects does), or due at once. Start from the documented 0.5 s (#90).
+    // The loop's collection pacing is process-wide: an earlier run() can leave a collection due at
+    // once. Start from the documented 0.5 s (#90).
     $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
-    (new ReflectionProperty($driver, 'gcScale'))->setValue($driver, 1.0);
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
     $growth = phasync::run(static function () {
         $before = \memory_get_usage();

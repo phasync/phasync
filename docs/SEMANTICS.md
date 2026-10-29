@@ -50,13 +50,10 @@ propagation and cancellation work the same everywhere.
 **P3. Rely on refcounting; treat cycle collection as bounded cleanup.** Destructors that
 run when the last reference is dropped are immediate and deterministic, and may be relied
 on (channel ends, flag objects and the primitives' own objects, see FLG-1). Cyclic garbage is freed by the event loop's own
-collection, only when the loop has a spare moment: nothing runnable and a `poll(0)` finds no
-ready I/O, at most once per `GC_MIN_INTERVAL` (0.5 s). A loop kept busy by always-runnable
-coroutines never has one, so as a safety net it collects once `GC_MAX_INTERVAL` (0.5 s) has
-passed while there is anything to collect; until then its garbage stays in memory (RT-1).
-A collection that frees under 1% of its possible roots doubles both intervals for the next
-one, up to 8 times (4 s); one that finds garbage puts them back: collecting costs per root,
-and in a long-lived server most roots are its own live structures.
+collection, at every spare moment: nothing runnable and a `poll(0)` finds no ready I/O. A
+loop kept busy by always-runnable coroutines never has one, so as a safety net it collects
+once `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect; until then its
+garbage stays in memory (RT-1).
 Correct behaviour must not depend on cyclic garbage being freed at a particular moment.
 ❌ See ERR-3.
 
@@ -571,12 +568,11 @@ true when a read would not block, when the buffer has ended, or when it has fail
 **RT-1. Inside `run()` the loop controls GC, and the caller's setting is restored.**
 `gc_disable()` while `run()` is active is deliberate: refcount frees are immediate,
 and the loop collects cycles between coroutines, never inside one. It collects when it has a
-spare moment: nothing runnable and a `poll(0)` finds no ready I/O, at most once per
-`GC_MIN_INTERVAL` (0.5 s). A loop kept busy by always-runnable coroutines (a server's
+spare moment: nothing runnable and a `poll(0)` finds no ready I/O. A loop kept busy by always-runnable coroutines (a server's
 connections making garbage while none ends) never has one, so it collects once
 `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect, checked every 50 ms,
 and not before: a loop that busy has no time to spare, so its garbage waits. There is no
-roots threshold. `PHASYNC_GC_MIN_INTERVAL`/`PHASYNC_GC_MAX_INTERVAL` override the intervals.
+roots threshold. `PHASYNC_GC_MAX_INTERVAL` overrides the interval.
 ✅ RuntimeTest, GarbageCollectionTest
 Leaving `run()` must restore the previous state and never enable what the user disabled.
 ❌ Today `gc_enable()` is unconditional.

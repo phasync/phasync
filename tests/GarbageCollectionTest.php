@@ -4,8 +4,7 @@
  * EventLoop collects cyclic garbage in two ways (see EventLoop::tick()); PHP's own collector
  * is off inside run():
  * - idle-time: right before the poller would wait with a timeout > 0 (nothing runnable), if
- *   there are any possible cycles at all, a poll(0) finds no ready I/O, and the last idle-time
- *   collection was at least GC_MIN_INTERVAL ago.
+ *   there are any possible cycles at all and a poll(0) finds no ready I/O.
  * - busy, time-based: a loop that never idles still collects once GC_MAX_INTERVAL has passed
  *   since the last collection, as long as there is anything to collect, and not before: until
  *   then the garbage stays in memory, however much of it there is.
@@ -28,9 +27,7 @@ function resetEventLoopGcState(): void
     \gc_collect_cycles(); // garbage an earlier test left would make the first collection find some
     $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
-    (new ReflectionProperty($driver, 'lastIdleCollect'))->setValue($driver, 0.0);
     (new ReflectionProperty($driver, 'lastGarbageCheck'))->setValue($driver, 0.0);
-    (new ReflectionProperty($driver, 'gcScale'))->setValue($driver, 1.0);
 }
 
 /** Makes every object in $live a possible root of the collector, without making it garbage. */
@@ -70,6 +67,51 @@ test('a loop that goes idle collects cyclic garbage before its wait returns', fu
     expect($before['roots'])->toBeGreaterThan(0);
     expect($after['roots'])->toBeLessThan($before['roots']);
     expect($after['runs'])->toBeGreaterThan($before['runs']);
+});
+
+test('every idle moment collects, however soon after the last one', function () {
+    $runs = phasync::run(function () {
+        $runs = [];
+        for ($i = 0; $i < 3; ++$i) {
+            phasync::go(fn () => makeGcCycle());
+            $before = \gc_status()['runs'];
+            phasync::sleep(0.02); // nothing runnable: an idle moment
+            $runs[] = \gc_status()['runs'] - $before;
+        }
+
+        return $runs;
+    });
+
+    expect($runs)->toBe([1, 1, 1]);
+});
+
+test('a coroutine woken by a destructor of the garbage runs at once, not after the rest of the wait', function () {
+    $waited = phasync::run(function () {
+        $released = new stdClass();
+        $holder   = new class($released) {
+            public $self;
+
+            public function __construct(public stdClass $flag)
+            {
+                $this->self = $this; // a cycle: only the collector frees it
+            }
+
+            public function __destruct()
+            {
+                phasync::raiseFlag($this->flag);
+            }
+        };
+        unset($holder);
+        $timer = phasync::go(fn () => phasync::sleep(0.5)); // the loop's wait would be 0.5 s
+        $start = \microtime(true);
+        phasync::awaitFlag($released);
+        $waited = \microtime(true) - $start;
+        phasync::cancel($timer);
+
+        return $waited;
+    });
+
+    expect($waited)->toBeLessThan(0.05);
 });
 
 test('a loop with coroutines always runnable (timeout 0) does not collect', function () {
@@ -136,27 +178,7 @@ test('a loop kept busy for longer than the time limit still collects', function 
     expect($after['runs'])->toBeGreaterThan($before['runs']);
 });
 
-test('a busy-loop collection that finds almost nothing but live values backs off: the next one waits longer than GC_MAX_INTERVAL', function () {
-    [$first, $second] = phasync::run(function () {
-        $live = [];
-        for ($i = 0; $i < 5000; ++$i) {
-            $live[] = new stdClass();
-        }
-        $start = \gc_status()['runs'];
-        $busy  = phasync::go(fn () => busyFor(0.65, fn () => touchGcRoots($live))); // past 0.5 s: one collection, finding nothing
-        phasync::await($busy);
-        $first = \gc_status()['runs'] - $start;
-        $busy  = phasync::go(fn () => busyFor(0.65, fn () => touchGcRoots($live))); // 0.8 s since it: within the backed-off interval
-        phasync::await($busy);
-
-        return [$first, \gc_status()['runs'] - $start - $first];
-    });
-
-    expect($first)->toBe(1);
-    expect($second)->toBe(0);
-});
-
-test('a busy-loop collection that finds garbage keeps GC_MAX_INTERVAL', function () {
+test('a busy loop collects once per GC_MAX_INTERVAL', function () {
     [$first, $second] = phasync::run(function () {
         $start = \gc_status()['runs'];
         $busy  = phasync::go(fn () => busyFor(0.65, fn () => makeGcCycle()));

@@ -349,18 +349,8 @@ final class EventLoop implements \Countable
     /** When the loop last collected cycles, by either of the two ways tick() does it. */
     private float $lastGarbageCollect = 0;
 
-    /** When the loop last collected cycles at idle time; the start-up collection doesn't count. */
-    private float $lastIdleCollect = 0;
-
-    /** GC_MIN_INTERVAL and GC_MAX_INTERVAL, or the PHASYNC_GC_MIN_INTERVAL/PHASYNC_GC_MAX_INTERVAL constants when defined. */
-    private float $gcMinInterval;
+    /** GC_MAX_INTERVAL, or the PHASYNC_GC_MAX_INTERVAL constant when defined. */
     private float $gcMaxInterval;
-
-    /** Both intervals are multiplied by this: 1, doubled by each collection that finds almost no garbage, up to GC_MAX_SCALE. */
-    private float $gcScale = 1.0;
-
-    /** How far collections that find almost no garbage stretch the intervals. */
-    private const GC_MAX_SCALE = 8.0;
 
     /** How long a coroutine runs in a PHP loop before it yields to other requests (ext-phasync). */
     public const PREEMPT_INTERVAL = 0.02;
@@ -377,9 +367,6 @@ final class EventLoop implements \Countable
 
     /** The longest a busy loop goes without collecting, while there's anything to collect. */
     private const GC_MAX_INTERVAL = 0.5;
-
-    /** The shortest gap between two idle-time collections (tick(), right before the poller waits). */
-    private const GC_MIN_INTERVAL = 0.5;
 
     /** Width of a {@see self::$timeoutBuckets} slot, and the threshold below which a flag/park timeout is delivered exactly (#139) instead. */
     private const TIMEOUT_SLOT_SECONDS = 0.01;
@@ -508,7 +495,6 @@ final class EventLoop implements \Countable
                 fn () => $this->scopeProbe ?? (null !== ($c = $this->currentFiber) && $c !== \Fiber::getCurrent() ? $c : null)
             );
         }
-        $this->gcMinInterval      = \defined('PHASYNC_GC_MIN_INTERVAL') ? (float) PHASYNC_GC_MIN_INTERVAL : self::GC_MIN_INTERVAL;
         $this->gcMaxInterval      = \defined('PHASYNC_GC_MAX_INTERVAL') ? (float) PHASYNC_GC_MAX_INTERVAL : self::GC_MAX_INTERVAL;
         $this->preemptInterval    = \defined('PHASYNC_PREEMPT_INTERVAL') ? (float) PHASYNC_PREEMPT_INTERVAL : self::PREEMPT_INTERVAL;
         $this->clear();
@@ -609,19 +595,6 @@ final class EventLoop implements \Countable
     public function count(): int
     {
         return $this->pending->count();
-    }
-
-    /**
-     * Collect cycles, and set how soon the next collection comes: a collection costs per
-     * possible root, garbage or not, so one that freed under 1% of its roots (a long-lived
-     * server's own live structures, touched by every request, make most of them) doubles
-     * both intervals, up to GC_MAX_SCALE; one that found garbage puts them back.
-     */
-    private function collectCycles(): void
-    {
-        $roots          = \gc_status()['roots'];
-        $freed          = \gc_collect_cycles();
-        $this->gcScale  = $freed * 100 < $roots ? \min($this->gcScale * 2, self::GC_MAX_SCALE) : 1.0;
     }
 
     /**
@@ -739,9 +712,7 @@ final class EventLoop implements \Countable
 
         if ($maxSleepTime > 0 && [] !== $this->idleWaiters) {
             // Nothing is runnable: the oldest idle() waiter gets this moment, once it has lasted
-            // its own $after. Poll for it directly, since the GC branch below polls at most once
-            // per GC_MIN_INTERVAL and would make a short $after wait for a collection it has
-            // nothing to do with.
+            // its own $after. Poll for it directly: the GC branch below doesn't measure a quiet $after.
             [$flag, $after] = $this->idleWaiters[0];
             $this->poller->poll(\min($maxSleepTime, $after));
             if (0 === $queue->count() && $this->callbackQueue->isEmpty() && \microtime(true) - $now >= $after) {
@@ -751,16 +722,16 @@ final class EventLoop implements \Countable
             $maxSleepTime = 0;
         }
 
-        if ($maxSleepTime > 0 && $now - $this->lastIdleCollect > $this->gcMinInterval * $this->gcScale && \gc_status()['roots'] > 0) {
+        if ($maxSleepTime > 0 && \gc_status()['roots'] > 0) {
             // Nothing is runnable. Ask the poller whether I/O is ready right now: if not, the CPU
-            // has a spare moment, so collect, then wait for whatever is left of the wait. At most
-            // once per GC_MIN_INTERVAL, since on a loaded server "nothing runnable" is often just
-            // a database round trip in flight, and collecting on every such wait costs real CPU.
+            // has a spare moment, so collect, then wait for whatever is left of the wait
             $this->poller->poll(0);
             if (0 === $queue->count() && $this->callbackQueue->isEmpty()) {
-                $this->collectCycles();
-                $this->lastGarbageCollect = $this->lastIdleCollect = \microtime(true);
-                $this->poller->poll(\max(0.0, $maxSleepTime - ($this->lastGarbageCollect - $now)));
+                \gc_collect_cycles();
+                $this->lastGarbageCollect = \microtime(true);
+                // A destructor of the garbage may have woken a coroutine (a resource given back)
+                $remaining = 0 === $queue->count() && $this->callbackQueue->isEmpty() ? $maxSleepTime - ($this->lastGarbageCollect - $now) : 0.0;
+                $this->poller->poll(\max(0.0, $remaining));
             }
         } else {
             $this->poller->poll($maxSleepTime);
@@ -883,8 +854,8 @@ final class EventLoop implements \Countable
             // collection (of any kind) ended while there's anything to collect. Until then garbage
             // stays in memory: a loop this busy has no time to spare for collecting it.
             $this->lastGarbageCheck = $now;
-            if ($now - $this->lastGarbageCollect > $this->gcMaxInterval * $this->gcScale && \gc_status()['roots'] > 0) {
-                $this->collectCycles();
+            if ($now - $this->lastGarbageCollect > $this->gcMaxInterval && \gc_status()['roots'] > 0) {
+                \gc_collect_cycles();
                 // From its end: a collection slower than the interval is not followed by another at once (#104)
                 $this->lastGarbageCollect = \microtime(true);
             }
@@ -1718,7 +1689,7 @@ final class EventLoop implements \Countable
     {
         if (\gc_status()['roots'] > 0) {
             // A flag freed with a cycle wakes its waiters (FLG-1)
-            $this->collectCycles();
+            \gc_collect_cycles();
             $this->lastGarbageCollect = \microtime(true);
             if (!$this->isStalled()) {
                 return;
