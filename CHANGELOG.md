@@ -9,6 +9,7 @@ Releases before 2.0.0 are listed on the GitHub releases page.
 - Channel `read()` and `write()` no longer start with a `phasync::sleep()`: one that need not wait returns at once, without letting other coroutines run first (SEMANTICS CHN-10). An unbuffered `write()` still waiting when the reading end is closed or dropped throws `ChannelException('Channel is closed')`; the value was never read. (#158)
 - `BufferedStream` and `UnbufferedStream` wait until the other side acts by default, instead of throwing a "possible deadlock" `TimeoutException` after 60 seconds; a stall nothing can end is an exact `DeadlockException`. `$deadlockTimeout` remains for a timeout of your own. The coroutine that created an `UnbufferedStream` may convert it to a string. (#158)
 - `ResourceStream::__toString()` leaves the waiting to `read()`: no `yield()` between reads. (#154)
+- A coroutine's scope, and what only it holds, is freed as the coroutine ends, also when nothing else runs: when the loop has nothing to run it switches to the scope `run()` began in, instead of keeping the last coroutine's scope live until another coroutine runs. A request's resources in an idle worker were held until its next event. (#159)
 - CI runs the suite on a thread-safe PHP 8.5 with ext-parallel: each thread runs a phasync loop of its own; `docs/use-in-existing-projects.md` tells how to wait for a thread without blocking the loop. (#145, #149)
 
 ## 2.0.6 (2026-10-28)

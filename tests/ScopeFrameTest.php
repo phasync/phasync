@@ -34,6 +34,47 @@ test('go() runs the coroutine in the scope current where go() was called', funct
     expect($seen[1])->toBe($scope);
 });
 
+test('a coroutine\'s scope is freed as it ends, also while nothing else runs (#159)', function () {
+    $freed = null;
+    $probe = new class($freed) {
+        public function __construct(private ?float &$freed)
+        {
+        }
+
+        public function __destruct()
+        {
+            $this->freed = microtime(true);
+        }
+    };
+    phasync::run(function () use (&$probe, &$freed) {
+        $map   = new WeakMap();
+        $start = microtime(true);
+        phasync::go(function () use ($map, &$probe) {
+            (new Scope())->run(function () use ($map, &$probe) {
+                $map[Scope::getCurrent()] = $probe;
+                $probe                    = null; // only the scope holds it now
+                phasync::sleep(0.01);
+            });
+        });
+        phasync::sleep(0.3); // nothing else runs meanwhile
+        expect($freed)->not->toBeNull();
+        expect($freed - $start)->toBeLessThan(0.15);
+    });
+});
+
+test('a scope switched out while the loop is idle keeps its state for its coroutines (#159)', function () {
+    phasync::run(function () {
+        $scope = new Scope();
+        $a     = phasync::go(fn () => $scope->run(function () {
+            $_GET['who'] = 'a';
+            phasync::sleep(0.05); // the loop is idle meanwhile
+
+            return $_GET['who'] ?? null;
+        }));
+        expect(phasync::await($a))->toBe('a');
+    });
+});
+
 test('the scope survives waits while other scopes run in between', function () {
     $a   = new Scope();
     $b   = new Scope();

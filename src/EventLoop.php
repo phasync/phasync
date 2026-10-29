@@ -62,6 +62,9 @@ final class EventLoop implements \Countable
      */
     private ?\Scope $liveScope = null;
 
+    /** The scope the outermost run() began in: live while the loop waits with nothing to run (#159). */
+    private ?\Scope $runScope = null;
+
     /** @var list<\Closure(\Scope, ?\Scope):void> phasync::onScopeChange() hooks */
     private array $scopeHooks = [];
 
@@ -700,6 +703,13 @@ final class EventLoop implements \Countable
         if ($maxSleepTime > 0 && 0 === $this->pollerWaits && $this->isStalled()) {
             $this->stalled();
             $maxSleepTime = 0;
+        }
+
+        if ($maxSleepTime > 0 && $this->liveScope !== $this->runScope && null !== $this->runScope) {
+            // Nothing runs until I/O or a timer: the scope that ran last stops being live, so it,
+            // and what only it holds (a request's resources), goes as soon as its coroutines end,
+            // not when the next coroutine runs. Through the hooks, which save its state (#159)
+            $this->switchScope($this->runScope, null);
         }
 
         if ($maxSleepTime > 0 && [] !== $this->idleWaiters) {
@@ -2528,7 +2538,7 @@ final class EventLoop implements \Countable
      */
     public function beginRun(): Frame
     {
-        $this->liveScope = \Scope::getCurrent();
+        $this->liveScope = $this->runScope = \Scope::getCurrent();
 
         return $this->rootFrame = ($this->newFrame)(null);
     }
@@ -2599,7 +2609,7 @@ final class EventLoop implements \Countable
             return;
         }
         $frame->ended    = true;
-        $this->rootFrame = null;
+        $this->rootFrame = $this->runScope = null;
         $this->deadlines = [];
         foreach ([$frame, $this->serviceFrame] as $f) {
             if (null !== $f->cancellation) {
