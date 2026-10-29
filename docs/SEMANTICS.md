@@ -50,7 +50,9 @@ propagation and cancellation work the same everywhere.
 **P3. Rely on refcounting; treat cycle collection as bounded cleanup.** Destructors that
 run when the last reference is dropped are immediate and deterministic, and may be relied
 on (channel ends, flag objects and the primitives' own objects, see FLG-1). Cyclic garbage is freed by the event loop's own
-collection, at every spare moment: nothing runnable and a `poll(0)` finds no ready I/O. A
+collection, at every spare moment: nothing runnable and a `poll(0)` finds no ready I/O,
+once 20 times the last collection's duration has passed since it (collection stays under 5 %
+of the time, so a big heap isn't collected at every database round trip). A
 loop kept busy by always-runnable coroutines never has one, so as a safety net it collects
 once `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect; until then its
 garbage stays in memory (RT-1). While the loop had a second with nothing to run within the last
@@ -571,7 +573,8 @@ true when a read would not block, when the buffer has ended, or when it has fail
 **RT-1. Inside `run()` the loop controls GC, and the caller's setting is restored.**
 `gc_disable()` while `run()` is active is deliberate: refcount frees are immediate,
 and the loop collects cycles between coroutines, never inside one. It collects when it has a
-spare moment: nothing runnable and a `poll(0)` finds no ready I/O. A loop kept busy by always-runnable coroutines (a server's
+spare moment: nothing runnable and a `poll(0)` finds no ready I/O, once `GC_COST_RATIO` (20)
+times the last idle collection's duration has passed since it. A loop kept busy by always-runnable coroutines (a server's
 connections making garbage while none ends) never has one, so it collects once
 `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect, checked every 50 ms,
 and not before: a loop that busy has no time to spare, so its garbage waits. After a second

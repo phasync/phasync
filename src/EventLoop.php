@@ -352,6 +352,9 @@ final class EventLoop implements \Countable
     /** GC_MAX_INTERVAL, or the PHASYNC_GC_MAX_INTERVAL constant when defined. */
     private float $gcMaxInterval;
 
+    /** Seconds the last idle-time collection took, see GC_COST_RATIO. */
+    private float $gcCost = 0;
+
     /** Since when nothing has run, or null while coroutines run; see tick(). */
     private ?float $idleSince = null;
 
@@ -373,6 +376,14 @@ final class EventLoop implements \Countable
 
     /** The longest a busy loop goes without collecting, while there's anything to collect. */
     private const GC_MAX_INTERVAL = 0.5;
+
+    /**
+     * An idle moment collects once this many times the last idle collection's duration has
+     * passed since it: collection takes at most 1/(1+GC_COST_RATIO) of the time (under 5 %).
+     * A cheap collection runs at almost every idle moment; a costly one (a big application's
+     * heap) doesn't run at every short wait of a request, such as each database round trip.
+     */
+    private const GC_COST_RATIO = 20;
 
     /**
      * Optimistic collection: a loop that had GC_QUIET seconds with nothing to run within the last
@@ -742,13 +753,15 @@ final class EventLoop implements \Countable
             $this->lastQuiet = $now;
         }
 
-        if ($maxSleepTime > 0 && \gc_status()['roots'] > 0) {
+        if ($maxSleepTime > 0 && $now - $this->lastGarbageCollect >= self::GC_COST_RATIO * $this->gcCost && \gc_status()['roots'] > 0) {
             // Nothing is runnable. Ask the poller whether I/O is ready right now: if not, the CPU
             // has a spare moment, so collect, then wait for whatever is left of the wait
             $this->poller->poll(0);
             if (0 === $queue->count() && $this->callbackQueue->isEmpty()) {
+                $start = \microtime(true);
                 \gc_collect_cycles();
                 $this->lastGarbageCollect = \microtime(true);
+                $this->gcCost             = $this->lastGarbageCollect - $start;
                 // A destructor of the garbage may have woken a coroutine (a resource given back)
                 $remaining = 0 === $queue->count() && $this->callbackQueue->isEmpty() ? $maxSleepTime - ($this->lastGarbageCollect - $now) : 0.0;
                 $this->poller->poll(\max(0.0, $remaining));

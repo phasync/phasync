@@ -31,6 +31,7 @@ function resetEventLoopGcState(): void
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
     (new ReflectionProperty($driver, 'lastGarbageCheck'))->setValue($driver, 0.0);
     (new ReflectionProperty($driver, 'lastQuiet'))->setValue($driver, 0.0); // no quiet second seen: not optimistic
+    (new ReflectionProperty($driver, 'gcCost'))->setValue($driver, 0.0);
 }
 
 /** Makes every object in $live a possible root of the collector, without making it garbage. */
@@ -86,6 +87,25 @@ test('every idle moment collects, however soon after the last one', function () 
     });
 
     expect($runs)->toBe([1, 1, 1]);
+});
+
+test('an idle moment collects only once GC_COST_RATIO times the duration of the last collection has passed since it', function () {
+    $runs = phasync::run(function () {
+        $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
+        $runs   = [];
+        foreach ([0.05, 0.0] as $cost) { // a 50 ms collection paces the next to 1 s later; a free one to none
+            (new ReflectionProperty($driver, 'gcCost'))->setValue($driver, $cost);
+            (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
+            phasync::go(fn () => makeGcCycle());
+            $before = \gc_status()['runs'];
+            phasync::sleep(0.02);
+            $runs[] = \gc_status()['runs'] - $before;
+        }
+
+        return $runs;
+    });
+
+    expect($runs)->toBe([0, 1]);
 });
 
 test('a coroutine woken by a destructor of the garbage runs at once, not after the rest of the wait', function () {

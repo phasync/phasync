@@ -16,6 +16,7 @@ test('RT-1: a long-lived coroutine making cyclic garbage, while no coroutine end
     // once, or optimistic after a quiet second. Start from the documented 0.5 s (#90).
     $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
+    (new ReflectionProperty($driver, 'gcCost'))->setValue($driver, 0.0);
     (new ReflectionProperty($driver, 'lastQuiet'))->setValue($driver, 0.0);
     $growth = phasync::run(static function () {
         $before = \memory_get_usage();
