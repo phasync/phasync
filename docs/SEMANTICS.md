@@ -53,7 +53,8 @@ on (channel ends, flag objects and the primitives' own objects, see FLG-1). Cycl
 collection, at every spare moment: nothing runnable and a `poll(0)` finds no ready I/O. A
 loop kept busy by always-runnable coroutines never has one, so as a safety net it collects
 once `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect; until then its
-garbage stays in memory (RT-1).
+garbage stays in memory (RT-1). While the loop had a second with nothing to run within the last
+30 s, it expects another idle moment and forces a collection only after 15 s.
 Correct behaviour must not depend on cyclic garbage being freed at a particular moment.
 ❌ See ERR-3.
 
@@ -571,7 +572,8 @@ and the loop collects cycles between coroutines, never inside one. It collects w
 spare moment: nothing runnable and a `poll(0)` finds no ready I/O. A loop kept busy by always-runnable coroutines (a server's
 connections making garbage while none ends) never has one, so it collects once
 `GC_MAX_INTERVAL` (0.5 s) has passed while there is anything to collect, checked every 50 ms,
-and not before: a loop that busy has no time to spare, so its garbage waits. There is no
+and not before: a loop that busy has no time to spare, so its garbage waits. After a second
+with nothing to run, for 30 s, it waits up to 15 s for an idle moment instead. There is no
 roots threshold. `PHASYNC_GC_MAX_INTERVAL` overrides the interval.
 ✅ RuntimeTest, GarbageCollectionTest
 Leaving `run()` must restore the previous state and never enable what the user disabled.

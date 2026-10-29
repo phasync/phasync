@@ -352,6 +352,12 @@ final class EventLoop implements \Countable
     /** GC_MAX_INTERVAL, or the PHASYNC_GC_MAX_INTERVAL constant when defined. */
     private float $gcMaxInterval;
 
+    /** Since when nothing has run, or null while coroutines run; see tick(). */
+    private ?float $idleSince = null;
+
+    /** When the loop last had GC_QUIET seconds with nothing to run. */
+    private float $lastQuiet = 0;
+
     /** How long a coroutine runs in a PHP loop before it yields to other requests (ext-phasync). */
     public const PREEMPT_INTERVAL = 0.02;
 
@@ -367,6 +373,16 @@ final class EventLoop implements \Countable
 
     /** The longest a busy loop goes without collecting, while there's anything to collect. */
     private const GC_MAX_INTERVAL = 0.5;
+
+    /**
+     * Optimistic collection: a loop that had GC_QUIET seconds with nothing to run within the last
+     * GC_OPTIMISTIC_FOR seconds will likely idle again soon, so a busy stretch waits for that
+     * idle moment, and is forced to collect only after GC_OPTIMISTIC_MAX_INTERVAL. A site's
+     * bursts (a page and its assets) then collect in the quiet after them, not during them.
+     */
+    private const GC_QUIET                   = 1.0;
+    private const GC_OPTIMISTIC_FOR          = 30.0;
+    private const GC_OPTIMISTIC_MAX_INTERVAL = 15.0;
 
     /** Width of a {@see self::$timeoutBuckets} slot, and the threshold below which a flag/park timeout is delivered exactly (#139) instead. */
     private const TIMEOUT_SLOT_SECONDS = 0.01;
@@ -722,6 +738,10 @@ final class EventLoop implements \Countable
             $maxSleepTime = 0;
         }
 
+        if ($maxSleepTime > 0 && ($now - ($this->idleSince ??= $now)) >= self::GC_QUIET) {
+            $this->lastQuiet = $now;
+        }
+
         if ($maxSleepTime > 0 && \gc_status()['roots'] > 0) {
             // Nothing is runnable. Ask the poller whether I/O is ready right now: if not, the CPU
             // has a spare moment, so collect, then wait for whatever is left of the wait
@@ -747,6 +767,9 @@ final class EventLoop implements \Countable
          */
         ++$this->ticks;
         $fiberCount            = $queue->count();
+        if ($fiberCount > 0) {
+            $this->idleSince = null;
+        }
         // The drain's budget: until the next timer is due, or DRAIN_SLICE, and DRAIN_MIN_SLICE at
         // least. What it leaves stays queued in order, ahead of what becomes ready meanwhile
         $start = \microtime(true);
@@ -851,10 +874,12 @@ final class EventLoop implements \Countable
             // A busy loop (always some coroutine ready, never idle, see tick()'s poll() above)
             // never gets the idle-time collection above: this is its safety net, checked between
             // fibers as always: it collects once GC_MAX_INTERVAL has passed since the last
-            // collection (of any kind) ended while there's anything to collect. Until then garbage
-            // stays in memory: a loop this busy has no time to spare for collecting it.
+            // collection (of any kind) ended while there's anything to collect, or
+            // GC_OPTIMISTIC_MAX_INTERVAL while the loop is optimistic. Until then garbage stays in
+            // memory: a loop this busy has no time to spare for collecting it.
             $this->lastGarbageCheck = $now;
-            if ($now - $this->lastGarbageCollect > $this->gcMaxInterval && \gc_status()['roots'] > 0) {
+            $interval               = $now - $this->lastQuiet < self::GC_OPTIMISTIC_FOR ? self::GC_OPTIMISTIC_MAX_INTERVAL : $this->gcMaxInterval;
+            if ($now - $this->lastGarbageCollect > $interval && \gc_status()['roots'] > 0) {
                 \gc_collect_cycles();
                 // From its end: a collection slower than the interval is not followed by another at once (#104)
                 $this->lastGarbageCollect = \microtime(true);

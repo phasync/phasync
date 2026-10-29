@@ -7,7 +7,9 @@
  *   there are any possible cycles at all and a poll(0) finds no ready I/O.
  * - busy, time-based: a loop that never idles still collects once GC_MAX_INTERVAL has passed
  *   since the last collection, as long as there is anything to collect, and not before: until
- *   then the garbage stays in memory, however much of it there is.
+ *   then the garbage stays in memory, however much of it there is. Optimistic, while the loop
+ *   had a quiet second (GC_QUIET) within GC_OPTIMISTIC_FOR: then only once
+ *   GC_OPTIMISTIC_MAX_INTERVAL has passed, since an idle moment will likely come first.
  *
  * These tests reset the driver's GC bookkeeping first, via reflection, so the result does not
  * depend on what earlier tests left behind in the process-wide driver singleton.
@@ -28,6 +30,7 @@ function resetEventLoopGcState(): void
     $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
     (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true));
     (new ReflectionProperty($driver, 'lastGarbageCheck'))->setValue($driver, 0.0);
+    (new ReflectionProperty($driver, 'lastQuiet'))->setValue($driver, 0.0); // no quiet second seen: not optimistic
 }
 
 /** Makes every object in $live a possible root of the collector, without making it garbage. */
@@ -226,4 +229,44 @@ test('GC_MAX_INTERVAL counts from the end of a busy-loop collection, so a slow o
     }
     expect($seen)->toHaveCount(2);
     expect($seen[1] - $seen[0])->toBeGreaterThanOrEqual(0.02);
+});
+
+test('after a quiet second, a busy loop waits for an idle moment instead of collecting at GC_MAX_INTERVAL', function () {
+    [$before, $after] = phasync::run(function () {
+        phasync::sleep(1.05); // a quiet second: the loop is optimistic for the next 30 s
+        $before = \gc_status();
+        busyFor(0.65, fn () => makeGcCycle()); // past GC_MAX_INTERVAL, never idle
+
+        return [$before, \gc_status()];
+    });
+
+    expect($after['runs'])->toBe($before['runs']);
+    expect($after['roots'])->toBeGreaterThan($before['roots']);
+});
+
+test('an optimistic busy loop still collects once GC_OPTIMISTIC_MAX_INTERVAL has passed', function () {
+    $driver           = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
+    [$before, $after] = phasync::run(function () use ($driver) {
+        (new ReflectionProperty($driver, 'lastQuiet'))->setValue($driver, \microtime(true) - 1.0);
+        (new ReflectionProperty($driver, 'lastGarbageCollect'))->setValue($driver, \microtime(true) - 15.0);
+        $before = \gc_status();
+        busyFor(0.1, fn () => makeGcCycle());
+
+        return [$before, \gc_status()];
+    });
+
+    expect($after['runs'])->toBeGreaterThan($before['runs']);
+});
+
+test('the loop is optimistic for GC_OPTIMISTIC_FOR after a quiet second, then forces at GC_MAX_INTERVAL again', function () {
+    $driver           = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
+    [$before, $after] = phasync::run(function () use ($driver) {
+        (new ReflectionProperty($driver, 'lastQuiet'))->setValue($driver, \microtime(true) - 30.0);
+        $before = \gc_status();
+        busyFor(0.65, fn () => makeGcCycle());
+
+        return [$before, \gc_status()];
+    });
+
+    expect($after['runs'])->toBeGreaterThan($before['runs']);
 });
