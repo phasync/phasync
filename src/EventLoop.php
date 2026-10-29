@@ -1181,8 +1181,8 @@ final class EventLoop implements \Countable
             $closure = static fn (mixed ...$args) => $scope->run($fn, ...$args);
             $fiber   = new \Fiber($closure);
         } else {
-            // A Fiber belongs to the scope it is constructed in
-            $fiber = $scope === $before ? new \Fiber($closure) : $scope->run(static fn () => new \Fiber($closure));
+            // The fiber's first frame runs in $scope, whoever calls start() (Scope RFC 0.10)
+            $fiber = new \Fiber($scope->bind($closure));
         }
 
         if ($this->managed) {
