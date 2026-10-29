@@ -441,27 +441,36 @@ test('a coroutine that throws when resumed does not stop the rest of that tick\'
 });
 
 test('a long ready queue does not make a due timer late: the tick stops resuming when the next timer is due', function () {
-    $late = phasync::run(function () {
-        $late  = null;
-        $timer = phasync::go(function () use (&$late) {
-            $due = \microtime(true) + 0.02;
-            phasync::sleep(0.02);
-            $late = \microtime(true) - $due;
-        });
-        for ($i = 0; $i < 100; ++$i) {
-            phasync::go(function () {
-                for ($n = 0; $n < 3; ++$n) {
-                    phasync::sleep(0); // queued: the work happens in the loop's ticks
-                    for ($end = \hrtime(true) + 1_000_000; \hrtime(true) < $end;) {
-                        // 1 ms of work between waits
+    // The drain is measured, not a collection of the whole test run's garbage (seen in CI under pcov)
+    \gc_collect_cycles();
+    \gc_disable();
+    try {
+        $late = phasync::run(function () {
+            $late  = null;
+            // Another request's timer: a preemption (ext-phasync) of the busy ones holds back
+            // only the coroutines of their scope
+            $timer = (new Scope())->run(fn () => phasync::go(function () use (&$late) {
+                $due = \microtime(true) + 0.02;
+                phasync::sleep(0.02);
+                $late = \microtime(true) - $due;
+            }));
+            for ($i = 0; $i < 100; ++$i) {
+                phasync::go(function () {
+                    for ($n = 0; $n < 3; ++$n) {
+                        phasync::sleep(0); // queued: the work happens in the loop's ticks
+                        for ($end = \hrtime(true) + 1_000_000; \hrtime(true) < $end;) {
+                            // 1 ms of work between waits
+                        }
                     }
-                }
-            });
-        }
-        phasync::await($timer);
+                });
+            }
+            phasync::await($timer);
 
-        return $late;
-    });
+            return $late;
+        });
+    } finally {
+        \gc_enable();
+    }
     expect($late)->toBeLessThan(0.008); // one resumption late at most, not the 100 queued before it
 });
 
