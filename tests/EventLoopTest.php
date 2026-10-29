@@ -439,3 +439,55 @@ test('a coroutine that throws when resumed does not stop the rest of that tick\'
     expect($thrown)->toBeInstanceOf(RuntimeException::class);
     expect($thrown->getMessage())->toBe('a failed');
 });
+
+test('a long ready queue does not make a due timer late: the tick stops resuming when the next timer is due', function () {
+    $late = phasync::run(function () {
+        $late  = null;
+        $timer = phasync::go(function () use (&$late) {
+            $due = microtime(true) + 0.02;
+            phasync::sleep(0.02);
+            $late = microtime(true) - $due;
+        });
+        for ($i = 0; $i < 100; ++$i) {
+            phasync::go(function () {
+                for ($n = 0; $n < 3; ++$n) {
+                    phasync::sleep(0); // queued: the work happens in the loop's ticks
+                    for ($end = hrtime(true) + 1_000_000; hrtime(true) < $end;) {
+                        // 1 ms of work between waits
+                    }
+                }
+            });
+        }
+        phasync::await($timer);
+
+        return $late;
+    });
+    expect($late)->toBeLessThan(0.008); // one resumption late at most, not the 100 queued before it
+});
+
+test('the drain is budgeted, not cut short: with a timer due at once, the ready coroutines still each get their turn, in order', function () {
+    $order = phasync::run(function () {
+        $order = [];
+        phasync::go(function () use (&$order) {
+            for ($i = 0; $i < 50; ++$i) {
+                phasync::sleep(0.0001); // always a timer due: the minimum slice still drains
+            }
+            $order[] = 'timer';
+        });
+        $all = [];
+        for ($i = 0; $i < 20; ++$i) {
+            $all[] = phasync::go(function () use (&$order, $i) {
+                for ($n = 0; $n < 3; ++$n) {
+                    phasync::sleep(0);
+                }
+                $order[] = $i;
+            });
+        }
+        foreach ($all as $coroutine) {
+            phasync::await($coroutine);
+        }
+
+        return $order;
+    });
+    expect(array_values(array_filter($order, 'is_int')))->toBe(range(0, 19)); // FIFO
+});

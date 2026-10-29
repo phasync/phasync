@@ -384,6 +384,21 @@ final class EventLoop implements \Countable
     /** Width of a {@see self::$timeoutBuckets} slot, and the threshold below which a flag/park timeout is delivered exactly (#139) instead. */
     private const TIMEOUT_SLOT_SECONDS = 0.01;
 
+    /**
+     * The longest a tick resumes ready coroutines before it looks at timers and I/O again; it
+     * stops sooner when a timer is due. A timer is then late by at most one resumption.
+     */
+    private const DRAIN_SLICE = 0.01;
+
+    /**
+     * The least a tick resumes for, also when a timer is due already: a loop of timers can't
+     * starve the ready coroutines (timers, a bounded drain and a poll take turns).
+     */
+    private const DRAIN_MIN_SLICE = 0.001;
+
+    /** The last tick stopped resuming on its budget: the timers due now run before the rest. */
+    private bool $drainCut = false;
+
     /** PHP is shutting down: coroutines cancelled by it did not fail. */
     private static bool $exiting = false;
 
@@ -630,8 +645,9 @@ final class EventLoop implements \Countable
                 $this->raiseFlag($this->signalFlag);
             }
         }
-        $now   = \microtime(true);
-        $queue = $this->queue;
+        $now    = \microtime(true);
+        $queue  = $this->queue;
+        $before = $queue->count();
 
         // Deliver the timeouts of the 10 ms slots that have passed: usually none this tick
         if (($slot = (int) ($now * 100)) > $this->lastTimeoutSlot) {
@@ -660,6 +676,15 @@ final class EventLoop implements \Countable
         while (!$this->scheduler->isEmpty() && $this->scheduler->getNextTimestamp() <= $now) {
             $fiber = $this->scheduler->extract();
             $queue->enqueue($fiber);
+        }
+        if ($this->drainCut) {
+            // The last drain stopped on its budget, for these: what it left goes on behind them
+            $this->drainCut = false;
+            if ($queue->count() > $before) {
+                for ($i = 0; $i < $before; ++$i) {
+                    $queue->enqueue($queue->dequeue());
+                }
+            }
         }
 
         /**
@@ -751,12 +776,26 @@ final class EventLoop implements \Countable
          */
         ++$this->ticks;
         $fiberCount            = $queue->count();
+        // The drain's budget: until the next timer is due, or DRAIN_SLICE, and DRAIN_MIN_SLICE at
+        // least. What it leaves stays queued in order, ahead of what becomes ready meanwhile
+        $start = \microtime(true);
+        $until = $start + self::DRAIN_SLICE;
+        if (!$this->scheduler->isEmpty()) {
+            $until = \min($until, $this->scheduler->getNextTimestamp());
+        }
+        if (!$this->exactTimeouts->isEmpty()) {
+            $until = \min($until, $this->exactTimeouts->getNextTimestamp());
+        }
+        if ([] !== $this->timeoutBuckets) {
+            $until = \min($until, ($this->lastTimeoutSlot + 1) * self::TIMEOUT_SLOT_SECONDS);
+        }
+        $budget = \hrtime(true) + (int) (\max($until - $start, self::DRAIN_MIN_SLICE) * 1e9);
         // Run in place (from a Fiber phasync did not start, see wait()): the running coroutine
         // and its frame are put back when the tick is over
         $outerFiber            = $this->currentFiber;
         $outerFrame            = $this->currentFrame;
         if (0 !== $this->preempted) {
-            $this->runFrozen($fiberCount);
+            $this->runFrozen($fiberCount, $budget);
             $fiberCount = 0;
         }
         $fiberExceptionHolders = $this->fiberExceptionHolders;
@@ -827,7 +866,12 @@ final class EventLoop implements \Countable
                 // $fiberCount hasn't been decremented for this iteration yet (that's the for
                 // loop's third clause, run on the next pass), so it is already "how many are
                 // left after this one".
-                $this->runFrozen($fiberCount - 1);
+                $this->runFrozen($fiberCount - 1, $budget);
+                break;
+            }
+            if (\hrtime(true) >= $budget && $fiberCount > 1) {
+                $this->drainCut = true; // the rest stays queued, in order; the due timers go first next tick
+
                 break;
             }
         }
@@ -854,12 +898,18 @@ final class EventLoop implements \Countable
 
     /**
      * The queue loop of tick() while scopes are frozen: up to $count coroutines, those of a frozen
-     * scope held back until its preempted coroutine resumes, then run right after it.
+     * scope held back until its preempted coroutine resumes, then run right after it; until
+     * hrtime() reaches $budget, as tick()'s own loop.
      */
-    private function runFrozen(int $count): void
+    private function runFrozen(int $count, int $budget): void
     {
         $queue = $this->queue;
         for ($i = 0; $i < $count && !$queue->isEmpty(); ++$i) {
+            if (0 !== $i && \hrtime(true) >= $budget) {
+                $this->drainCut = true; // the rest stays queued, in order; the due timers go first next tick
+
+                return;
+            }
             $fiber = $queue->dequeue();
             unset($this->pending[$fiber]);
             $scope = $this->fiberScopes[$fiber];
@@ -878,7 +928,16 @@ final class EventLoop implements \Countable
                     \array_push($held, ...$this->held[$scope]);
                     $this->held[$scope] = $held;
                 } else {
-                    foreach ($held as $f) {
+                    foreach ($held as $k => $f) {
+                        if (\hrtime(true) >= $budget) {
+                            // Out of budget: the rest go back to the front of the queue, in order
+                            for ($j = \count($held) - 1; $j >= $k; --$j) {
+                                $queue->unshift($held[$j]);
+                            }
+                            $this->drainCut = true;
+
+                            return;
+                        }
                         unset($this->pending[$f]);
                         $this->resume($f);
                     }
