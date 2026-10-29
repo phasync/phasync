@@ -25,7 +25,7 @@ namespace phasync;
  *
  * @example examples/Frame/1-cancel-a-job-and-what-it-started.php Cancel a job and everything it started
  */
-final class Frame
+final class Frame implements \Countable
 {
     /** @internal the frame of the run() this one was entered from; null for the outermost run() and the services' */
     public ?Frame $parent = null;
@@ -224,5 +224,23 @@ final class Frame
     public function setExceptionHandler(?\Closure $handler): void
     {
         $this->exceptionHandler = $handler;
+    }
+
+    /**
+     * How many coroutines belong to the frame now: those started in it that have not ended, and
+     * the coroutine running a nested `run()` inline, whose frame it is.
+     *
+     * ```php
+     * phasync::run(function () {
+     *     phasync::go(fn () => phasync::sleep(1));
+     *     echo count(phasync::frame()), "\n"; // 2: this one and the sleeper
+     * });
+     * ```
+     *
+     * @see phasync::frame
+     */
+    public function count(): int
+    {
+        return $this->live;
     }
 }

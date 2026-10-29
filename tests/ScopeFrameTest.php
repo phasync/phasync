@@ -703,3 +703,18 @@ test('nested in-place waits from Fibers of two scopes, with a third scope runnin
         expect($rest)->toBe("live=$name scope=$name");
     }
 });
+
+test('count() of a frame is its coroutines: those started in it that have not ended, and the one running it', function () {
+    $counts = phasync::run(function () {
+        $counts   = [\count(phasync::frame())];
+        $sleeper  = phasync::go(fn () => phasync::sleep(0.01));
+        $counts[] = \count(phasync::frame());
+        $counts[] = phasync::run(fn () => \count(phasync::frame())); // a nested run() is a frame of its own
+        phasync::await($sleeper);
+        $counts[] = \count(phasync::frame());
+
+        return $counts;
+    });
+
+    expect($counts)->toBe([1, 2, 1, 1]);
+});
