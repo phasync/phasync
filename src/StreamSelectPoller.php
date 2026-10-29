@@ -31,10 +31,11 @@ final class StreamSelectPoller implements PollerInterface
     private array $readSlots = [];
 
     /**
-     * The slots of the coroutines waiting to write, oldest first: several may (a log written by
-     * many), and each readiness wakes the oldest.
+     * The slot of the coroutine waiting to write, by resource id. Several may wait (a log written
+     * by many): from the second on, the slots queue, oldest first, and each readiness wakes the
+     * oldest. One writer is the common case, and a hot path: a queue is made only for a second.
      *
-     * @var array<int, array<int, int>> by resource id, slot => slot
+     * @var array<int, int|\SplDoublyLinkedList<int>>
      */
     private array $writeSlots = [];
 
@@ -125,15 +126,19 @@ final class StreamSelectPoller implements PollerInterface
             $loop->unpark($slot); // false if its wait was cancelled or timed out this tick
         }
         foreach ($writes as $id => $stream) {
+            $slots = $this->writeSlots[$id];
+            if (\is_int($slots)) {
+                unset($this->writeStreams[$id], $this->writeSlots[$id]);
+                $loop->unpark($slots); // false if its wait was cancelled or timed out this tick
+                continue;
+            }
             // A failure, a closed stream or one that can't be waited on: every waiter hears of it
             $all = false === $result || isset($this->unselectable[$id]) || !\is_resource($stream);
             do {
-                $slot = \array_key_first($this->writeSlots[$id]);
-                unset($this->writeSlots[$id][$slot]);
                 // false if its wait was cancelled or timed out this tick: the next one gets it
-                $woken = $loop->unpark($slot);
-            } while ((!$woken || $all) && $this->writeSlots[$id]);
-            if (!$this->writeSlots[$id]) {
+                $woken = $loop->unpark($slots->shift());
+            } while ((!$woken || $all) && !$slots->isEmpty());
+            if ($slots->isEmpty()) {
                 unset($this->writeStreams[$id], $this->writeSlots[$id]);
             }
         }
@@ -198,18 +203,35 @@ final class StreamSelectPoller implements PollerInterface
 
     public function writable(mixed $stream, float $timeout = \PHP_FLOAT_MAX): void
     {
-        $id                           = \get_resource_id($stream);
-        $slot                         = $this->loop->getSlot();
-        $this->writeStreams[$id]      = $stream;
-        $this->writeSlots[$id][$slot] = $slot;
-        $failures                     = $this->failures;
+        $id   = \get_resource_id($stream);
+        $slot = $this->loop->getSlot();
+        if (!isset($this->writeSlots[$id])) {
+            $this->writeStreams[$id] = $stream;
+            $this->writeSlots[$id]   = $slot;
+        } else {
+            if (\is_int($this->writeSlots[$id])) {
+                $queue = new \SplDoublyLinkedList();
+                $queue->push($this->writeSlots[$id]);
+                $this->writeSlots[$id] = $queue;
+            }
+            $this->writeSlots[$id]->push($slot);
+        }
+        $failures = $this->failures;
         try {
             $this->loop->parkForPoller($slot, $timeout);
         } finally {
-            if (isset($this->writeSlots[$id][$slot])) {
+            $slots = $this->writeSlots[$id] ?? null;
+            if ($slots === $slot) {
                 // Not unparked: the wait was cancelled or timed out
-                unset($this->writeSlots[$id][$slot]);
-                if (!$this->writeSlots[$id]) {
+                unset($this->writeStreams[$id], $this->writeSlots[$id]);
+            } elseif ($slots instanceof \SplDoublyLinkedList) {
+                foreach ($slots as $i => $queued) {
+                    if ($queued === $slot) {
+                        $slots->offsetUnset($i); // not unparked: cancelled or timed out
+                        break;
+                    }
+                }
+                if ($slots->isEmpty()) {
                     unset($this->writeStreams[$id], $this->writeSlots[$id]);
                 }
             }
