@@ -245,7 +245,7 @@ test('_resolve_so prefers PHASYNC_EXT_SO, then ext/phasync-<abi>.so, else null',
 });
 
 test('_version_problem() accepts an extension of the same major.minor version, from the minimum on', function () {
-    foreach (['2.0.4-dev', '2.0.4', '2.0.5-dev', '2.0.17'] as $v) {
+    foreach (['2.0.7-dev', '2.0.7-RC1', '2.0.7', '2.0.8-dev', '2.0.17'] as $v) {
         expect(\phasync\ext\_version_problem($v))->toBeNull();
     }
 });
@@ -253,8 +253,8 @@ test('_version_problem() accepts an extension of the same major.minor version, f
 test('_version_problem() names both versions and the fix when the extension is too old or too new', function () {
     expect(\phasync\ext\_version_problem('0.5.0-beta7'))
         ->toContain('0.5.0-beta7')->toContain('pie install phasync/ext-phasync');
-    expect(\phasync\ext\_version_problem('2.0.3'))
-        ->toContain('2.0.3')->toContain('from 2.0.4-dev on');
+    expect(\phasync\ext\_version_problem('2.0.6'))
+        ->toContain('2.0.6')->toContain('from 2.0.7-dev on');
     expect(\phasync\ext\_version_problem('2.1.0'))
         ->toContain('2.1.0')->toContain('composer update phasync/phasync');
     expect(\phasync\ext\_version_problem('3.0.0'))
