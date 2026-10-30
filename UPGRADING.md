@@ -7,8 +7,8 @@ change what your code does. Read "Timeouts" and "Cancellation" first.
 ## PHP and dependencies
 
 - PHP requirement is unchanged (`^8.2`).
-- New required dependency: `fiber-interop/scope` (`^0.3`), which provides the global `\Scope`
-  class.
+- New required dependency: `fiber-interop/scope`, which provides the global `\Scope` class
+  (`^0.5` since 2.0.7: Scope RFC 0.10).
 - `psr/log` is now required (`^1.0 || ^2.0 || ^3.0`); it was not required in 1.x.
 - `psr/http-factory` is accepted from `^1.0` (1.x required `^1.1`).
 - `phasync\Process\Process` runs on Windows (PHP 8.3 or later there), with sockets for the child's

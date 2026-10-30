@@ -2,6 +2,14 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## 2.0.7 (2026-10-30)
+
+Bundles ext-phasync 2.0.7, with ext-scope 0.6.0, and requires fiber-interop/scope 0.5 (Scope RFC 0.10: a fiber runs in the scope current where it is started). Everything in 2.0.7-RC1 below, and:
+
+- `phasync::service()` no longer runs the service up to its first wait: the event loop starts it in its next turn, and `service()` returns first. A coroutine belongs to the request (ext-phasync's `sapi()`) of the code that starts it, so a service started inline by the first request that needed it, such as a publisher's forwarder or the `MySQLiAwaiter` and `CurlAwaiter` pollers, kept that request's state alive for as long as it ran. A service cancelled before its first turn starts all the same and gets the cancellation where it first waits. An `onScopeChange()` hook that throws as the loop starts a service fails the service, as a failure nobody awaits.
+- Correction to 2.0.7-RC1: Scope-bound coroutines do not leave the request that started them. ext-phasync 2.0.7 reverts that change: Scope gives hosts no introspection beyond the RFC. Code that serves many requests is started outside them; `service()` now is.
+- Needs ext-phasync 2.0.7 or a later 2.0.x when the extension is loaded.
+
 ## 2.0.7-RC1 (2026-10-29)
 
 Bundles ext-phasync 2.0.7-RC1: Scope-bound coroutines leave the request that started them, one reader per stream and one coroutine at a time per PDO, mysqli or phpredis connection, writers queue on a stream, persistent connections refused unless `phasync.allow_persistent=1`, and select() up to 4096 watched descriptors before epoll.
