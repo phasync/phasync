@@ -172,10 +172,13 @@ in a nested run() cancels the nested frame's children too", CancellationTest "CA
 
 **SCO-6. Detached work is explicit.** `service()` is the only way to start a coroutine that
 outlives its frame. It returns the coroutine, runs it in the root scope (`Scope::getRootScope()`)
-whatever scope started it, and gives it no frame. No `run()` waits for a service: when the
+whatever scope started it, and gives it no frame. Unlike `go()` (SCH-2), it does not run the
+service: the event loop starts it in its next turn, so the service belongs to no request of
+ext-phasync's `sapi()`, whoever first needed it. A service cancelled before its first turn
+starts all the same, and gets the cancellation where it first waits. No `run()` waits for a service: when the
 outermost `run()`'s frame has no coroutine left, it cancels the services and returns once they
 have ended. A service's failure nobody awaits goes to the outermost `run()`'s frame: its
-exception handler, or `run()` throws it. ✅ ScopesTest, ScopeFrameTest
+exception handler, or `run()` throws it. ✅ ScopesTest, ScopeFrameTest, ServiceStartTest
 
 **SCO-7. The scope is the identity, the frame the lifetime.** The operation code belongs to is
 the ambient `\Scope` of the Composer package `fiber-interop/scope` (the native ext-scope, or its

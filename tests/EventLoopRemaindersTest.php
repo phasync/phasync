@@ -152,6 +152,7 @@ test('a service started in another scope than the creating one gets a Fiber of i
             });
             phasync::await($inner);
         });
+        phasync::await($service); // the loop starts it, in its turn
 
         return [$seen, $service->isTerminated(), $service->getReturn(), $was];
     });

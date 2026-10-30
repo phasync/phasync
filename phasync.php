@@ -212,7 +212,7 @@ final class phasync
     /**
      * Starts `$fn` as a service: a coroutine of no frame, in the root scope, which outlives the code that started it, and returns it.
      *
-     * A service is for one coroutine that serves many others and is started on first use, such as a connection manager. It belongs to no `run()`: no `run()` waits for it, and it runs while the outermost `run()` does. When the outermost `run()` has no coroutine left, it cancels its services and returns once they have ended, so write a service to be started again by the next use. It runs in the root scope (`Scope::getRootScope()`) whatever scope starts it, and {@see phasync::frame()} throws inside it. A failure nobody awaits goes to the outermost `run()`.
+     * A service is for one coroutine that serves many others and is started on first use, such as a connection manager. The event loop starts it in its next turn, not the calling code: `service()` returns first, and the service belongs to no request of ext-phasync's `sapi()`, whoever first needed it. It belongs to no `run()`: no `run()` waits for it, and it runs while the outermost `run()` does. When the outermost `run()` has no coroutine left, it cancels its services and returns once they have ended, so write a service to be started again by the next use. It runs in the root scope (`Scope::getRootScope()`) whatever scope starts it, and {@see phasync::frame()} throws inside it. A failure nobody awaits goes to the outermost `run()`.
      *
      * ```php
      * phasync::run(function () {

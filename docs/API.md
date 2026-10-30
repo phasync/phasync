@@ -67,7 +67,7 @@ Parameters:
 
 ### `phasync::service(callable $fn, mixed ...$args): Fiber`
 
-Starts `$fn` as a service and returns its coroutine: one coroutine that serves many others and is started on first use, such as a connection manager or the `curl_multi_*` poller. It runs in the root scope (`Scope::getRootScope()`) and has no frame, so no `run()` waits for it. When the outermost `run()` has no coroutine left, it cancels its services and returns once they have ended, so a service must be written to be started again by the next use. A failure nobody awaits goes to the outermost `run()`.
+Starts `$fn` as a service and returns its coroutine: one coroutine that serves many others and is started on first use, such as a connection manager or the `curl_multi_*` poller. The event loop starts it in its next turn, so `service()` returns first and the service belongs to no request of ext-phasync's `sapi()`, whoever first needed it. It runs in the root scope (`Scope::getRootScope()`) and has no frame, so no `run()` waits for it. When the outermost `run()` has no coroutine left, it cancels its services and returns once they have ended, so a service must be written to be started again by the next use. A failure nobody awaits goes to the outermost `run()`.
 
 Parameters:
 

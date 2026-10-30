@@ -226,7 +226,7 @@ test('an onScopeChange() hook may not wait', function () {
     }))->toThrow(LogicException::class);
 });
 
-test('a hook that throws while a coroutine starts in another scope throws from the call, and leaves no coroutine behind (#106)', function () {
+test('a hook that throws as the loop starts a service in another scope fails the service, which nobody awaits, and leaves no coroutine behind (#106)', function () {
     $thrown = 0;
     phasync::onScopeChange(function (Scope $new) use (&$thrown) {
         if ($new === Scope::getRootScope() && 0 === $thrown++) {
@@ -234,18 +234,18 @@ test('a hook that throws while a coroutine starts in another scope throws from t
         }
     });
     $caught = null;
-    phasync::run(function () use (&$caught) {
-        (new Scope())->run(function () use (&$caught) {
-            phasync::go(function () use (&$caught) {   // starts in its own scope: the loop switches to it
-                try {
-                    phasync::service(fn () => null);   // a service runs in the root scope
-                } catch (RuntimeException $e) {
-                    $caught = $e->getMessage();
-                }
-            });
-        });
-    });
-    expect($caught)->toBe('hook');
+    $ran    = false;
+    // The run is in a scope of its own: the root scope is entered only to start the service
+    expect(fn () => (new Scope())->run(fn () => phasync::run(function () use (&$caught, &$ran) {
+        try {
+            phasync::service(function () use (&$ran) { $ran = true; });   // started by the loop, in the root scope
+        } catch (RuntimeException $e) {
+            $caught = $e->getMessage();
+        }
+    })))->toThrow(RuntimeException::class, 'hook');
+    expect($caught)->toBeNull()
+        ->and($ran)->toBeFalse()
+        ->and($thrown)->toBe(1);
     expect(phasync::getLoop(...))->toThrow(LogicException::class);   // the run is over
     $driver = (new ReflectionMethod(phasync::class, 'getDriver'))->invoke(null);
     expect($driver->countFibers())->toBe(0);
