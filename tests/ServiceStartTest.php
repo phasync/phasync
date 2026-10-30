@@ -53,12 +53,12 @@ test('a service first needed inside a sapi() request belongs to no request', fun
         $service = null;
         $inside  = null;
         phasync\ext\sapi(function () use (&$service, &$inside) {
-            $inside  = php_sapi_name();
-            $service = phasync::service(static fn () => php_sapi_name());
+            $inside  = \php_sapi_name();
+            $service = phasync::service(static fn () => \php_sapi_name());
         }, $sapi);
 
         return [$inside, phasync::await($service)];
     });
     expect($inside)->toBe('test-request')
-        ->and($service)->toBe(PHP_SAPI);
-})->skip(!function_exists('phasync\ext\sapi'), 'needs ext-phasync');
+        ->and($service)->toBe(\PHP_SAPI);
+})->skip(!\function_exists('phasync\ext\sapi'), 'needs ext-phasync');
