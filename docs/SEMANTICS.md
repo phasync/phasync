@@ -175,7 +175,8 @@ outlives its frame. It returns the coroutine, runs it in the root scope (`Scope:
 whatever scope started it, and gives it no frame. Unlike `go()` (SCH-2), it does not run the
 service: the event loop starts it in its next turn, so the service belongs to no request of
 ext-phasync's `sapi()`, whoever first needed it. A service cancelled before its first turn
-starts all the same, and gets the cancellation where it first waits. No `run()` waits for a service: when the
+starts all the same, and gets the cancellation where it first waits; so does an
+`onScopeChange()` hook's exception thrown as the loop starts it. No `run()` waits for a service: when the
 outermost `run()`'s frame has no coroutine left, it cancels the services and returns once they
 have ended. A service's failure nobody awaits goes to the outermost `run()`'s frame: its
 exception handler, or `run()` throws it. ✅ ScopesTest, ScopeFrameTest, ServiceStartTest

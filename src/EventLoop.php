@@ -859,7 +859,9 @@ final class EventLoop implements \Countable
                  * is garbage collected. Ideally the exception holder will not be
                  * garbage collected.
                  */
-                $fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+                if (null !== $e) {
+                    $fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+                }
             } finally {
                 $this->currentFiber = $outerFiber;
                 $this->currentFrame = $outerFrame;
@@ -1005,7 +1007,9 @@ final class EventLoop implements \Countable
                 }
                 $e = $this->hookFailedService($fiber, $e);
             }
-            $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+            if (null !== $e) {
+                $this->fiberExceptionHolders[$fiber] = $this->makeExceptionHolder($e, $fiber);
+            }
         } finally {
             $this->currentFiber = $outerFiber;
             $this->currentFrame = $outerFrame;
@@ -1035,26 +1039,28 @@ final class EventLoop implements \Countable
 
     /**
      * An onScopeChange() hook threw $e as the loop started a service: nobody called for it to throw
-     * to, so the service fails with it, as a failure nobody awaits (it goes to the outermost run()).
+     * to, so the service gets it, as a cancellation before its first turn, where it first waits; its
+     * own finally blocks run. What the service then fails with, if it ends at once, is returned.
      */
-    private function hookFailedService(\Fiber $fiber, \Throwable $e): \Throwable
+    private function hookFailedService(\Fiber $fiber, \Throwable $e): ?\Throwable
     {
         try {
             $this->startService($fiber, $e);
-        } catch (\Throwable $e) {
+        } catch (\Throwable $failure) {
+            return $failure;
         }
 
-        return $e;
+        return $fiber->isTerminated() ? $e : null; // ended without a wait to throw it at
     }
 
     /**
-     * Start a service's coroutine (see runService()): with $failed it fails with that at once;
-     * $exception, a cancellation before its first turn, is thrown where it first waits.
+     * Start a service's coroutine (see runService()); $exception, from before its first turn, is
+     * thrown where it first waits.
      */
-    private function startService(\Fiber $fiber, ?\Throwable $failed, ?\Throwable $exception = null): void
+    private function startService(\Fiber $fiber, ?\Throwable $exception): void
     {
         try {
-            $fiber->start($failed);
+            $fiber->start();
         } catch (ext\Suspension $next) {
             $this->suspendedIn($fiber, $next);
         }
@@ -1085,7 +1091,7 @@ final class EventLoop implements \Countable
             if ($fiber->isStarted()) {
                 throw $e;
             }
-            $this->startService($fiber, null, $exception); // a service cancelled before its first turn
+            $this->startService($fiber, $exception); // a service cancelled before its first turn
         } finally {
             unset($this->cancelledSuspensions[$id]);
         }
@@ -1217,17 +1223,10 @@ final class EventLoop implements \Countable
     public function runService(\Closure $closure, array $args): \Fiber
     {
         // Started by the loop, in its turn, not by the calling code: a coroutine belongs to the
-        // request (ext-phasync's sapi()) of the code that starts it, and a service serves the process.
-        // The loop starts it with the failure of an onScopeChange() hook at its start, if any
-        $start = static function (?\Throwable $failed) use ($closure, $args): mixed {
-            if (null !== $failed) {
-                throw $failed;
-            }
-
-            return $closure(...$args);
-        };
+        // request (ext-phasync's sapi()) of the code that starts it, and a service serves the process
+        $start = static fn () => $closure(...$args);
         $scope = \Scope::getRootScope();
-        $fiber = new \Fiber($this->scopePolyfill ? static fn (?\Throwable $failed) => $scope->run($start, $failed) : $scope->bind($start));
+        $fiber = new \Fiber($this->scopePolyfill ? static fn () => $scope->run($start) : $scope->bind($start));
         if ($this->managed) {
             ext\Suspension::manage($fiber);
         }

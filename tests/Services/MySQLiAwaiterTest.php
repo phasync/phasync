@@ -445,12 +445,13 @@ test('a connection closed under its waiter is reported to that waiter alone', fu
     });
 });
 
-test('a service that cannot be started leaves the connection free to be awaited again (#137)', function () {
+test('a hook that throws as the loop starts the service leaves the connection free to be awaited again (#137)', function () {
     if (!\getenv('PHASYNC_TEST_MYSQL')) {
         $this->markTestSkipped('PHASYNC_TEST_MYSQL not set');
     }
 
-    // a hook that throws while the service starts in the root scope: create() throws from service()
+    // A hook that throws when the root scope is entered; the run is in a scope of its own, so that
+    // is when the loop starts the service: the service gets it where it first waits
     $thrown = 0;
     phasync::onScopeChange(function (Scope $new) use (&$thrown) {
         if ($new === Scope::getRootScope() && 0 === $thrown++) {
@@ -459,28 +460,30 @@ test('a service that cannot be started leaves the connection free to be awaited 
     });
 
     $mysqli = getMySQLiConnection();
-    $caught = null;
+    $first  = null;
     $second = null;
     try {
-        phasync::run(function () use ($mysqli, &$caught, &$second) {
-            (new Scope())->run(function () use ($mysqli, &$caught, &$second) {
-                phasync::go(function () use ($mysqli, &$caught, &$second) {
+        expect(function () use ($mysqli, &$first, &$second) {
+            (new Scope())->run(function () use ($mysqli, &$first, &$second) {
+                phasync::run(function () use ($mysqli, &$first, &$second) {
                     $mysqli->query('SELECT 1 AS num', \MYSQLI_ASYNC);
                     try {
                         MySQLiAwaiter::await($mysqli, 5);
+                        $first = 'answered';
                     } catch (RuntimeException $e) {
-                        $caught = $e->getMessage();
+                        $first = $e->getMessage(); // the service ended with the hook's exception first
                     }
-                    // before the fix: LogicException, the failed call had left the connection registered
+                    // before the fix: LogicException, the failed start had left the connection registered
                     $second = MySQLiAwaiter::await($mysqli, 5);
+                    $mysqli->reap_async_query();
                 });
             });
-        });
+        })->toThrow(RuntimeException::class, 'hook'); // the service's failure, which nobody awaits
     } finally {
         $mysqli->close();
     }
 
-    expect($caught)->toBe('hook');
+    expect($first)->toBeIn(['answered', 'The MySQLiAwaiter service terminated without resolving the MySQLi handle']);
     expect($second)->toBe($mysqli);
 });
 
