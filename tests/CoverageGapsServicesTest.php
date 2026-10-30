@@ -97,45 +97,45 @@ test('MySQLiAwaiter service error is thrown when service terminates with pending
             $this->markTestSkipped("MySQL connection failed: {$mysqli->connect_error}");
         }
 
-        try {
-            // Create a connection that will timeout
-            $caughtError = null;
-            $fiber       = phasync::go(function () use ($mysqli, &$caughtError) {
-                try {
-                    $mysqli->query('SELECT SLEEP(10)', \MYSQLI_ASYNC);
-                    MySQLiAwaiter::await($mysqli, 10);
-                } catch (RuntimeException $e) {
-                    $caughtError = $e->getMessage();
-                    throw $e;
-                }
-            });
-
-            // Give it time to register
-            phasync::sleep(0.01);
-
-            // Manually set service error to trigger lines 111-112 of MySQLiAwaiter.php
-            $reflClass  = new ReflectionClass(MySQLiAwaiter::class);
-            $errorsProp = $reflClass->getProperty('errors');
-            $connId     = \spl_object_id($mysqli);
-
-            $errors          = $errorsProp->getValue();
-            $errors[$connId] = ['The MySQLiAwaiter service terminated without resolving the MySQLi handle', 1];
-            $errorsProp->setValue(null, $errors);
-
-            // Wake the fiber
-            phasync::raiseFlag($mysqli);
-
-            // Catch the RuntimeException
+        // Create a connection that will timeout
+        $caughtError = null;
+        $fiber       = phasync::go(function () use ($mysqli, &$caughtError) {
             try {
-                phasync::await($fiber);
+                $mysqli->query('SELECT SLEEP(10)', \MYSQLI_ASYNC);
+                MySQLiAwaiter::await($mysqli, 10);
             } catch (RuntimeException $e) {
                 $caughtError = $e->getMessage();
+                throw $e;
+            } finally {
+                // This coroutine's query, never reaped, keeps the connection busy for others
+                // (ext-phasync: one call at a time per connection): it closes it itself
+                $mysqli->close();
             }
+        });
 
-            expect($caughtError)->toContain('MySQLiAwaiter service terminated');
-        } finally {
-            $mysqli->close();
+        // Give it time to register
+        phasync::sleep(0.01);
+
+        // Manually set service error to trigger lines 111-112 of MySQLiAwaiter.php
+        $reflClass  = new ReflectionClass(MySQLiAwaiter::class);
+        $errorsProp = $reflClass->getProperty('errors');
+        $connId     = \spl_object_id($mysqli);
+
+        $errors          = $errorsProp->getValue();
+        $errors[$connId] = ['The MySQLiAwaiter service terminated without resolving the MySQLi handle', 1];
+        $errorsProp->setValue(null, $errors);
+
+        // Wake the fiber
+        phasync::raiseFlag($mysqli);
+
+        // Catch the RuntimeException
+        try {
+            phasync::await($fiber);
+        } catch (RuntimeException $e) {
+            $caughtError = $e->getMessage();
         }
+
+        expect($caughtError)->toContain('MySQLiAwaiter service terminated');
     });
 });
 

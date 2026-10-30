@@ -75,8 +75,12 @@ test('a loop that goes idle collects cyclic garbage before its wait returns', fu
 
 test('every idle moment collects, however soon after the last one', function () {
     $runs = phasync::run(function () {
-        $runs = [];
+        $driver = (new ReflectionMethod('phasync', 'getDriver'))->invoke(null);
+        $runs   = [];
         for ($i = 0; $i < 3; ++$i) {
+            // Free collections: what paces them by their cost (the next test) is not what this
+            // tests, and in a long test run each collection of the big heap takes milliseconds
+            (new ReflectionProperty($driver, 'gcCost'))->setValue($driver, 0.0);
             phasync::go(fn () => makeGcCycle());
             $before = \gc_status()['runs'];
             phasync::sleep(0.02); // nothing runnable: an idle moment
