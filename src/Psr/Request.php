@@ -188,12 +188,30 @@ class Request implements RequestInterface
             return $this->uriOverride;
         }
 
-        $uri = $this->requestTarget;
-        if ('' !== ($host = $this->getHeaderLine('Host'))) {
-            $uri = "http://{$host}{$this->requestTarget}";
+        return $this->uriFromRequestTarget('http');
+    }
+
+    /**
+     * The URI the request target and Host header name (RFC 9112 section 3.3): an absolute-form
+     * target is the URI itself, an authority-form target (CONNECT) is its authority, and an
+     * asterisk-form target ("*") has an empty path.
+     *
+     * @param string $scheme the scheme of a URI that takes its authority from the Host header
+     */
+    protected function uriFromRequestTarget(string $scheme): UriInterface
+    {
+        $target = $this->requestTarget;
+        if ('' === ($host = $this->getHeaderLine('Host')) || \preg_match('#^[a-z][a-z0-9+.\-]*://#i', $target)) {
+            return new Uri($target);
+        }
+        if ('CONNECT' === $this->method) {
+            return new Uri("{$scheme}://{$target}");
+        }
+        if ('*' === $target) {
+            return new Uri("{$scheme}://{$host}");
         }
 
-        return new Uri($uri);
+        return new Uri("{$scheme}://{$host}{$target}");
     }
 
     public function withUri($uri, $preserveHost = false): RequestInterface

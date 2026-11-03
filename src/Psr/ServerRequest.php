@@ -112,14 +112,9 @@ class ServerRequest extends Request implements ServerRequestInterface
             return $this->uriOverride;
         }
 
-        $uri = $this->requestTarget;
-        if ('' !== ($host = $this->getHeaderLine('Host'))) {
-            $https  = $this->serverParams['HTTPS'] ?? null;
-            $scheme = ('on' === $https || '1' === $https) ? 'https' : 'http';
-            $uri    = "{$scheme}://{$host}{$this->requestTarget}";
-        }
+        $https = $this->serverParams['HTTPS'] ?? null;
 
-        return new Uri($uri);
+        return $this->uriFromRequestTarget(('on' === $https || '1' === $https) ? 'https' : 'http');
     }
 
     public function getServerParams(): array

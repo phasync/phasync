@@ -160,6 +160,20 @@ test('getUri() derives scheme/host/path from the request-target and the Host hea
     expect((string) $r->getUri())->toBe('http://example.com/foo?bar=1');
 });
 
+test('getUri() reads absolute-form, authority-form and asterisk-form request targets as RFC 9112 section 3.3 has it', function () {
+    $r = new Request('GET', 'http://example.com/foo?bar=1', null, ['Host' => 'example.com']);
+    expect((string) $r->getUri())->toBe('http://example.com/foo?bar=1');
+
+    $r = new Request('CONNECT', 'example.com:8443', null, ['Host' => 'example.com:8443']);
+    expect((string) $r->getUri())->toBe('http://example.com:8443');
+
+    $r = new Request('OPTIONS', '*', null, ['Host' => 'example.com']);
+    expect((string) $r->getUri())->toBe('http://example.com');
+
+    $sr = new ServerRequest('GET', 'https://example.com/x', null, ['Host' => 'example.com'], null, ['HTTPS' => 'on']);
+    expect((string) $sr->getUri())->toBe('https://example.com/x');
+});
+
 test('withUri() updates the Host header by default, and leaves it alone with preserveHost when one is already set', function () {
     $r  = new Request('GET', '/');
     $r2 = $r->withUri(new Uri('http://example.com/'));
