@@ -1426,7 +1426,7 @@ final class EventLoop implements \Countable
 
         // enqueueKnownLive(), inlined: one loop, no per-waiter method call (perf#117)
         $queue           = $this->queue;
-        $hasTimeoutSlots = [] !== $this->timeoutSlots;
+        $hasTimeoutSlots = [] !== $this->timeoutSlots || !$this->exactTimeouts->isEmpty();
         $count           = 0;
         foreach ($fibers as $fiber) {
             if ($fiber->isTerminated()) {
@@ -1464,7 +1464,7 @@ final class EventLoop implements \Countable
     public function enqueueKnownLive(\Fiber $fiber): void
     {
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
-        if ([] !== $this->timeoutSlots) {
+        if ([] !== $this->timeoutSlots || !$this->exactTimeouts->isEmpty()) {
             $this->removeTimeout($fiber);
         }
         $this->queue->enqueue($fiber);
@@ -1856,7 +1856,7 @@ final class EventLoop implements \Countable
         $fiber = $this->parked[$slot];
         unset($this->parked[$slot], $this->parkedSlots[\spl_object_id($fiber)]);
         $this->pending[$fiber] = \PHP_FLOAT_MAX;
-        if ([] !== $this->timeoutSlots) {
+        if ([] !== $this->timeoutSlots || !$this->exactTimeouts->isEmpty()) {
             $this->removeTimeout($fiber);
         }
         $this->queue->enqueue($fiber);

@@ -2,6 +2,10 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## Unreleased
+
+- A wait that ended before its timeout, because a flag was raised, a slot unparked or the coroutine woken, left the timeout behind when it was shorter than 10 ms and no longer one was pending. The stale timeout made that coroutine's next short wait fail with `LogicException: The Fiber is already scheduled`, or expired a later wait early with a `TimeoutException`. Several coroutines waiting for the same stream, each with a short timeout, hit both; `fiber\await()` on one task from several awaiters did too (fiber-interop/api's stress tier: `ReadinessTest::testReadersContendingOnOneStream` and `OrderingTest::testRepeatableAwaitUnderContention`).
+
 ## 2.0.8 (2026-11-04)
 
 Bundles ext-phasync 2.0.7 (with ext-scope 0.6.0), requires fiber-interop/scope ^0.5, as 2.0.7 did.
