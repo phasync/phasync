@@ -37,10 +37,10 @@ test('a stale short timeout does not cut a later, longer wait short', function (
             phasync::raiseFlag($flag);
         });
         phasync::awaitFlag($flag, 0.004);
-        $start = microtime(true);
+        $start = \microtime(true);
         phasync::sleep(0.05);
 
-        return microtime(true) - $start;
+        return \microtime(true) - $start;
     });
     expect($elapsed)->toBeGreaterThanOrEqual(0.049);
 });
