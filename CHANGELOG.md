@@ -2,7 +2,9 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.8 (2026-11-04)
+
+Bundles ext-phasync 2.0.7 (with ext-scope 0.6.0), requires fiber-interop/scope ^0.5, as 2.0.7 did.
 
 - `Request::getUri()` and `ServerRequest::getUri()` read an absolute-form request target (`http://example.com/x`) as the URI, an authority-form one (CONNECT) as its authority, and `*` as an empty path, as RFC 9112 section 3.3 has it. With a Host header they returned `http://example.comhttp://example.com/x`.
 
