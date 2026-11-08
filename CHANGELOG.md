@@ -2,6 +2,12 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
+## 2.0.10 (2026-11-08)
+
+Bundles ext-phasync 2.0.8.
+
+- `$_SESSION` was lost after a wait in a request that runs under ext-phasync's `sapi()` inside a `Scope` other than the root, as every swerve request does: `isset($_SESSION)` turned false, and reading a key written before the wait crashed the process. ext-scope's session isolation and `sapi()`'s own session handling both swapped the session on each fiber switch, the second with stale state; inside a non-root Scope, `sapi()` now leaves the session to ext-scope (phasync/ext-phasync#22, swerve#108).
+
 ## 2.0.9 (2026-11-04)
 
 Bundles ext-phasync 2.0.7 (with ext-scope 0.6.0) and requires fiber-interop/scope ^0.6: the Scope package and extension now share a version number, so 2.0.9 is the first release where "scope 0.6" means both.
