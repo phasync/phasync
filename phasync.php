@@ -1219,7 +1219,7 @@ final class phasync
         try {
             if (Fiber::getCurrent() === self::$driver->currentFiber) {
                 self::$driver->suspending(self::$driver->currentFiber);
-                Fiber::suspend();
+                Fiber::suspend(self::$driver); // the loop: a wait of its own (EventLoop::requeueForeign())
             } else {
                 self::$driver->wait(); // in a Fiber the coroutine runs itself
             }

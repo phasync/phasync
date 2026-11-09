@@ -1026,7 +1026,7 @@ final class EventLoop implements \Countable
     private function continueFiber(\Fiber $fiber): void
     {
         try {
-            $fiber->resume();
+            $this->requeueForeign($fiber, $fiber->resume());
         } catch (ext\Suspension $next) {
             $this->suspendedIn($fiber, $next);
         } catch (\FiberError $e) {
@@ -1054,13 +1054,27 @@ final class EventLoop implements \Countable
     }
 
     /**
+     * After $fiber ran, suspending with $suspendedWith: every wait of this loop's suspends with the
+     * loop itself. Suspended by code of its own with Fiber::suspend(), it waits for nothing this
+     * loop knows of and nothing else resumes it: it goes on in the next tick, as from a yield, its
+     * Fiber::suspend() returning null (#164). Drupal suspends so, for whoever runs the Fiber to
+     * resume it at once.
+     */
+    private function requeueForeign(\Fiber $fiber, mixed $suspendedWith): void
+    {
+        if ($suspendedWith !== $this && $fiber->isSuspended() && !isset($this->pending[$fiber])) {
+            $this->enqueueKnownLive($fiber);
+        }
+    }
+
+    /**
      * Start a service's coroutine (see runService()); $exception, from before its first turn, is
      * thrown where it first waits.
      */
     private function startService(\Fiber $fiber, ?\Throwable $exception): void
     {
         try {
-            $fiber->start();
+            $this->requeueForeign($fiber, $fiber->start());
         } catch (ext\Suspension $next) {
             $this->suspendedIn($fiber, $next);
         }
@@ -1077,7 +1091,7 @@ final class EventLoop implements \Countable
     {
         $id = \spl_object_id($fiber);
         try {
-            $fiber->throw($exception);
+            $this->requeueForeign($fiber, $fiber->throw($exception));
         } catch (\RuntimeException $e) {
             if (!$fiber->isSuspended()) {
                 throw $e; // the coroutine ended with it
@@ -1290,7 +1304,7 @@ final class EventLoop implements \Countable
         try {
             $this->currentFiber = $fiber;
             $this->currentFrame = $frame;
-            $fiber->start(...$args);
+            $this->requeueForeign($fiber, $fiber->start(...$args));
         } catch (ext\Suspension $s) {
             $this->suspendedIn($fiber, $s);
         } catch (\Throwable $e) {
@@ -1312,7 +1326,7 @@ final class EventLoop implements \Countable
             $this->pending[$currentFiber]     = \PHP_FLOAT_MAX;
             $this->held[$before][]            = $currentFiber;
             $this->fiberScopes[$currentFiber] = $before;
-            \Fiber::suspend();
+            \Fiber::suspend($this); // the loop: a wait of its own (see requeueForeign())
         }
 
         return $fiber;
@@ -1733,7 +1747,7 @@ final class EventLoop implements \Countable
         try {
             if (\Fiber::getCurrent() === $fiber) {
                 $this->fiberScopes[$fiber] = \Scope::getCurrent();
-                \Fiber::suspend();
+                \Fiber::suspend($this); // the loop: a wait of its own (see requeueForeign())
             } else {
                 $this->wait();
             }
@@ -2823,7 +2837,7 @@ final class EventLoop implements \Countable
                 try {
                     $this->enqueue($fiber); // after whatever else the ending coroutine's tick has to do
                     $this->suspending($fiber);
-                    \Fiber::suspend();
+                    \Fiber::suspend($this); // the loop: a wait of its own (see requeueForeign())
                     self::runFinally($callbacks);
                 } finally {
                     $this->unshield($fiber);

@@ -297,10 +297,12 @@ test('a service that fails is thrown by the run() it was started in', function (
     }))->toThrow(RuntimeException::class, 'service failed');
 });
 
-test('a main coroutine that suspends its Fiber behind the loop\'s back is reported when run() ends', function () {
-    expect(fn () => phasync::run(function () {
+test('a main coroutine that suspends its Fiber behind the loop\'s back goes on, as from a yield (#164)', function () {
+    expect(phasync::run(function () {
         Fiber::suspend();
-    }))->toThrow(LogicException::class, 'The main coroutine of run() did not end');
+
+        return 'ended';
+    }))->toBe('ended');
 });
 
 test('a failure whose coroutine is still referenced when run() ends goes to the exception handler of its frame', function () {
