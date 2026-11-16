@@ -97,7 +97,7 @@ function ensure_loaded(?string $soPath = null): void
  *
  * @internal
  */
-const MIN_EXT_VERSION = '2.0.7';
+const MIN_EXT_VERSION = '2.0.9';
 
 /**
  * Throws when the loaded extension is a version this phasync does not work with: an extension

@@ -2,8 +2,12 @@
 
 Releases before 2.0.0 are listed on the GitHub releases page.
 
-## Unreleased
+## 2.0.11 (2026-11-16)
 
+Bundles ext-phasync 2.0.9 (with ext-scope 0.6.1), and requires it: `MIN_EXT_VERSION` is 2.0.9.
+
+- ext-phasync 2.0.9: a request's ini changes (`ini_set()`, `set_include_path()`, `error_reporting()`, ...) under `sapi()` are undone once no request is running, as php-fpm undoes them at each request's end; what ran before the first request set stays. Requests that overlap share ini values meanwhile.
+- ext-scope 0.6.1: `unset()` of a request superglobal inside a `Scope`, with `$_REQUEST` also set, hung the process on PHP 8.2 to 8.4.
 - A coroutine that code of its own suspends with `Fiber::suspend()`, waiting for nothing phasync knows of, goes on in the next tick, as from `phasync::yield()`; its `Fiber::suspend()` returns null. It was never resumed: a swerve request into Drupal 11 hung, since Drupal's entity storage, renderer and menu code suspend the current Fiber when there is one, for whoever runs it to resume it at once (#164). phasync's own waits suspend with the loop, which tells them apart; a wait registered through the loop's internals is resumed by that wait.
 
 ## 2.0.10 (2026-11-08)
